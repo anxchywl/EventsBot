@@ -7,7 +7,7 @@ from aiogram.enums import ParseMode
 
 from app.config import get_settings
 from app.db import async_session_maker
-from app.handlers import admin_chat_router, start_router
+from app.handlers import admin_chat_router, event_submission_router, moderation_router, start_router
 from app.middlewares import DatabaseSessionMiddleware
 
 
@@ -29,6 +29,8 @@ async def main() -> None:
     dispatcher = Dispatcher()
     dispatcher.update.middleware(DatabaseSessionMiddleware(async_session_maker))
     dispatcher.include_router(admin_chat_router)
+    dispatcher.include_router(event_submission_router)
+    dispatcher.include_router(moderation_router)
     dispatcher.include_router(start_router)
 
     try:

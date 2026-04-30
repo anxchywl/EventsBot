@@ -13,6 +13,8 @@ class Settings(BaseSettings):
         alias="DATABASE_URL",
     )
     redis_url: str = Field(default="redis://localhost:6379/0", alias="REDIS_URL")
+    moderator_chat_id: int | None = Field(default=None, alias="MODERATOR_CHAT_ID")
+    admin_ids: list[int] = Field(default_factory=list, alias="ADMIN_IDS")
 
     model_config = SettingsConfigDict(
         env_file=".env",
