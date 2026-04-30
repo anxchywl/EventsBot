@@ -10,75 +10,78 @@ A refined, menu-driven Telegram bot for managing university student events witho
 - **Smart Moderation**:
   - Edits create a "draft" that requires moderator approval before merging.
   - Mandatory rejection reasons: Creators receive specific feedback if a submission is denied.
-- **Flexible Submission**: Supports titles, descriptions, dates, times, locations, and optional posters.
 - **Security**: Strict private-chat restrictions for startup commands to prevent group chat clutter.
 - **Safety**: Robust HTML escaping for all user-generated content and strict date/time validation (DD.MM.YYYY).
 
-## 🛠 Tech Stack
-
-- **Framework**: [aiogram 3](https://docs.aiogram.dev/) (Asynchronous Telegram Bot API)
-- **Database**: [PostgreSQL](https://www.postgresql.org/) with [SQLAlchemy 2.0](https://www.sqlalchemy.org/)
-- **Migrations**: [Alembic](https://alembic.sqlalchemy.org/)
-- **Storage**: [Redis](https://redis.io/) for FSM (Finite State Machine)
-- **Deployment**: Docker & Docker Compose
-
 ## 📁 Project Structure
 
-```text
-├── app/
-│   ├── handlers/        # Bot command and callback handlers
-│   ├── models/          # SQLAlchemy database models
-│   ├── services/        # Business logic (Dashboard, Events, Users)
-│   ├── db/              # Database session and engine setup
-│   ├── middlewares/     # AIogram middlewares (DB session injection)
-│   ├── config.py        # Environment configuration
-│   └── main.py          # Bot entrypoint
-├── alembic/             # Database migration versions
-├── scripts/             # Utility scripts (seed categories, etc.)
-├── Dockerfile           # Bot containerization
-└── docker-compose.yml   # Infrastructure (DB, Redis, Bot)
-```
+- `app/`: Core application logic (handlers, models, services).
+- `alembic/`: Database migration versions.
+- `scripts/`: Utility scripts (seed categories).
+- `docker-compose.yml`: Infrastructure setup.
 
-## 🚀 Quick Start Guide
+---
 
-Follow these steps to run the bot locally with your own token:
+## 🚀 How to Run (Quick Start)
 
-### 1. Prerequisites
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) installed.
+### 📋 Prerequisites
+- **Docker Desktop** installed.
 - A Telegram Bot Token from [@BotFather](https://t.me/BotFather).
 
-### 2. Environment Setup
-Clone the repository and create a `.env` file:
-```bash
-cp .env.example .env
-```
-Edit the `.env` file and fill in:
-- `BOT_TOKEN`: Your token from BotFather.
-- `ADMIN_IDS`: Your Telegram User ID (and any others) in `[123456]` format.
-- `MODERATOR_CHAT_ID`: Your Telegram User ID (or a group ID) where moderation requests will go.
+### 🛠 Option 1: Running with Docker (Recommended)
 
-### 3. Launch Services
-Start the database, redis, and the bot using Docker:
-```bash
-docker compose up -d
-```
+1. **Setup Environment**:
+   ```bash
+   cp .env.example .env
+   ```
+   Open `.env` and paste your `BOT_TOKEN`. Add your own Telegram ID to `ADMIN_IDS` (e.g., `[12345678]`).
 
-### 4. Initialize Database
-Run the migrations and seed the initial event categories:
-```bash
-# Apply migrations
-docker compose exec bot alembic upgrade head
+2. **Start Services**:
+   ```bash
+   docker compose up -d
+   ```
 
-# Seed categories (Engineering, Hackathons, etc.)
-docker compose exec bot python scripts/seed_categories.py
-```
+3. **Initialize Database** (First time only):
+   ```bash
+   # Create tables
+   docker compose exec bot alembic upgrade head
+   # Create event categories
+   docker compose exec bot python scripts/seed_categories.py
+   ```
 
-### 5. Start Using the Bot
-- **Private Chat**: Send `/start` to the bot to open the main menu.
-- **Group Dashboard**: Add the bot to a group, promote it to admin, and send `/register_chat` followed by `/dashboard`.
+4. **Done!**: Check logs with `docker compose logs -f bot`.
 
-### Monitoring
-Check logs to ensure everything is running smoothly:
-```bash
-docker compose logs -f bot
-```
+### 🐍 Option 2: Running Locally (Manual)
+
+1. **Virtual Environment**:
+   ```bash
+   python3 -m venv .venv
+   source .venv/bin/activate
+   pip install -r requirements.txt
+   ```
+2. **Infrastructure**:
+   ```bash
+   docker compose up -d postgres redis
+   ```
+3. **Database**:
+   ```bash
+   alembic upgrade head
+   export PYTHONPATH=.
+   python scripts/seed_categories.py
+   ```
+4. **Run**:
+   ```bash
+   export PYTHONPATH=.
+   python app/main.py
+   ```
+
+---
+
+## 🎯 Bot Usage
+
+1. **Private Chat**: Send `/start` to see the main menu.
+2. **Group Chats**: 
+   - Add bot to group.
+   - Promote to Admin.
+   - Send `/register_chat`.
+   - Send `/dashboard` to create the board.
