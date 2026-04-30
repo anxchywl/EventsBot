@@ -1,87 +1,441 @@
-# 🎓 Student Events Telegram Bot
+# Student Events Telegram Bot
 
-A refined, menu-driven Telegram bot for managing university student events without the noise. It replaces repetitive group chat announcements with a persistent, auto-updating event dashboard.
+A Telegram bot for managing university student events without spamming group chats.
 
-## ✨ Core Features
+The main idea is simple: each Telegram chat has one constantly updated event dashboard message. Approved events are added to that dashboard as short clickable items, while full event details live in separate event card messages.
 
-- **Event Dashboard**: Each registered group chat has one persistent dashboard message that the bot updates automatically.
-- **Menu-Driven UI**: Clean interaction via `InlineKeyboard` menus (My Events, Favorites, Admin Panel).
-- **Owner Management**: Users can view, manage, and edit their own submitted events.
-- **Smart Moderation**:
-  - Edits create a "draft" that requires moderator approval before merging.
-  - Mandatory rejection reasons: Creators receive specific feedback if a submission is denied.
-- **Security**: Strict private-chat restrictions for startup commands to prevent group chat clutter.
-- **Safety**: Robust HTML escaping for all user-generated content and strict date/time validation (DD.MM.YYYY).
+This repository is being implemented step by step. The current codebase contains the Stage 1 foundation and Stage 2 database schema.
 
-## 📁 Project Structure
+## Project Goal
 
-- `app/`: Core application logic (handlers, models, services).
-- `alembic/`: Database migration versions.
-- `scripts/`: Utility scripts (seed categories).
-- `docker-compose.yml`: Infrastructure setup.
+University clubs and students should be able to submit events to the bot. Submitted events go through moderation. After approval, the bot publishes each event to the correct chat dashboards based on category settings.
 
----
+Instead of posting many event announcements into a group, the bot keeps one dashboard message updated.
 
-## 🚀 How to Run (Quick Start)
+Example dashboard item:
 
-### 📋 Prerequisites
-- **Docker Desktop** installed.
-- A Telegram Bot Token from [@BotFather](https://t.me/BotFather).
+```text
+Today
 
-### 🛠 Option 1: Running with Docker (Recommended)
+18:00 - AI Workshop, Block C, Room 301
+```
 
-1. **Setup Environment**:
-   ```bash
-   cp .env.example .env
-   ```
-   Open `.env` and paste your `BOT_TOKEN`. Add your own Telegram ID to `ADMIN_IDS` (e.g., `[12345678]`).
+In the final version, the event title will link to the detailed Telegram event message.
 
-2. **Start Services**:
-   ```bash
-   docker compose up -d
-   ```
+## Current Status
 
-3. **Initialize Database** (First time only):
-   ```bash
-   # Create tables
-   docker compose exec bot alembic upgrade head
-   # Create event categories
-   docker compose exec bot python scripts/seed_categories.py
-   ```
+Implemented:
 
-4. **Done!**: Check logs with `docker compose logs -f bot`.
+- Basic Python project structure
+- aiogram 3 bot startup
+- `/start` command
+- Environment-based configuration
+- Docker Compose services for PostgreSQL and Redis
+- Dockerfile for running the bot container
+- SQLAlchemy database base and async session setup
+- Alembic migration environment
+- Initial database migration for users, clubs, events, chats, dashboards, reminders, favorites, and moderation logs
+- Default event categories
+- Group admin command to register a chat
+- Group admin command to create or refresh the placeholder dashboard message
+- Dashboard message ID persistence
+- Dashboard fallback if the old message was deleted
 
-### 🐍 Option 2: Running Locally (Manual)
+Not implemented yet:
 
-1. **Virtual Environment**:
-   ```bash
-   python3 -m venv .venv
-   source .venv/bin/activate
-   pip install -r requirements.txt
-   ```
-2. **Infrastructure**:
-   ```bash
-   docker compose up -d postgres redis
-   ```
-3. **Database**:
-   ```bash
-   alembic upgrade head
-   export PYTHONPATH=.
-   python scripts/seed_categories.py
-   ```
-4. **Run**:
-   ```bash
-   export PYTHONPATH=.
-   python app/main.py
-   ```
+- Reminders and favorites
+- Club dashboard
+- Calendar commands
+- Production hardening
 
----
+## Planned Core Features
 
-## 🎯 Bot Usage
+### Event Submission
 
-1. **Private Chat**: Send `/start` to see the main menu.
-2. **Group Chats**: 
-   - Add bot to group.
-   - Promote to Admin.
-   - Send `/register_chat`.
-   - Send `/dashboard` to create the board.
+Students or clubs will submit:
+
+- poster or image
+- title
+- description
+- date
+- time
+- location
+- category
+- organizer or club name
+- registration link, if available
+
+Submitted events will be saved as `pending`.
+
+### Moderation
+
+Moderators will be able to:
+
+- approve events
+- reject events
+- edit events
+- ask creators to fix submissions
+
+Approved events become visible in matching chat dashboards.
+
+### Event Dashboards
+
+Each registered chat will have one dashboard message. The bot will edit that message when events are approved, updated, cancelled, expired, or when chat category settings change.
+
+Dashboards will show:
+
+- events today
+- events tomorrow
+- events this week
+- event time
+- short title
+- location
+- link to full event card
+
+The bot will not pin messages and will not create repeated announcement spam.
+
+### Event Detail Messages
+
+Each approved event will have a detailed message containing:
+
+- poster, if available
+- title
+- full description
+- date and time
+- location
+- organizer
+- category
+- registration link, if available
+- inline buttons for reminders, favorites, registration, and sharing
+
+### Categories
+
+Chats will be able to choose which categories they display.
+
+Example categories:
+
+- Computer Science
+- Business
+- Startups
+- Engineering
+- Design
+- Career
+- Hackathons
+- Workshops
+- Sport
+- Volunteering
+- Entertainment
+- Club Events
+
+### Reminders and Favorites
+
+Users will be able to:
+
+- add events to favorites
+- enable reminders 1 day before an event
+- enable reminders 1 hour before an event
+
+Reminders will be sent in private messages.
+
+### Club Dashboard
+
+Clubs will be able to:
+
+- create events
+- view future events
+- edit events
+- cancel events
+- replace posters
+- check moderation status
+- see basic statistics
+
+## Tech Stack
+
+- Python
+- aiogram 3
+- PostgreSQL
+- Redis
+- Docker
+- Docker Compose
+- Telegram Bot API
+- SQLAlchemy
+- Alembic
+
+Planned for later stages:
+
+- background jobs for reminders
+
+## Project Structure
+
+```text
+.
+├── app/
+│   ├── __init__.py
+│   ├── config.py
+│   ├── main.py
+│   ├── db/
+│   │   ├── __init__.py
+│   │   ├── base.py
+│   │   └── session.py
+│   ├── handlers/
+│   │   ├── __init__.py
+│   │   ├── admin_chat.py
+│   │   └── start.py
+│   ├── middlewares/
+│   │   ├── __init__.py
+│   │   └── db.py
+│   ├── models/
+│   │   ├── __init__.py
+│   │   ├── chat.py
+│   │   ├── club.py
+│   │   ├── enums.py
+│   │   ├── event.py
+│   │   ├── favorite.py
+│   │   ├── moderation.py
+│   │   ├── reminder.py
+│   │   └── user.py
+│   └── services/
+│       ├── __init__.py
+│       ├── chats.py
+│       ├── dashboard.py
+│       └── users.py
+├── alembic/
+│   ├── env.py
+│   ├── script.py.mako
+│   └── versions/
+│       └── 20260430_0001_create_initial_tables.py
+├── alembic.ini
+├── .dockerignore
+├── .env.example
+├── .gitignore
+├── Dockerfile
+├── README.md
+├── docker-compose.yml
+└── requirements.txt
+```
+
+### Important Files
+
+- `app/main.py` - bot entrypoint and aiogram polling startup
+- `app/config.py` - environment variable loader
+- `app/db/base.py` - SQLAlchemy declarative base and timestamp mixin
+- `app/db/session.py` - async SQLAlchemy engine and session factory
+- `app/models/` - database models for the bot domain
+- `app/handlers/start.py` - `/start` command handler
+- `app/handlers/admin_chat.py` - group admin commands for chat registration and dashboard creation
+- `app/middlewares/db.py` - per-update database session middleware
+- `app/services/` - focused database and dashboard service functions
+- `alembic/` - database migration environment and migration versions
+- `.env.example` - example environment configuration
+- `docker-compose.yml` - PostgreSQL, Redis, and bot services
+- `Dockerfile` - container image for the bot
+- `requirements.txt` - Python dependencies
+
+## Requirements
+
+- Python 3.10 or newer
+- Docker Desktop
+- Telegram bot token from BotFather
+
+## Environment Variables
+
+Create a local `.env` file from the example:
+
+```bash
+cp .env.example .env
+```
+
+Then set your bot token and admin IDs:
+
+```env
+BOT_TOKEN=1234567890:your_real_bot_token
+LOG_LEVEL=INFO
+APP_TIMEZONE=Asia/Almaty
+DATABASE_URL=postgresql+asyncpg://events_bot:events_bot@localhost:5432/events_bot
+REDIS_URL=redis://localhost:6379/0
+ADMIN_IDS=[123456789]
+MODERATOR_CHAT_ID=123456789
+```
+
+Never commit `.env`. It contains secrets and is ignored by Git.
+
+## Local Development
+
+Create and activate a virtual environment:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+Install dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+Start PostgreSQL and Redis:
+
+```bash
+docker compose up -d postgres redis
+```
+
+Apply database migrations:
+
+```bash
+alembic upgrade head
+```
+
+Seed initial categories:
+
+```bash
+export PYTHONPATH=.
+python scripts/seed_categories.py
+```
+
+Run the bot locally (make sure to set the PYTHONPATH so imports work correctly):
+
+```bash
+export PYTHONPATH=.
+python app/main.py
+```
+Or run as a module:
+```bash
+python -m app.main
+```
+
+## Docker Usage
+
+Build and run all services:
+
+```bash
+docker compose up --build
+```
+
+Run only PostgreSQL and Redis:
+
+```bash
+docker compose up -d postgres redis
+```
+
+Stop services:
+
+```bash
+docker compose down
+```
+
+Stop services and remove local database/Redis volumes:
+
+```bash
+docker compose down -v
+```
+
+## Testing Stage 1
+
+Start the bot:
+
+```bash
+python -m app.main
+```
+
+Expected terminal output includes:
+
+```text
+Bot polling started
+Start polling
+```
+
+Open Telegram and send the bot:
+
+```text
+/start
+```
+
+Expected bot reply:
+
+```text
+Hello. I am the Student Events bot.
+```
+
+## Testing Stage 3
+
+Add the bot to a test group or supergroup.
+
+Make sure the bot has permission to:
+
+- send messages
+- edit its own messages
+
+As a chat admin, run:
+
+```text
+/register_chat
+```
+
+Expected result:
+
+```text
+Chat registered.
+```
+
+Then run:
+
+```text
+/dashboard
+```
+
+Expected result:
+
+- the bot sends one dashboard message to the group
+- the bot replies with the saved dashboard message ID
+- running `/dashboard` again edits the same dashboard message instead of creating another one
+- if you delete the dashboard message and run `/dashboard` again, the bot creates a new one and saves the new message ID
+
+## Implementation Roadmap
+
+The project is intentionally built in small stages.
+
+1. Basic project setup
+2. Database models and migrations
+3. Register chats and create dashboard message
+4. Event submission flow
+5. Moderation flow
+6. Publishing approved events
+7. Dashboard rendering
+8. Reminders and favorites
+9. Club dashboard
+10. Calendar commands
+11. Hardening and edge cases
+12. Deployment
+
+Completed stages:
+
+- Stage 1
+- Stage 2
+- Stage 3
+- Stage 4
+- Stage 5
+- Stage 6
+- Stage 7
+
+## Git Notes
+
+Files that should be committed:
+
+- source code
+- Docker configuration
+- dependency files
+- `.env.example`
+- README documentation
+
+Files that should not be committed:
+
+- `.env`
+- `.venv/`
+- Python cache files
+- local editor or OS files
+
+## Security Notes
+
+- Keep the Telegram bot token private.
+- If a token is accidentally committed or shared, revoke it in BotFather immediately.
+- Use `.env.example` for documentation and `.env` for local secrets.
