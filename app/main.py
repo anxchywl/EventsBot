@@ -13,6 +13,9 @@ from app.handlers import (
     events_router,
     moderation_router,
     start_router,
+    user_events_router,
+    event_edit_router,
+    admin_panel_router,
 )
 from app.middlewares import DatabaseSessionMiddleware
 
@@ -62,6 +65,9 @@ async def main() -> None:
     dispatcher.include_router(events_router)
     dispatcher.include_router(moderation_router)
     dispatcher.include_router(start_router)
+    dispatcher.include_router(user_events_router)
+    dispatcher.include_router(event_edit_router)
+    dispatcher.include_router(admin_panel_router)
 
     try:
         await bot.delete_webhook(drop_pending_updates=True)

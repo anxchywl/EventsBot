@@ -1,4 +1,6 @@
 from datetime import datetime
+import html
+
 
 from aiogram import Bot, F, Router
 from aiogram.filters import Command
@@ -30,6 +32,7 @@ class EventSubmission(StatesGroup):
     poster = State()
     registration_link = State()
     confirm = State()
+    cancelled = State()
 
 
 @router.message(Command("submit_event"), F.chat.type == "private")
@@ -42,8 +45,13 @@ async def cmd_submit_event(message: Message, state: FSMContext, session: AsyncSe
         return
 
     await state.clear()
+
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🔙 Back to Menu", callback_data="submit_cancel")
+
     await message.answer(
         "Let's create a new event! What is the **title** of the event?",
+        reply_markup=builder.as_markup(),
         parse_mode="Markdown",
     )
     await state.set_state(EventSubmission.title)
@@ -51,32 +59,69 @@ async def cmd_submit_event(message: Message, state: FSMContext, session: AsyncSe
 
 @router.message(EventSubmission.title, F.text)
 async def process_title(message: Message, state: FSMContext):
+    if len(message.text) > 100:
+        await message.answer("Title is too long. Please keep it under 100 characters.")
+        return
+
     await state.update_data(title=message.text)
     await message.answer(
-        "Great! Now send me a **description** of the event.", parse_mode="Markdown"
+        "Great! Now send me a **description** of the event.",
+        parse_mode="Markdown",
     )
     await state.set_state(EventSubmission.description)
 
 
 @router.message(EventSubmission.description, F.text)
 async def process_description(message: Message, state: FSMContext):
+    if len(message.text) > 1000:
+        await message.answer(
+            "Description is too long. Please keep it under 1000 characters."
+        )
+        return
+
     await state.update_data(description=message.text)
     await message.answer(
-        "When will the event take place? Please send the **date** in YYYY-MM-DD format (e.g., 2023-12-31).",
+        "When will the event take place? Please send the **date** in DD.MM.YYYY format (e.g., 31.12.2023).",
         parse_mode="Markdown",
     )
+
     await state.set_state(EventSubmission.date)
 
 
 @router.message(EventSubmission.date, F.text)
 async def process_date(message: Message, state: FSMContext):
+    if len(message.text) > 10:
+        await message.answer("Invalid date format. Please use DD.MM.YYYY.")
+        return
+
     try:
-        event_date = datetime.strptime(message.text, "%Y-%m-%d").date()
+        event_date = datetime.strptime(message.text, "%d.%m.%Y").date()
+
+        from zoneinfo import ZoneInfo
+        from app.config import get_settings
+
+        settings = get_settings()
+        tz = ZoneInfo(settings.app_timezone)
+        today = datetime.now(tz).date()
+
+        if event_date < today:
+            await message.answer(
+                "Date cannot be in the past. Please enter a future date."
+            )
+            return
+
+        from datetime import timedelta
+
+        if event_date > today + timedelta(days=365):
+            await message.answer("Date cannot be more than 1 year in the future.")
+            return
+
         await state.update_data(event_date=event_date)
     except ValueError:
         await message.answer(
-            "Invalid date format. Please use YYYY-MM-DD (e.g., 2023-12-31)."
+            "Invalid date format. Please use DD.MM.YYYY (e.g., 31.12.2023)."
         )
+
         return
 
     await message.answer(
@@ -88,8 +133,27 @@ async def process_date(message: Message, state: FSMContext):
 
 @router.message(EventSubmission.time, F.text)
 async def process_time(message: Message, state: FSMContext):
+    if len(message.text) > 10:
+        await message.answer("Invalid time format. Please use HH:MM.")
+        return
+
     try:
         event_time = datetime.strptime(message.text, "%H:%M").time()
+
+        data = await state.get_data()
+        event_date = data.get("event_date")
+
+        from zoneinfo import ZoneInfo
+        from app.config import get_settings
+
+        settings = get_settings()
+        tz = ZoneInfo(settings.app_timezone)
+        now = datetime.now(tz)
+
+        if event_date == now.date() and event_time < now.time():
+            await message.answer("Time cannot be in the past for today's date.")
+            return
+
         await state.update_data(event_time=event_time)
     except ValueError:
         await message.answer("Invalid time format. Please use HH:MM (e.g., 18:30).")
@@ -104,6 +168,12 @@ async def process_time(message: Message, state: FSMContext):
 
 @router.message(EventSubmission.location, F.text)
 async def process_location(message: Message, state: FSMContext, session: AsyncSession):
+    if len(message.text) > 100:
+        await message.answer(
+            "Location is too long. Please keep it under 100 characters."
+        )
+        return
+
     await state.update_data(location=message.text)
 
     categories = await get_active_categories(session)
@@ -199,17 +269,23 @@ async def skip_registration_link(callback: CallbackQuery, state: FSMContext):
 async def show_event_preview(message_obj: Message, state: FSMContext):
     data = await state.get_data()
 
+    safe_title = html.escape(data["title"])
+    safe_location = html.escape(data["location"])
+    safe_organizer = html.escape(data["organizer"])
+    safe_desc = html.escape(data["description"])
+
     preview_text = (
-        f"📋 **Event Preview:**\n\n"
-        f"**Title:** {data['title']}\n"
-        f"**Date:** {data['event_date']} at {data['event_time']}\n"
-        f"**Location:** {data['location']}\n"
-        f"**Category:** {data['category_name']}\n"
-        f"**Organizer:** {data['organizer']}\n\n"
-        f"**Description:**\n{data['description']}\n\n"
+        f"📋 <b>Event Preview:</b>\n\n"
+        f"<b>Title:</b> {safe_title}\n"
+        f"<b>Date:</b> {data['event_date']} at {data['event_time']}\n"
+        f"<b>Location:</b> {safe_location}\n"
+        f"<b>Category:</b> {data['category_name']}\n"
+        f"<b>Organizer:</b> {safe_organizer}\n\n"
+        f"<b>Description:</b>\n{safe_desc}\n\n"
     )
     if data.get("registration_url"):
-        preview_text += f"**Registration:** {data['registration_url']}\n"
+        safe_url = html.escape(data["registration_url"])
+        preview_text += f"<b>Registration:</b> {safe_url}\n"
 
     builder = InlineKeyboardBuilder()
     builder.button(text="✅ Submit Event", callback_data="submit_confirm")
@@ -220,12 +296,12 @@ async def show_event_preview(message_obj: Message, state: FSMContext):
         await message_obj.answer_photo(
             data["poster_file_id"],
             caption=preview_text,
-            parse_mode="Markdown",
+            parse_mode="HTML",
             reply_markup=builder.as_markup(),
         )
     else:
         await message_obj.answer(
-            preview_text, parse_mode="Markdown", reply_markup=builder.as_markup()
+            preview_text, parse_mode="HTML", reply_markup=builder.as_markup()
         )
 
     await state.set_state(EventSubmission.confirm)
@@ -284,9 +360,8 @@ async def confirm_submission(
     await callback.answer()
 
 
-@router.callback_query(EventSubmission.confirm, F.data == "submit_cancel")
+@router.callback_query(F.data == "submit_cancel")
 async def cancel_submission(callback: CallbackQuery, state: FSMContext):
-    await callback.message.edit_reply_markup(reply_markup=None)
-    await callback.message.answer("Submission cancelled.")
+    await callback.message.delete()
     await state.clear()
-    await callback.answer()
+    await callback.answer("Cancelled")

@@ -25,21 +25,39 @@ In the final version, the event title will link to the detailed Telegram event m
 ## Current Status
 
 Implemented:
+- Full event submission and moderation workflow
+- Interactive Main Menu (My Events, Favorites, Admin Panel)
+- Automatic Dashboard management in groups
+- Date/Time validation (DD.MM.YYYY format)
+- HTML-safe rendering for all user content
+- Private Chat restrictions for startup commands
 
-- Basic Python project structure
-- aiogram 3 bot startup
-- `/start` command
-- Environment-based configuration
-- Docker Compose services for PostgreSQL and Redis
-- Dockerfile for running the bot container
-- SQLAlchemy database base and async session setup
-- Alembic migration environment
-- Initial database migration for users, clubs, events, chats, dashboards, reminders, favorites, and moderation logs
-- Default event categories
-- Group admin command to register a chat
-- Group admin command to create or refresh the placeholder dashboard message
-- Dashboard message ID persistence
-- Dashboard fallback if the old message was deleted
+## 🚀 Quick Start for Friends
+
+If you want to run this bot yourself:
+
+1. **Get a Bot Token**: Message [@BotFather](https://t.me/BotFather) on Telegram to create a bot and get your `BOT_TOKEN`.
+2. **Setup Environment**:
+   ```bash
+   cp .env.example .env
+   ```
+   Edit `.env` and paste your `BOT_TOKEN`. Add your own Telegram ID to `ADMIN_IDS` so you can access the admin panel.
+3. **Launch with Docker** (Simplest):
+   ```bash
+   docker compose up -d
+   ```
+4. **Initialize Database**:
+   ```bash
+   # run migrations
+   docker compose exec bot alembic upgrade head
+   # seed event categories
+   docker compose exec bot python scripts/seed_categories.py
+   ```
+5. **Start Bot**: The bot will already be running in the background. Check logs with `docker compose logs -f bot`.
+
+---
+
+## Project Goal
 
 Not implemented yet:
 

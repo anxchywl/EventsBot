@@ -59,6 +59,9 @@ class Event(TimestampMixin, Base):
     )
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    parent_event_id: Mapped[int | None] = mapped_column(
+        ForeignKey("events.id", ondelete="CASCADE"),
+    )
     creator_user_id: Mapped[int] = mapped_column(
         ForeignKey("users.id", ondelete="RESTRICT"),
     )
@@ -94,6 +97,14 @@ class Event(TimestampMixin, Base):
     creator: Mapped[User] = relationship(
         back_populates="created_events",
         foreign_keys=[creator_user_id],
+    )
+    parent_event: Mapped[Event | None] = relationship(
+        remote_side=[id],
+        back_populates="draft_updates",
+    )
+    draft_updates: Mapped[list[Event]] = relationship(
+        back_populates="parent_event",
+        cascade="all, delete-orphan",
     )
     approved_by: Mapped[User | None] = relationship(foreign_keys=[approved_by_user_id])
     club: Mapped[Club | None] = relationship(back_populates="events")

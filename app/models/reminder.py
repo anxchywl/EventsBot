@@ -16,7 +16,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin
-from app.models.enums import ReminderStatus, ReminderType
+from app.models.enums import ReminderStatus
 
 if TYPE_CHECKING:
     from app.models.event import Event

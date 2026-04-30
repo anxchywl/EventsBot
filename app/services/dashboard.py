@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from hashlib import sha256
+import html
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest
@@ -44,18 +45,21 @@ def render_dashboard(
                     detail_link = detail.message_link
                     break
 
+            escaped_title = html.escape(event.title)
+            escaped_location = html.escape(event.location)
+
             event_title = (
-                f'<a href="{detail_link}">{event.title}</a>'
+                f'<a href="{detail_link}">{escaped_title}</a>'
                 if detail_link
-                else event.title
+                else escaped_title
             )
             time_str = event.event_time.strftime("%H:%M")
             date_str = event.event_date.strftime("%b %d")
 
-            event_line = f"• {time_str} — {event_title}, {event.location}"
+            event_line = f"• {time_str} — {event_title}, {escaped_location}"
             if days_diff > 1:
                 event_line = (
-                    f"• {date_str} {time_str} — {event_title}, {event.location}"
+                    f"• {date_str} {time_str} — {event_title}, {escaped_location}"
                 )
 
             if days_diff == 0:
@@ -112,7 +116,6 @@ async def create_or_update_dashboard_message(
     bot: Bot,
     chat: Chat,
 ) -> DashboardMessage:
-    from app.models.event import EventDetailMessage
     from sqlalchemy.orm import selectinload
     from sqlalchemy import false
 
@@ -139,6 +142,33 @@ async def create_or_update_dashboard_message(
     )
     events_res = await session.execute(events_stmt)
     upcoming_events = events_res.scalars().all()
+
+    # fix broken links in the database for upcoming events
+    for event in upcoming_events:
+        for detail in event.detail_messages:
+            if detail.message_link and (
+                "/c/-100" in detail.message_link or "/c/-" in detail.message_link
+            ):
+                # fetch the chat to get current username or id
+                from app.models.chat import Chat
+
+                chat_obj = await session.get(Chat, detail.chat_id)
+                if chat_obj:
+                    if chat_obj.username:
+                        detail.message_link = (
+                            f"https://t.me/{chat_obj.username}/{detail.message_id}"
+                        )
+                    else:
+                        clean_chat_id = str(chat_obj.telegram_chat_id)
+                        if clean_chat_id.startswith("-100"):
+                            clean_chat_id = clean_chat_id[4:]
+                        elif clean_chat_id.startswith("-"):
+                            clean_chat_id = clean_chat_id[1:]
+                        detail.message_link = (
+                            f"https://t.me/c/{clean_chat_id}/{detail.message_id}"
+                        )
+
+    await session.flush()
 
     text = render_dashboard(chat, enabled_categories, upcoming_events)
     text_hash = sha256(text.encode("utf-8")).hexdigest()

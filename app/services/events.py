@@ -1,8 +1,8 @@
 from typing import Sequence
-
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from aiogram import Bot
 
 from app.models.event import Event, EventCategory
 from app.models.moderation import ModerationLog
@@ -76,6 +76,57 @@ async def get_pending_events(session: AsyncSession) -> Sequence[Event]:
         .options(selectinload(Event.category), selectinload(Event.creator))
     )
     return result.scalars().all()
+
+
+async def get_user_events(session: AsyncSession, user_id: int) -> Sequence[Event]:
+    """Fetch all events created by a specific user."""
+    result = await session.execute(
+        select(Event)
+        .where(Event.creator_user_id == user_id)
+        .order_by(Event.event_date.desc(), Event.event_time.desc())
+        .options(selectinload(Event.category))
+    )
+    return result.scalars().all()
+
+
+async def delete_event_completely(
+    session: AsyncSession, bot: Bot, event_id: int
+) -> bool:
+    """Instantly delete an event and clean up all related data and Telegram messages."""
+    from app.services.dashboard import create_or_update_dashboard_message
+    from app.models.chat import Chat
+
+    event = await session.get(
+        Event, event_id, options=[selectinload(Event.detail_messages)]
+    )
+    if not event:
+        return False
+
+    # 1. delete all detailed messages from telegram
+    for detail in event.detail_messages:
+        try:
+            # fetch the chat object to get telegram_chat_id
+            chat = await session.get(Chat, detail.chat_id)
+            if chat:
+                await bot.delete_message(chat.telegram_chat_id, detail.message_id)
+        except Exception:
+            pass  # message might be too old to delete or already gone
+
+    # 2. find all chats that had this event in their dashboard
+    # (these are the chats where detail_messages existed)
+    chat_ids = [detail.chat_id for detail in event.detail_messages]
+
+    # 3. delete the event from db (cascades to detail_messages, reminders, favorites, etc.)
+    await session.delete(event)
+    await session.flush()
+
+    # 4. update dashboards in all affected chats
+    for chat_id in chat_ids:
+        chat = await session.get(Chat, chat_id)
+        if chat:
+            await create_or_update_dashboard_message(session, bot, chat)
+
+    return True
 
 
 async def update_event_status(

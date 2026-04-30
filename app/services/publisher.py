@@ -3,7 +3,6 @@ from aiogram.types import InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.models.chat import Chat, ChatCategorySetting
 from app.models.event import Event, EventDetailMessage
@@ -58,6 +57,22 @@ async def publish_approved_event(session: AsyncSession, bot: Bot, event: Event) 
                     )
             except Exception:
                 pass  # ignore if not modified
+
+            # update the link if it's missing or using the old format
+            link = None
+            if chat.username:
+                link = f"https://t.me/{chat.username}/{detail_msg.message_id}"
+            else:
+                clean_chat_id = str(chat.telegram_chat_id)
+                if clean_chat_id.startswith("-100"):
+                    clean_chat_id = clean_chat_id[4:]
+                elif clean_chat_id.startswith("-"):
+                    clean_chat_id = clean_chat_id[1:]
+                link = f"https://t.me/c/{clean_chat_id}/{detail_msg.message_id}"
+
+            if link:
+                detail_msg.message_link = link
+
         else:
             # send new detail message
             try:
@@ -77,14 +92,16 @@ async def publish_approved_event(session: AsyncSession, bot: Bot, event: Event) 
                         parse_mode="Markdown",
                     )
 
-                    # 4. create message link
-                    # using the standard t.me/c format for supergroups
-                clean_chat_id = str(chat.telegram_chat_id)
-                if clean_chat_id.startswith("-100"):
-                    clean_chat_id = clean_chat_id[4:]
-
-                    # we can construct a private link if it's a supergroup
-                link = f"https://t.me/c/{clean_chat_id}/{msg.message_id}"
+                # 4. create message link
+                if chat.username:
+                    link = f"https://t.me/{chat.username}/{msg.message_id}"
+                else:
+                    clean_chat_id = str(chat.telegram_chat_id)
+                    if clean_chat_id.startswith("-100"):
+                        clean_chat_id = clean_chat_id[4:]
+                    elif clean_chat_id.startswith("-"):
+                        clean_chat_id = clean_chat_id[1:]
+                    link = f"https://t.me/c/{clean_chat_id}/{msg.message_id}"
 
                 new_detail = EventDetailMessage(
                     event_id=event.id,
@@ -93,6 +110,11 @@ async def publish_approved_event(session: AsyncSession, bot: Bot, event: Event) 
                     message_link=link,
                 )
                 session.add(new_detail)
+
+                # manually update the relationship to ensure it's visible in the dashboard update
+                if event.detail_messages is not None:
+                    event.detail_messages.append(new_detail)
+
             except Exception as e:
                 print(f"Failed to send event detail to chat {chat.id}: {e}")
                 continue
