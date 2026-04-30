@@ -1,0 +1,109 @@
+from datetime import UTC, datetime, timedelta
+from typing import Sequence
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+
+from app.models.enums import ReminderStatus, ReminderType
+from app.models.event import Event
+from app.models.favorite import Favorite
+from app.models.reminder import Reminder
+from app.models.user import User
+
+
+async def toggle_favorite(session: AsyncSession, user: User, event_id: int) -> bool:
+    """toggles favorite status. returns true if added, false if removed."""
+    stmt = select(Favorite).where(
+        Favorite.user_id == user.id, Favorite.event_id == event_id
+    )
+    result = await session.execute(stmt)
+    favorite = result.scalar_one_or_none()
+
+    if favorite:
+        await session.delete(favorite)
+        return False
+    else:
+        new_fav = Favorite(user_id=user.id, event_id=event_id)
+        session.add(new_fav)
+        return True
+
+
+async def get_user_favorites(session: AsyncSession, user: User) -> Sequence[Event]:
+    stmt = (
+        select(Event)
+        .join(Favorite, Favorite.event_id == Event.id)
+        .where(Favorite.user_id == user.id)
+        .order_by(Event.event_date, Event.event_time)
+        .options(selectinload(Event.detail_messages))
+    )
+    result = await session.execute(stmt)
+    return result.scalars().all()
+
+
+async def schedule_reminder(
+    session: AsyncSession, user: User, event: Event, reminder_type: ReminderType
+) -> str:
+    """schedules a reminder. returns a status message string."""
+    from zoneinfo import ZoneInfo
+    from app.config import get_settings
+
+    settings = get_settings()
+    tz = ZoneInfo(settings.app_timezone)
+
+    # calculate event datetime
+    event_dt = datetime.combine(event.event_date, event.event_time).replace(tzinfo=tz)
+
+    # calculate remind_at
+    if reminder_type == ReminderType.ONE_DAY:
+        remind_at = event_dt - timedelta(days=1)
+    else:
+        remind_at = event_dt - timedelta(hours=1)
+
+    if remind_at <= datetime.now(tz):
+        return "It's too late to set this reminder!"
+
+        # check if already scheduled
+    stmt = select(Reminder).where(
+        Reminder.user_id == user.id,
+        Reminder.event_id == event.id,
+        Reminder.reminder_type == reminder_type.value,
+    )
+    result = await session.execute(stmt)
+    existing = result.scalar_one_or_none()
+
+    if existing:
+        return "You already have this reminder set."
+
+    reminder = Reminder(
+        user_id=user.id,
+        event_id=event.id,
+        reminder_type=reminder_type.value,
+        remind_at=remind_at.astimezone(UTC),
+        status=ReminderStatus.SCHEDULED.value,
+    )
+    session.add(reminder)
+    return f"Reminder set for {'1 day' if reminder_type == ReminderType.ONE_DAY else '1 hour'} before the event."
+
+
+async def get_due_reminders(session: AsyncSession) -> Sequence[Reminder]:
+    now = datetime.now(UTC)
+    stmt = (
+        select(Reminder)
+        .where(
+            Reminder.status == ReminderStatus.SCHEDULED.value,
+            Reminder.remind_at <= now,
+        )
+        .options(selectinload(Reminder.user), selectinload(Reminder.event))
+    )
+    result = await session.execute(stmt)
+    return result.scalars().all()
+
+
+async def mark_reminder_sent(session: AsyncSession, reminder_id: int) -> None:
+    stmt = select(Reminder).where(Reminder.id == reminder_id)
+    result = await session.execute(stmt)
+    reminder = result.scalar_one_or_none()
+    if reminder:
+        reminder.status = ReminderStatus.SENT.value
+        reminder.sent_at = datetime.now(UTC)

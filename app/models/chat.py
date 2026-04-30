@@ -3,7 +3,17 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import BigInteger, Boolean, CheckConstraint, DateTime, ForeignKey, Identity, Index, String, UniqueConstraint
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Identity,
+    Index,
+    String,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin
@@ -28,7 +38,9 @@ class Chat(TimestampMixin, Base):
     title: Mapped[str | None] = mapped_column(String(255))
     username: Mapped[str | None] = mapped_column(String(255))
     chat_type: Mapped[str] = mapped_column(String(32))
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="true"
+    )
     created_by_user_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"),
     )
@@ -50,7 +62,11 @@ class Chat(TimestampMixin, Base):
 class ChatCategorySetting(TimestampMixin, Base):
     __tablename__ = "chat_category_settings"
     __table_args__ = (
-        UniqueConstraint("chat_id", "category_id", name="uq_chat_category_settings_chat_id_category_id"),
+        UniqueConstraint(
+            "chat_id",
+            "category_id",
+            name="uq_chat_category_settings_chat_id_category_id",
+        ),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
@@ -58,7 +74,9 @@ class ChatCategorySetting(TimestampMixin, Base):
     category_id: Mapped[int] = mapped_column(
         ForeignKey("event_categories.id", ondelete="CASCADE"),
     )
-    is_enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    is_enabled: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="true"
+    )
 
     chat: Mapped[Chat] = relationship(back_populates="category_settings")
     category: Mapped[EventCategory] = relationship(back_populates="chat_settings")

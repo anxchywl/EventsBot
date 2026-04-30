@@ -29,7 +29,9 @@ class User(TimestampMixin, Base):
     last_name: Mapped[str | None] = mapped_column(String(255))
     language_code: Mapped[str | None] = mapped_column(String(16))
     is_bot: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
-    is_moderator: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    is_moderator: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false"
+    )
 
     owned_clubs: Mapped[list[Club]] = relationship(back_populates="owner")
     created_events: Mapped[list[Event]] = relationship(

@@ -19,7 +19,9 @@ async def get_active_categories(session: AsyncSession) -> Sequence[EventCategory
     return result.scalars().all()
 
 
-async def get_category_by_id(session: AsyncSession, category_id: int) -> EventCategory | None:
+async def get_category_by_id(
+    session: AsyncSession, category_id: int
+) -> EventCategory | None:
     result = await session.execute(
         select(EventCategory).where(EventCategory.id == category_id)
     )
@@ -45,14 +47,14 @@ async def create_pending_event(
         status=EventStatus.PENDING.value,
     )
     session.add(event)
-    
-    # Add initial moderation log
+
+    # add initial moderation log
     log = ModerationLog(
         event=event,
         action=ModerationAction.SUBMITTED.value,
     )
     session.add(log)
-    
+
     await session.flush()
     return event
 
@@ -86,30 +88,31 @@ async def update_event_status(
     event = await get_event_by_id(session, event_id)
     if not event:
         return None
-    
+
     event.status = status.value
     if status == EventStatus.APPROVED:
         from datetime import datetime, timezone
+
         event.approved_by_user_id = moderator.id
         event.approved_at = datetime.now(timezone.utc)
-    
+
     event.moderation_note = comment
-    
-    # Map EventStatus to ModerationAction
+
+    # map eventstatus to moderationaction
     action_map = {
         EventStatus.APPROVED: ModerationAction.APPROVED,
         EventStatus.REJECTED: ModerationAction.REJECTED,
         EventStatus.NEEDS_CHANGES: ModerationAction.NEEDS_CHANGES,
         EventStatus.CANCELLED: ModerationAction.CANCELLED,
     }
-    
+
     log = ModerationLog(
         event_id=event.id,
         moderator_user_id=moderator.id,
         action=action_map.get(status, ModerationAction.EDITED).value,
-        comment=comment
+        comment=comment,
     )
     session.add(log)
-    
+
     await session.flush()
     return event

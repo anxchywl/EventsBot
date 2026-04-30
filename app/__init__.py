@@ -1,1 +1,1 @@
-"""Student events Telegram bot package."""
+"""student events telegram bot package."""

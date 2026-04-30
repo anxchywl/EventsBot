@@ -43,10 +43,14 @@ async def register_chat(
 
 async def ensure_all_categories_enabled(session: AsyncSession, chat: Chat) -> None:
     categories = (
-        await session.execute(
-            select(EventCategory).where(EventCategory.is_active.is_(True)),
+        (
+            await session.execute(
+                select(EventCategory).where(EventCategory.is_active.is_(True)),
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
 
     existing_category_ids = set(
         (
@@ -55,7 +59,9 @@ async def ensure_all_categories_enabled(session: AsyncSession, chat: Chat) -> No
                     ChatCategorySetting.chat_id == chat.id,
                 ),
             )
-        ).scalars().all(),
+        )
+        .scalars()
+        .all(),
     )
 
     for category in categories:

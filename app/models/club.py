@@ -22,7 +22,9 @@ class Club(TimestampMixin, Base):
         ForeignKey("users.id", ondelete="SET NULL"),
     )
     contact_link: Mapped[str | None] = mapped_column(String(512))
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="true"
+    )
 
     owner: Mapped[User | None] = relationship(back_populates="owned_clubs")
     events: Mapped[list[Event]] = relationship(back_populates="club")

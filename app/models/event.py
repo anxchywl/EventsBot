@@ -3,7 +3,19 @@ from __future__ import annotations
 from datetime import date, datetime, time
 from typing import TYPE_CHECKING
 
-from sqlalchemy import BigInteger, CheckConstraint, Date, DateTime, ForeignKey, Identity, Index, String, Text, Time, UniqueConstraint
+from sqlalchemy import (
+    BigInteger,
+    CheckConstraint,
+    Date,
+    DateTime,
+    ForeignKey,
+    Identity,
+    Index,
+    String,
+    Text,
+    Time,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin
@@ -40,7 +52,9 @@ class Event(TimestampMixin, Base):
             "status IN ('pending', 'approved', 'rejected', 'needs_changes', 'cancelled')",
             name="status",
         ),
-        Index("ix_events_category_date_time", "category_id", "event_date", "event_time"),
+        Index(
+            "ix_events_category_date_time", "category_id", "event_date", "event_time"
+        ),
         Index("ix_events_status_date_time", "status", "event_date", "event_time"),
     )
 
@@ -48,7 +62,9 @@ class Event(TimestampMixin, Base):
     creator_user_id: Mapped[int] = mapped_column(
         ForeignKey("users.id", ondelete="RESTRICT"),
     )
-    club_id: Mapped[int | None] = mapped_column(ForeignKey("clubs.id", ondelete="SET NULL"))
+    club_id: Mapped[int | None] = mapped_column(
+        ForeignKey("clubs.id", ondelete="SET NULL")
+    )
     category_id: Mapped[int] = mapped_column(
         ForeignKey("event_categories.id", ondelete="RESTRICT"),
     )
@@ -56,7 +72,9 @@ class Event(TimestampMixin, Base):
     description: Mapped[str] = mapped_column(Text)
     event_date: Mapped[date] = mapped_column(Date)
     event_time: Mapped[time] = mapped_column(Time)
-    timezone: Mapped[str] = mapped_column(String(64), default="Asia/Almaty", server_default="Asia/Almaty")
+    timezone: Mapped[str] = mapped_column(
+        String(64), default="Asia/Almaty", server_default="Asia/Almaty"
+    )
     location: Mapped[str] = mapped_column(String(255))
     organizer_name: Mapped[str] = mapped_column(String(255))
     registration_url: Mapped[str | None] = mapped_column(String(1024))
@@ -102,7 +120,9 @@ class EventDetailMessage(TimestampMixin, Base):
     __tablename__ = "event_detail_messages"
 
     __table_args__ = (
-        UniqueConstraint("event_id", "chat_id", name="uq_event_detail_messages_event_id_chat_id"),
+        UniqueConstraint(
+            "event_id", "chat_id", name="uq_event_detail_messages_event_id_chat_id"
+        ),
         Index("ix_event_detail_messages_chat_message", "chat_id", "message_id"),
     )
 

@@ -11,7 +11,7 @@ from app.services.dashboard import create_or_update_dashboard_message
 
 
 async def publish_approved_event(session: AsyncSession, bot: Bot, event: Event) -> None:
-    # 1. Find target chats based on category
+    # 1. find target chats based on category
     stmt = (
         select(Chat)
         .join(ChatCategorySetting, ChatCategorySetting.chat_id == Chat.id)
@@ -24,8 +24,8 @@ async def publish_approved_event(session: AsyncSession, bot: Bot, event: Event) 
     chats = result.scalars().all()
 
     for chat in chats:
-        # 2 & 3. Create detailed event message and get message ID
-        # Wait to check if a detail message already exists (if it was an edit)
+        # 2 & 3. create detailed event message and get message id
+        # wait to check if a detail message already exists (if it was an edit)
         detail_stmt = select(EventDetailMessage).where(
             EventDetailMessage.event_id == event.id,
             EventDetailMessage.chat_id == chat.id,
@@ -37,16 +37,16 @@ async def publish_approved_event(session: AsyncSession, bot: Bot, event: Event) 
         keyboard = get_event_detail_keyboard(event)
 
         if detail_msg:
-            # Edit existing detail message
+            # edit existing detail message
             try:
                 if event.poster_file_id:
-                    # Editing caption/media is complex, simpler to edit caption if it was already a photo
+                    # editing caption/media is complex, simpler to edit caption if it was already a photo
                     await bot.edit_message_caption(
                         chat_id=chat.telegram_chat_id,
                         message_id=detail_msg.message_id,
                         caption=text,
                         reply_markup=keyboard,
-                        parse_mode="Markdown"
+                        parse_mode="Markdown",
                     )
                 else:
                     await bot.edit_message_text(
@@ -54,12 +54,12 @@ async def publish_approved_event(session: AsyncSession, bot: Bot, event: Event) 
                         message_id=detail_msg.message_id,
                         text=text,
                         reply_markup=keyboard,
-                        parse_mode="Markdown"
+                        parse_mode="Markdown",
                     )
             except Exception:
-                pass # Ignore if not modified
+                pass  # ignore if not modified
         else:
-            # Send new detail message
+            # send new detail message
             try:
                 if event.poster_file_id:
                     msg = await bot.send_photo(
@@ -67,25 +67,25 @@ async def publish_approved_event(session: AsyncSession, bot: Bot, event: Event) 
                         photo=event.poster_file_id,
                         caption=text,
                         reply_markup=keyboard,
-                        parse_mode="Markdown"
+                        parse_mode="Markdown",
                     )
                 else:
                     msg = await bot.send_message(
                         chat_id=chat.telegram_chat_id,
                         text=text,
                         reply_markup=keyboard,
-                        parse_mode="Markdown"
+                        parse_mode="Markdown",
                     )
 
-                # 4. Create message link
-                # Using the standard t.me/c format for supergroups
+                    # 4. create message link
+                    # using the standard t.me/c format for supergroups
                 clean_chat_id = str(chat.telegram_chat_id)
                 if clean_chat_id.startswith("-100"):
                     clean_chat_id = clean_chat_id[4:]
-                
-                # We can construct a private link if it's a supergroup
+
+                    # we can construct a private link if it's a supergroup
                 link = f"https://t.me/c/{clean_chat_id}/{msg.message_id}"
-                
+
                 new_detail = EventDetailMessage(
                     event_id=event.id,
                     chat_id=chat.id,
@@ -99,7 +99,7 @@ async def publish_approved_event(session: AsyncSession, bot: Bot, event: Event) 
 
     await session.flush()
 
-    # 5 & 6. Update dashboard messages
+    # 5 & 6. update dashboard messages
     for chat in chats:
         await create_or_update_dashboard_message(session, bot, chat)
 
@@ -121,6 +121,9 @@ def get_event_detail_keyboard(event: Event) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     if event.registration_url:
         builder.button(text="🔗 Register", url=event.registration_url)
-    # Future features (Stage 8): Remind me, Add to favorites
+
+    builder.button(text="⏰ Remind me", callback_data=f"remind_opt_{event.id}")
+    builder.button(text="⭐ Add to favorites", callback_data=f"fav_{event.id}")
+
     builder.adjust(1)
     return builder.as_markup()

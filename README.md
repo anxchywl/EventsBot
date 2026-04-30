@@ -43,10 +43,6 @@ Implemented:
 
 Not implemented yet:
 
-- Event submission flow
-- Moderation flow
-- Event publishing
-- Dashboard rendering
 - Reminders and favorites
 - Club dashboard
 - Calendar commands
@@ -248,7 +244,7 @@ Create a local `.env` file from the example:
 cp .env.example .env
 ```
 
-Then set your bot token:
+Then set your bot token and admin IDs:
 
 ```env
 BOT_TOKEN=1234567890:your_real_bot_token
@@ -256,6 +252,8 @@ LOG_LEVEL=INFO
 APP_TIMEZONE=Asia/Almaty
 DATABASE_URL=postgresql+asyncpg://events_bot:events_bot@localhost:5432/events_bot
 REDIS_URL=redis://localhost:6379/0
+ADMIN_IDS=[123456789]
+MODERATOR_CHAT_ID=123456789
 ```
 
 Never commit `.env`. It contains secrets and is ignored by Git.
@@ -287,8 +285,20 @@ Apply database migrations:
 alembic upgrade head
 ```
 
-Run the bot locally:
+Seed initial categories:
 
+```bash
+export PYTHONPATH=.
+python scripts/seed_categories.py
+```
+
+Run the bot locally (make sure to set the PYTHONPATH so imports work correctly):
+
+```bash
+export PYTHONPATH=.
+python app/main.py
+```
+Or run as a module:
 ```bash
 python -m app.main
 ```
@@ -402,6 +412,10 @@ Completed stages:
 - Stage 1
 - Stage 2
 - Stage 3
+- Stage 4
+- Stage 5
+- Stage 6
+- Stage 7
 
 ## Git Notes
 

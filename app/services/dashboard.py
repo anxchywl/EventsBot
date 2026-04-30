@@ -15,40 +15,49 @@ from app.models.event import Event, EventCategory
 from zoneinfo import ZoneInfo
 from app.config import get_settings
 
-def render_dashboard(chat: Chat, enabled_categories: list[EventCategory], upcoming_events: list[Event]) -> str:
+
+def render_dashboard(
+    chat: Chat, enabled_categories: list[EventCategory], upcoming_events: list[Event]
+) -> str:
     categories_text = ", ".join(category.name for category in enabled_categories)
     if not categories_text:
         categories_text = "No categories enabled yet"
 
     lines = ["<b>University Events Dashboard</b>\n"]
-    
+
     if not upcoming_events:
         lines.append("No approved upcoming events.\n")
     else:
         settings = get_settings()
         tz = ZoneInfo(settings.app_timezone)
         today = datetime.now(tz).date()
-        
+
         grouped_events = {"Today": [], "Tomorrow": [], "This Week": [], "Later": []}
-        
+
         for event in upcoming_events:
             days_diff = (event.event_date - today).days
-            
-            # Find the detail link for this chat
+
+            # find the detail link for this chat
             detail_link = None
             for detail in event.detail_messages:
                 if detail.chat_id == chat.id:
                     detail_link = detail.message_link
                     break
-            
-            event_title = f'<a href="{detail_link}">{event.title}</a>' if detail_link else event.title
+
+            event_title = (
+                f'<a href="{detail_link}">{event.title}</a>'
+                if detail_link
+                else event.title
+            )
             time_str = event.event_time.strftime("%H:%M")
             date_str = event.event_date.strftime("%b %d")
-            
+
             event_line = f"• {time_str} — {event_title}, {event.location}"
             if days_diff > 1:
-                event_line = f"• {date_str} {time_str} — {event_title}, {event.location}"
-                
+                event_line = (
+                    f"• {date_str} {time_str} — {event_title}, {event.location}"
+                )
+
             if days_diff == 0:
                 grouped_events["Today"].append(event_line)
             elif days_diff == 1:
@@ -57,7 +66,7 @@ def render_dashboard(chat: Chat, enabled_categories: list[EventCategory], upcomi
                 grouped_events["This Week"].append(event_line)
             else:
                 grouped_events["Later"].append(event_line)
-                
+
         for group_name, events in grouped_events.items():
             if events:
                 lines.append(f"<b>{group_name}</b>")
@@ -67,9 +76,8 @@ def render_dashboard(chat: Chat, enabled_categories: list[EventCategory], upcomi
     lines.append("<b>Enabled categories</b>")
     lines.append(f"{categories_text}\n")
     lines.append("<i>This message is updated automatically.</i>")
-    
-    return "\n".join(lines)
 
+    return "\n".join(lines)
 
 
 async def get_enabled_categories(
@@ -107,24 +115,24 @@ async def create_or_update_dashboard_message(
     from app.models.event import EventDetailMessage
     from sqlalchemy.orm import selectinload
     from sqlalchemy import false
-    
+
     enabled_categories = await get_enabled_categories(session, chat.id)
     enabled_cat_ids = [c.id for c in enabled_categories]
-    
+
     from app.config import get_settings
     from zoneinfo import ZoneInfo
-    
+
     settings = get_settings()
     tz = ZoneInfo(settings.app_timezone)
     today = datetime.now(tz).date()
 
-    # Fetch upcoming events for enabled categories (filter past events)
+    # fetch upcoming events for enabled categories (filter past events)
     events_stmt = (
         select(Event)
         .where(
             Event.status == "approved",
             Event.event_date >= today,
-            Event.category_id.in_(enabled_cat_ids) if enabled_cat_ids else false()
+            Event.category_id.in_(enabled_cat_ids) if enabled_cat_ids else false(),
         )
         .order_by(Event.event_date, Event.event_time)
         .options(selectinload(Event.detail_messages))
@@ -174,8 +182,13 @@ async def edit_or_recreate_dashboard_message(
         message = str(error).lower()
         if "message is not modified" in message:
             return
-        if "message to edit not found" in message or "message can't be edited" in message:
-            sent_message = await bot.send_message(chat_id=chat.telegram_chat_id, text=text)
+        if (
+            "message to edit not found" in message
+            or "message can't be edited" in message
+        ):
+            sent_message = await bot.send_message(
+                chat_id=chat.telegram_chat_id, text=text
+            )
             dashboard_message.message_id = sent_message.message_id
             return
         raise

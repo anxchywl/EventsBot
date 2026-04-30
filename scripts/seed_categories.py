@@ -23,10 +23,10 @@ async def seed_categories():
 
     async with async_session_maker() as session:
         for i, cat_data in enumerate(categories):
-            # Check by both name and slug to be safe
+            # check by both name and slug to be safe
             stmt = select(EventCategory).where(
-                (EventCategory.slug == cat_data["slug"]) | 
-                (EventCategory.name == cat_data["name"])
+                (EventCategory.slug == cat_data["slug"])
+                | (EventCategory.name == cat_data["name"])
             )
             result = await session.execute(stmt)
             existing = result.scalar_one_or_none()
@@ -38,12 +38,12 @@ async def seed_categories():
                     sort_order=i * 10,
                 )
                 session.add(new_cat)
-                # Commit after each to avoid autoflush issues in the next iteration
+                # commit after each to avoid autoflush issues in the next iteration
                 await session.commit()
             else:
-                # Refresh session state
+                # refresh session state
                 await session.rollback()
-        
+
         print("Categories sync completed.")
 
 
