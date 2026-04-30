@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import BigInteger, Boolean, CheckConstraint, DateTime, ForeignKey, Identity, String, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, DateTime, ForeignKey, Identity, Index, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin
@@ -19,10 +19,12 @@ class Chat(TimestampMixin, Base):
             "chat_type IN ('private', 'group', 'supergroup', 'channel')",
             name="chat_type",
         ),
+        UniqueConstraint("telegram_chat_id", name="uq_chats_telegram_chat_id"),
+        Index("ix_chats_telegram_chat_id", "telegram_chat_id"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
-    telegram_chat_id: Mapped[int] = mapped_column(BigInteger, unique=True, index=True)
+    telegram_chat_id: Mapped[int] = mapped_column(BigInteger)
     title: Mapped[str | None] = mapped_column(String(255))
     username: Mapped[str | None] = mapped_column(String(255))
     chat_type: Mapped[str] = mapped_column(String(32))

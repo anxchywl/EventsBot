@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime, time
 from typing import TYPE_CHECKING
 
-from sqlalchemy import BigInteger, CheckConstraint, Date, DateTime, ForeignKey, Identity, Index, String, Text, Time
+from sqlalchemy import BigInteger, CheckConstraint, Date, DateTime, ForeignKey, Identity, Index, String, Text, Time, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin
@@ -102,6 +102,7 @@ class EventDetailMessage(TimestampMixin, Base):
     __tablename__ = "event_detail_messages"
 
     __table_args__ = (
+        UniqueConstraint("event_id", "chat_id", name="uq_event_detail_messages_event_id_chat_id"),
         Index("ix_event_detail_messages_chat_message", "chat_id", "message_id"),
     )
 

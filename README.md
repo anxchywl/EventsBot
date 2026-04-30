@@ -4,7 +4,7 @@ A Telegram bot for managing university student events without spamming group cha
 
 The main idea is simple: each Telegram chat has one constantly updated event dashboard message. Approved events are added to that dashboard as short clickable items, while full event details live in separate event card messages.
 
-This repository is being implemented step by step. The current codebase contains the Stage 1 foundation only.
+This repository is being implemented step by step. The current codebase contains the Stage 1 foundation and Stage 2 database schema.
 
 ## Project Goal
 
@@ -32,10 +32,13 @@ Implemented:
 - Environment-based configuration
 - Docker Compose services for PostgreSQL and Redis
 - Dockerfile for running the bot container
+- SQLAlchemy database base and async session setup
+- Alembic migration environment
+- Initial database migration for users, clubs, events, chats, dashboards, reminders, favorites, and moderation logs
+- Default event categories
 
 Not implemented yet:
 
-- Database models and migrations
 - Chat dashboard registration
 - Event submission flow
 - Moderation flow
@@ -113,6 +116,7 @@ Example categories:
 
 - Computer Science
 - Business
+- Startups
 - Engineering
 - Design
 - Career
@@ -154,11 +158,11 @@ Clubs will be able to:
 - Docker
 - Docker Compose
 - Telegram Bot API
+- SQLAlchemy
+- Alembic
 
 Planned for later stages:
 
-- SQLAlchemy
-- Alembic
 - background jobs for reminders
 
 ## Project Structure
@@ -169,9 +173,29 @@ Planned for later stages:
 │   ├── __init__.py
 │   ├── config.py
 │   ├── main.py
-│   └── handlers/
+│   ├── db/
+│   │   ├── __init__.py
+│   │   ├── base.py
+│   │   └── session.py
+│   ├── handlers/
+│   │   ├── __init__.py
+│   │   └── start.py
+│   └── models/
 │       ├── __init__.py
-│       └── start.py
+│       ├── chat.py
+│       ├── club.py
+│       ├── enums.py
+│       ├── event.py
+│       ├── favorite.py
+│       ├── moderation.py
+│       ├── reminder.py
+│       └── user.py
+├── alembic/
+│   ├── env.py
+│   ├── script.py.mako
+│   └── versions/
+│       └── 20260430_0001_create_initial_tables.py
+├── alembic.ini
 ├── .dockerignore
 ├── .env.example
 ├── .gitignore
@@ -185,7 +209,11 @@ Planned for later stages:
 
 - `app/main.py` - bot entrypoint and aiogram polling startup
 - `app/config.py` - environment variable loader
+- `app/db/base.py` - SQLAlchemy declarative base and timestamp mixin
+- `app/db/session.py` - async SQLAlchemy engine and session factory
+- `app/models/` - database models for the bot domain
 - `app/handlers/start.py` - `/start` command handler
+- `alembic/` - database migration environment and migration versions
 - `.env.example` - example environment configuration
 - `docker-compose.yml` - PostgreSQL, Redis, and bot services
 - `Dockerfile` - container image for the bot
@@ -236,6 +264,12 @@ Start PostgreSQL and Redis:
 
 ```bash
 docker compose up -d postgres redis
+```
+
+Apply database migrations:
+
+```bash
+alembic upgrade head
 ```
 
 Run the bot locally:
@@ -313,6 +347,11 @@ The project is intentionally built in small stages.
 10. Calendar commands
 11. Hardening and edge cases
 12. Deployment
+
+Completed stages:
+
+- Stage 1
+- Stage 2
 
 ## Git Notes
 
