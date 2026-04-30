@@ -36,10 +36,13 @@ Implemented:
 - Alembic migration environment
 - Initial database migration for users, clubs, events, chats, dashboards, reminders, favorites, and moderation logs
 - Default event categories
+- Group admin command to register a chat
+- Group admin command to create or refresh the placeholder dashboard message
+- Dashboard message ID persistence
+- Dashboard fallback if the old message was deleted
 
 Not implemented yet:
 
-- Chat dashboard registration
 - Event submission flow
 - Moderation flow
 - Event publishing
@@ -179,17 +182,26 @@ Planned for later stages:
 │   │   └── session.py
 │   ├── handlers/
 │   │   ├── __init__.py
+│   │   ├── admin_chat.py
 │   │   └── start.py
-│   └── models/
+│   ├── middlewares/
+│   │   ├── __init__.py
+│   │   └── db.py
+│   ├── models/
+│   │   ├── __init__.py
+│   │   ├── chat.py
+│   │   ├── club.py
+│   │   ├── enums.py
+│   │   ├── event.py
+│   │   ├── favorite.py
+│   │   ├── moderation.py
+│   │   ├── reminder.py
+│   │   └── user.py
+│   └── services/
 │       ├── __init__.py
-│       ├── chat.py
-│       ├── club.py
-│       ├── enums.py
-│       ├── event.py
-│       ├── favorite.py
-│       ├── moderation.py
-│       ├── reminder.py
-│       └── user.py
+│       ├── chats.py
+│       ├── dashboard.py
+│       └── users.py
 ├── alembic/
 │   ├── env.py
 │   ├── script.py.mako
@@ -213,6 +225,9 @@ Planned for later stages:
 - `app/db/session.py` - async SQLAlchemy engine and session factory
 - `app/models/` - database models for the bot domain
 - `app/handlers/start.py` - `/start` command handler
+- `app/handlers/admin_chat.py` - group admin commands for chat registration and dashboard creation
+- `app/middlewares/db.py` - per-update database session middleware
+- `app/services/` - focused database and dashboard service functions
 - `alembic/` - database migration environment and migration versions
 - `.env.example` - example environment configuration
 - `docker-compose.yml` - PostgreSQL, Redis, and bot services
@@ -331,6 +346,40 @@ Expected bot reply:
 Hello. I am the Student Events bot.
 ```
 
+## Testing Stage 3
+
+Add the bot to a test group or supergroup.
+
+Make sure the bot has permission to:
+
+- send messages
+- edit its own messages
+
+As a chat admin, run:
+
+```text
+/register_chat
+```
+
+Expected result:
+
+```text
+Chat registered.
+```
+
+Then run:
+
+```text
+/dashboard
+```
+
+Expected result:
+
+- the bot sends one dashboard message to the group
+- the bot replies with the saved dashboard message ID
+- running `/dashboard` again edits the same dashboard message instead of creating another one
+- if you delete the dashboard message and run `/dashboard` again, the bot creates a new one and saves the new message ID
+
 ## Implementation Roadmap
 
 The project is intentionally built in small stages.
@@ -352,6 +401,7 @@ Completed stages:
 
 - Stage 1
 - Stage 2
+- Stage 3
 
 ## Git Notes
 

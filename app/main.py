@@ -6,7 +6,9 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 
 from app.config import get_settings
-from app.handlers import start_router
+from app.db import async_session_maker
+from app.handlers import admin_chat_router, start_router
+from app.middlewares import DatabaseSessionMiddleware
 
 
 def setup_logging(log_level: str) -> None:
@@ -25,6 +27,8 @@ async def main() -> None:
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
     dispatcher = Dispatcher()
+    dispatcher.update.middleware(DatabaseSessionMiddleware(async_session_maker))
+    dispatcher.include_router(admin_chat_router)
     dispatcher.include_router(start_router)
 
     try:
