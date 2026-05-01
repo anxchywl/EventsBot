@@ -1,6 +1,7 @@
 from aiogram import F, Router
 from aiogram.filters import CommandStart
-from aiogram.types import Message
+from aiogram.fsm.context import FSMContext
+from aiogram.types import CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,7 +12,10 @@ router = Router(name="start")
 
 
 @router.message(CommandStart(), F.chat.type == "private")
-async def handle_start(message: Message, session: AsyncSession) -> None:
+async def handle_start(
+    message: Message, session: AsyncSession, state: FSMContext
+) -> None:
+    await state.clear()
     user = await upsert_user_from_telegram(session, message.from_user)
     settings = get_settings()
     is_admin = user.telegram_id in settings.admin_ids
@@ -23,6 +27,28 @@ async def handle_start(message: Message, session: AsyncSession) -> None:
         reply_markup=get_main_menu_keyboard(is_admin),
         parse_mode="Markdown",
     )
+
+
+@router.callback_query(F.data == "start_menu")
+async def process_start_menu(
+    callback: CallbackQuery, session: AsyncSession, state: FSMContext
+):
+    """
+    returns the user to the main menu by editing the current message.
+    """
+    await state.clear()
+    user = await upsert_user_from_telegram(session, callback.from_user)
+    settings = get_settings()
+    is_admin = user.telegram_id in settings.admin_ids
+
+    await callback.message.edit_text(
+        "👋 **Welcome to the Student Events Bot!**\n\n"
+        "I am here to help you stay updated with university life without the noise.\n\n"
+        "Use the menu below to explore events or manage your own submissions.",
+        reply_markup=get_main_menu_keyboard(is_admin),
+        parse_mode="Markdown",
+    )
+    await callback.answer()
 
 
 def get_main_menu_keyboard(is_admin: bool = False):

@@ -4,8 +4,6 @@ A Telegram bot for managing university student events without spamming group cha
 
 The main idea is simple: each Telegram chat has one constantly updated event dashboard message. Approved events are added to that dashboard as short clickable items, while full event details live in separate event card messages.
 
-This repository is being implemented step by step. The current codebase contains the Stage 1 foundation and Stage 2 database schema.
-
 ## Project Goal
 
 University clubs and students should be able to submit events to the bot. Submitted events go through moderation. After approval, the bot publishes each event to the correct chat dashboards based on category settings.
@@ -230,104 +228,86 @@ Planned for later stages:
 - `Dockerfile` - container image for the bot
 - `requirements.txt` - Python dependencies
 
-## Requirements
+## Getting Started (Local Development)
 
-- Python 3.10 or newer
-- Docker Desktop
-- Telegram bot token from BotFather
+Follow these steps to set up the project for development on macOS:
 
-## Environment Variables
+### 0. Install Docker Desktop
+Download and install [Docker Desktop for macOS](https://www.docker.com/products/docker-desktop).
 
-Create a local `.env` file from the example:
-
+### 1. Install Python 3.10+
+If you don't have Python installed, use Homebrew:
 ```bash
-cp .env.example .env
+brew install python
 ```
 
-Then set your bot token and admin IDs:
-
-```env
-BOT_TOKEN=1234567890:your_real_bot_token
-LOG_LEVEL=INFO
-APP_TIMEZONE=Asia/Almaty
-DATABASE_URL=postgresql+asyncpg://events_bot:events_bot@localhost:5432/events_bot
-REDIS_URL=redis://localhost:6379/0
-ADMIN_IDS=[123456789]
-MODERATOR_CHAT_ID=123456789
+### 2. Clone the Repository
+```bash
+git clone https://github.com/anxchywl/events_bot
+cd events_bot
 ```
 
-Never commit `.env`. It contains secrets and is ignored by Git.
-
-## Local Development
-
-Create and activate a virtual environment:
-
+### 3. Create a Virtual Environment
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 ```
 
-Install dependencies:
-
+### 4. Install Dependencies
 ```bash
+pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-Start PostgreSQL and Redis:
+### 5. Configure Environment Variables
+Create a `.env` file from the example:
+```bash
+cp .env.example .env
+```
+Open `.env` and fill in the following:
+- `BOT_TOKEN` — your bot token from [@BotFather](https://t.me/BotFather)
+- `ADMIN_IDS` — your Telegram ID (get it from [@userinfobot](https://t.me/userinfobot))
 
+### 6. Start Infrastructure
+Make sure Docker Desktop is running, then start the database and cache services:
 ```bash
 docker compose up -d postgres redis
 ```
 
-Apply database migrations:
-
-```bash
-alembic upgrade head
-```
-
-Seed initial categories:
-
+### 7. Apply Migrations and Seed Data
 ```bash
 export PYTHONPATH=.
+alembic upgrade head
 python scripts/seed_categories.py
 ```
 
-Run the bot locally (make sure to set the PYTHONPATH so imports work correctly):
-
+### 8. Run the Bot
 ```bash
-export PYTHONPATH=.
-python app/main.py
-```
-Or run as a module:
-```bash
-python -m app.main
+python3 app/main.py
 ```
 
-## Docker Usage
+---
 
-Build and run all services:
+### Useful Commands
 
+**Restarting the Bot:**
+Press `Ctrl + C` to stop the bot, then run:
+```bash
+python3 app/main.py
+```
+
+**Wiping the Database:**
+To remove all data and volumes:
+```bash
+docker compose down -v
+```
+
+**Full Docker Run (Production-like):**
+If you want to run everything (including the bot) in Docker:
 ```bash
 docker compose up --build
 ```
 
-Run only PostgreSQL and Redis:
-
-```bash
-docker compose up -d postgres redis
-```
-
-Stop services:
-
-```bash
-docker compose down
-```
-
-Stop services and remove local database/Redis volumes:
-
-```bash
-docker compose down -v
-```
 
 ## Testing Stage 1
 

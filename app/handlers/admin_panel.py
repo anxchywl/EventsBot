@@ -16,6 +16,17 @@ router = Router(name="admin_panel")
 
 @router.callback_query(F.data == "admin_panel")
 async def process_admin_panel(callback: CallbackQuery, session: AsyncSession):
+    await show_admin_panel(callback, session, is_edit=False)
+
+
+@router.callback_query(F.data == "admin_panel_back")
+async def process_admin_panel_back(callback: CallbackQuery, session: AsyncSession):
+    await show_admin_panel(callback, session, is_edit=True)
+
+
+async def show_admin_panel(
+    callback: CallbackQuery, session: AsyncSession, is_edit: bool
+):
     user = await upsert_user_from_telegram(session, callback.from_user)
     settings = get_settings()
     if user.telegram_id not in settings.admin_ids:
@@ -25,13 +36,14 @@ async def process_admin_panel(callback: CallbackQuery, session: AsyncSession):
     builder = InlineKeyboardBuilder()
     builder.button(text="⏳ Moderation Queue", callback_data="admin_mod_queue")
     builder.button(text="✅ Active Events", callback_data="admin_active_events")
-    builder.button(text="🔙 Back to Menu", callback_data="submit_cancel")
+    builder.button(text="🔙 Back to Menu", callback_data="start_menu")
+
     builder.adjust(1)
 
-    await callback.message.answer(
-        "🛠 **Admin Panel**\n\nSelect an administrative action:",
-        reply_markup=builder.as_markup(),
-        parse_mode="Markdown",
+    text = "🛠 <b>Admin Panel</b>\n\nSelect an administrative action:"
+
+    await callback.message.edit_text(
+        text, reply_markup=builder.as_markup(), parse_mode="HTML"
     )
     await callback.answer()
 
@@ -53,7 +65,7 @@ async def process_admin_mod_queue(callback: CallbackQuery, session: AsyncSession
             callback_data=f"admin_mod_event_{event.id}",
         )
 
-    builder.button(text="🔙 Back", callback_data="admin_panel")
+    builder.button(text="🔙 Back", callback_data="admin_panel_back")
     builder.adjust(1)
 
     await callback.message.edit_text(
@@ -118,7 +130,7 @@ async def process_admin_active_events(callback: CallbackQuery, session: AsyncSes
             callback_data=f"admin_manage_event_{event.id}",
         )
 
-    builder.button(text="🔙 Back", callback_data="admin_panel")
+    builder.button(text="🔙 Back", callback_data="admin_panel_back")
     builder.adjust(1)
 
     await callback.message.edit_text(

@@ -20,6 +20,15 @@ router = Router()
 
 @router.callback_query(F.data == "my_events")
 async def process_my_events(callback: CallbackQuery, session: AsyncSession):
+    await show_my_events(callback, session)
+
+
+@router.callback_query(F.data == "my_events_back")
+async def process_my_events_back(callback: CallbackQuery, session: AsyncSession):
+    await show_my_events(callback, session)
+
+
+async def show_my_events(callback: CallbackQuery, session: AsyncSession):
     user = await upsert_user_from_telegram(session, callback.from_user)
     events = await get_user_events(session, user.id)
 
@@ -29,9 +38,7 @@ async def process_my_events(callback: CallbackQuery, session: AsyncSession):
 
     builder = InlineKeyboardBuilder()
 
-    # we will show the list as inline buttons for simplicity
     for event in events:
-        # short title with status
         status_emoji = {
             "approved": "✅",
             "pending": "⏳",
@@ -46,13 +53,12 @@ async def process_my_events(callback: CallbackQuery, session: AsyncSession):
         builder.button(text=btn_text, callback_data=f"manage_event_{event.id}")
 
     builder.adjust(1)
-    # add a back button to main menu
-    builder.button(text="🔙 Back to Menu", callback_data="submit_cancel")
+    builder.button(text="🔙 Back to Menu", callback_data="start_menu")
 
-    await callback.message.answer(
-        "📅 **Your Events**\n\nSelect an event to manage:",
-        reply_markup=builder.as_markup(),
-        parse_mode="Markdown",
+    text = "📅 <b>Your Events</b>\n\nSelect an event to manage:"
+
+    await callback.message.edit_text(
+        text, reply_markup=builder.as_markup(), parse_mode="HTML"
     )
     await callback.answer()
 
@@ -84,7 +90,7 @@ async def process_manage_event(callback: CallbackQuery, session: AsyncSession):
     builder = InlineKeyboardBuilder()
     builder.button(text="✏️ Edit", callback_data=f"edit_event_{event.id}")
     builder.button(text="🗑 Delete", callback_data=f"delete_event_{event.id}")
-    builder.button(text="🔙 Back to My Events", callback_data="my_events")
+    builder.button(text="🔙 Back to My Events", callback_data="my_events_back")
     builder.adjust(2, 1)
 
     await callback.message.edit_text(
@@ -134,40 +140,8 @@ async def process_confirm_delete(
         )
 
 
-@router.callback_query(F.data == "start_menu")
-async def process_start_menu(
-    callback: CallbackQuery, session: AsyncSession, state: FSMContext
-):
-    await state.clear()
-    user = await upsert_user_from_telegram(session, callback.from_user)
-    settings = get_settings()
-    is_admin = user.telegram_id in settings.admin_ids
-
-    await callback.message.edit_text(
-        "👋 **Welcome to the Student Events Bot!**\n\n"
-        "I am here to help you stay updated with university life without the noise.\n\n"
-        "Use the menu below to explore events or manage your own submissions.",
-        reply_markup=get_main_menu_keyboard(is_admin),
-        parse_mode="Markdown",
-    )
-
-
-@router.callback_query(F.data == "menu_create")
-async def process_menu_create(
-    callback: CallbackQuery, state: FSMContext, session: AsyncSession
-):
-    from app.handlers.event_submission import cmd_submit_event
-
-    await cmd_submit_event(callback.message, state, session)
-    await callback.answer()
-
-
 @router.callback_query(F.data == "menu_favorites")
 async def process_menu_favorites(callback: CallbackQuery, session: AsyncSession):
-    # reuse the logic from cmd_favorites in app/handlers/events.py
-
-    # we can't easily call cmd_favorites because it expects a message
-    # so we'll just redirect to the service logic
     from app.services.reminders import get_user_favorites
 
     user = await upsert_user_from_telegram(session, callback.from_user)
@@ -189,9 +163,9 @@ async def process_menu_favorites(callback: CallbackQuery, session: AsyncSession)
         lines.append(f"• {date_str} — {title}")
 
     builder = InlineKeyboardBuilder()
-    builder.button(text="🔙 Back to Menu", callback_data="submit_cancel")
+    builder.button(text="🔙 Back to Menu", callback_data="start_menu")
 
-    await callback.message.answer(
+    await callback.message.edit_text(
         "\n".join(lines), reply_markup=builder.as_markup(), parse_mode="HTML"
     )
     await callback.answer()
