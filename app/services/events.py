@@ -1,3 +1,4 @@
+import logging
 from typing import Sequence
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,7 +10,10 @@ from app.models.moderation import ModerationLog
 from app.models.user import User
 from app.models.enums import EventStatus, ModerationAction
 
+logger = logging.getLogger(__name__)
 
+
+# loads active event categories
 async def get_active_categories(session: AsyncSession) -> Sequence[EventCategory]:
     result = await session.execute(
         select(EventCategory)
@@ -19,6 +23,7 @@ async def get_active_categories(session: AsyncSession) -> Sequence[EventCategory
     return result.scalars().all()
 
 
+# finds a category by id
 async def get_category_by_id(
     session: AsyncSession, category_id: int
 ) -> EventCategory | None:
@@ -28,11 +33,13 @@ async def get_category_by_id(
     return result.scalar_one_or_none()
 
 
+# creates a pending event and its moderation log
 async def create_pending_event(
     session: AsyncSession,
     creator: User,
     event_data: dict,
 ) -> Event:
+    # build the event from collected form data
     event = Event(
         creator_user_id=creator.id,
         title=event_data["title"],
@@ -59,6 +66,7 @@ async def create_pending_event(
     return event
 
 
+# loads one event with category and creator
 async def get_event_by_id(session: AsyncSession, event_id: int) -> Event | None:
     result = await session.execute(
         select(Event)
@@ -68,6 +76,7 @@ async def get_event_by_id(session: AsyncSession, event_id: int) -> Event | None:
     return result.scalar_one_or_none()
 
 
+# loads events waiting for moderation
 async def get_pending_events(session: AsyncSession) -> Sequence[Event]:
     result = await session.execute(
         select(Event)
@@ -78,8 +87,9 @@ async def get_pending_events(session: AsyncSession) -> Sequence[Event]:
     return result.scalars().all()
 
 
+# loads events created by a user
 async def get_user_events(session: AsyncSession, user_id: int) -> Sequence[Event]:
-    """Fetch all events created by a specific user."""
+    """fetch all events created by a specific user."""
     result = await session.execute(
         select(Event)
         .where(Event.creator_user_id == user_id)
@@ -89,46 +99,56 @@ async def get_user_events(session: AsyncSession, user_id: int) -> Sequence[Event
     return result.scalars().all()
 
 
+# deletes an event and related telegram messages, then signals dashboard refresh
 async def delete_event_completely(
     session: AsyncSession, bot: Bot, event_id: int
 ) -> bool:
-    """Instantly delete an event and clean up all related data and Telegram messages."""
-    from app.services.dashboard import create_or_update_dashboard_message
-    from app.models.chat import Chat
+    """instantly delete an event and clean up all related data and telegram messages."""
+    # load event with detail messages and their associated chats preloaded
+    from sqlalchemy.orm import selectinload
+    from app.models.event import EventDetailMessage
 
     event = await session.get(
-        Event, event_id, options=[selectinload(Event.detail_messages)]
+        Event,
+        event_id,
+        options=[
+            selectinload(Event.detail_messages).selectinload(EventDetailMessage.chat)
+        ],
     )
     if not event:
         return False
 
-    # 1. delete all detailed messages from telegram
+    # collect chat ids for dashboard refresh
+    chat_ids = set()
     for detail in event.detail_messages:
-        try:
-            # fetch the chat object to get telegram_chat_id
-            chat = await session.get(Chat, detail.chat_id)
-            if chat:
-                await bot.delete_message(chat.telegram_chat_id, detail.message_id)
-        except Exception:
-            pass  # message might be too old to delete or already gone
+        chat_ids.add(detail.chat_id)
+        if detail.chat:
+            try:
+                await bot.delete_message(
+                    chat_id=detail.chat.telegram_chat_id,
+                    message_id=detail.message_id,
+                )
+            except Exception as e:
+                logger.warning(
+                    f"failed to delete message {detail.message_id} in chat {detail.chat.id}: {e}"
+                )
 
-    # 2. find all chats that had this event in their dashboard
-    # (these are the chats where detail_messages existed)
-    chat_ids = [detail.chat_id for detail in event.detail_messages]
-
-    # 3. delete the event from db (cascades to detail_messages, reminders, favorites, etc.)
     await session.delete(event)
     await session.flush()
 
-    # 4. update dashboards in all affected chats
-    for chat_id in chat_ids:
-        chat = await session.get(Chat, chat_id)
-        if chat:
-            await create_or_update_dashboard_message(session, bot, chat)
+    # signal dashboard bus for a debounced refresh (non-blocking)
+    if chat_ids:
+        try:
+            from app.services.dashboard_bus import get_bus
+
+            get_bus().schedule_refresh(chat_ids)
+        except Exception:
+            pass
 
     return True
 
 
+# updates an event status and records moderation
 async def update_event_status(
     session: AsyncSession,
     event_id: int,
@@ -140,6 +160,7 @@ async def update_event_status(
     if not event:
         return None
 
+    # set approval metadata when needed
     event.status = status.value
     if status == EventStatus.APPROVED:
         from datetime import datetime, timezone
@@ -149,7 +170,6 @@ async def update_event_status(
 
     event.moderation_note = comment
 
-    # map eventstatus to moderationaction
     action_map = {
         EventStatus.APPROVED: ModerationAction.APPROVED,
         EventStatus.REJECTED: ModerationAction.REJECTED,
@@ -166,4 +186,5 @@ async def update_event_status(
     session.add(log)
 
     await session.flush()
-    return event
+    # re-fetch with all relationships needed by publisher loaded
+    return await get_event_by_id(session, event.id)

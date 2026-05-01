@@ -11,6 +11,7 @@ from app.services.users import upsert_user_from_telegram
 router = Router(name="start")
 
 
+# handles the private start command
 @router.message(CommandStart(), F.chat.type == "private")
 async def handle_start(
     message: Message, session: AsyncSession, state: FSMContext
@@ -20,6 +21,7 @@ async def handle_start(
     settings = get_settings()
     is_admin = user.telegram_id in settings.admin_ids
 
+    # send the main menu with admin controls when allowed
     await message.answer(
         "👋 **Welcome to the Student Events Bot!**\n\n"
         "I am here to help you stay updated with university life without the noise.\n\n"
@@ -29,6 +31,7 @@ async def handle_start(
     )
 
 
+# returns the user to the main menu
 @router.callback_query(F.data == "start_menu")
 async def process_start_menu(
     callback: CallbackQuery, session: AsyncSession, state: FSMContext
@@ -41,6 +44,7 @@ async def process_start_menu(
     settings = get_settings()
     is_admin = user.telegram_id in settings.admin_ids
 
+    # reuse the same menu text and keyboard
     await callback.message.edit_text(
         "👋 **Welcome to the Student Events Bot!**\n\n"
         "I am here to help you stay updated with university life without the noise.\n\n"
@@ -51,13 +55,13 @@ async def process_start_menu(
     await callback.answer()
 
 
+# builds the private main menu keyboard
 def get_main_menu_keyboard(is_admin: bool = False):
     builder = InlineKeyboardBuilder()
     builder.button(text="📝 Create Event", callback_data="menu_create")
     builder.button(text="📅 My Events", callback_data="my_events")
     builder.button(text="⭐ Favorites", callback_data="menu_favorites")
     builder.button(text="🗓 Calendar", callback_data="menu_calendar")
-    builder.button(text="🏷 Categories", callback_data="menu_categories")
 
     if is_admin:
         builder.button(text="🛠 Admin Panel", callback_data="admin_panel")

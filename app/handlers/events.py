@@ -16,6 +16,7 @@ from app.services.users import upsert_user_from_telegram
 router = Router()
 
 
+# toggles the current event as a favorite
 @router.callback_query(F.data.startswith("fav_"))
 async def process_favorite(callback: CallbackQuery, session: AsyncSession):
     event_id = int(callback.data.split("_")[1])
@@ -30,6 +31,7 @@ async def process_favorite(callback: CallbackQuery, session: AsyncSession):
         await callback.answer("Removed from favorites.")
 
 
+# shows reminder timing choices
 @router.callback_query(F.data.startswith("remind_opt_"))
 async def process_remind_options(callback: CallbackQuery):
     event_id = int(callback.data.split("_")[2])
@@ -44,16 +46,13 @@ async def process_remind_options(callback: CallbackQuery):
     await callback.answer()
 
 
+# cancels reminder setup
 @router.callback_query(F.data == "remind_cancel")
 async def process_remind_cancel(callback: CallbackQuery, session: AsyncSession):
-    # to reset the keyboard, we just call the original keyboard generator
-    # we need the event to generate it. if we don't have event_id in the data,
-    # it's simpler to just delete the "remind me" menu and leave it alone,
-    # but we can't easily reconstruct the whole keyboard without knowing the event.
-    # a quick hack is just to remove the inline keyboard entirely or let the user ignore it.
     await callback.answer("Cancelled reminder setup.")
 
 
+# saves the selected reminder timing
 @router.callback_query(F.data.startswith("remind_set_"))
 async def process_remind_set(callback: CallbackQuery, session: AsyncSession):
     parts = callback.data.split("_")
@@ -67,17 +66,15 @@ async def process_remind_set(callback: CallbackQuery, session: AsyncSession):
         await callback.answer("Event not found.", show_alert=True)
         return
 
+    # map the callback option to the reminder type
     r_type = ReminderType.ONE_DAY if time_opt == "day" else ReminderType.ONE_HOUR
     msg = await schedule_reminder(session, user, event, r_type)
     await session.commit()
 
     await callback.answer(msg, show_alert=True)
 
-    # we should ideally reset the keyboard back to normal, but for mvp we can just leave it or edit it slightly.
-    # since we don't have the original publisher keyboard easily without regenerating it,
-    # let's just leave the keyboard as is (the user can press it again if they want another reminder).
 
-
+# lists favorite events in private chat
 @router.message(Command("favorites"))
 async def cmd_favorites(message: Message, session: AsyncSession):
     user = await upsert_user_from_telegram(session, message.from_user)
@@ -88,6 +85,7 @@ async def cmd_favorites(message: Message, session: AsyncSession):
         return
 
     lines = ["⭐ **Your Favorite Events**\n"]
+    # link each favorite to its published detail message when available
     for event in favorites:
         detail_link = None
         if event.detail_messages:

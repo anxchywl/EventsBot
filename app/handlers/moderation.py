@@ -1,3 +1,6 @@
+import html
+import logging
+
 from aiogram import Bot, F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
@@ -11,17 +14,18 @@ from app.models.enums import EventStatus
 from app.services.events import get_event_by_id, get_pending_events, update_event_status
 from app.services.publisher import publish_approved_event
 from app.services.users import upsert_user_from_telegram
-import html
 
-
+logger = logging.getLogger(__name__)
 router = Router()
 
 
+# tracks moderation reason input states
 class ModerationState(StatesGroup):
     waiting_for_rejection_reason = State()
     waiting_for_changes_reason = State()
 
 
+# builds moderation action buttons
 def get_moderation_keyboard(event_id: int):
     builder = InlineKeyboardBuilder()
     builder.button(text="✅ Approve", callback_data=f"mod_approve_{event_id}")
@@ -31,9 +35,11 @@ def get_moderation_keyboard(event_id: int):
     return builder.as_markup()
 
 
+# sends pending events to moderators
 @router.message(Command("moderate"))
 async def cmd_moderate(message: Message, session: AsyncSession):
     settings = get_settings()
+    # allow admins and the configured moderator chat
     if message.from_user.id not in settings.admin_ids:
         # check if it's the moderator chat
         if message.chat.id != settings.moderator_chat_id:
@@ -44,6 +50,7 @@ async def cmd_moderate(message: Message, session: AsyncSession):
         await message.answer("No pending events to moderate.")
         return
 
+    # render each pending event as a moderation card
     for event in pending_events:
         safe_title = html.escape(event.title)
         safe_name = html.escape(event.creator.first_name)
@@ -76,6 +83,7 @@ async def cmd_moderate(message: Message, session: AsyncSession):
             )
 
 
+# approves an event or update draft
 @router.callback_query(F.data.startswith("mod_approve_"))
 async def process_approve(callback: CallbackQuery, session: AsyncSession, bot: Bot):
     event_id = int(callback.data.split("_")[2])
@@ -91,6 +99,7 @@ async def process_approve(callback: CallbackQuery, session: AsyncSession, bot: B
     target_event = event
     is_update = event.parent_event_id is not None
 
+    # apply draft updates to the parent event
     if is_update:
         # fetch parent event
         parent = await get_event_by_id(session, event.parent_event_id)
@@ -111,7 +120,11 @@ async def process_approve(callback: CallbackQuery, session: AsyncSession, bot: B
             # delete the draft event
             await session.delete(event)
 
+    # commit the status change first — publishing errors must not roll this back
     await session.commit()
+
+    # re-load target_event cleanly after commit so relationships are fresh
+    target_event = await get_event_by_id(session, target_event.id)
 
     await callback.message.edit_reply_markup(reply_markup=None)
     await callback.message.answer(
@@ -127,12 +140,20 @@ async def process_approve(callback: CallbackQuery, session: AsyncSession, bot: B
     except Exception:
         pass
 
-    # trigger publishing to all enabled chats and update their dashboards
-    await publish_approved_event(session, bot, target_event)
+    # cache before the try block — if session breaks, we still need the id for logging
+    target_event_id = target_event.id
+
+    # publish to all enabled chats and update their dashboards
+    try:
+        await publish_approved_event(session, bot, target_event)
+        await session.commit()
+    except Exception as e:
+        logger.error(f"publish failed for event {target_event_id}: {e}", exc_info=True)
 
     await callback.answer("Approved and published.")
 
 
+# asks for a rejection reason
 @router.callback_query(F.data.startswith("mod_reject_"))
 async def process_reject_button(callback: CallbackQuery, state: FSMContext):
     event_id = int(callback.data.split("_")[2])
@@ -142,6 +163,7 @@ async def process_reject_button(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
+# asks for requested changes
 @router.callback_query(F.data.startswith("mod_changes_"))
 async def process_changes_button(callback: CallbackQuery, state: FSMContext):
     event_id = int(callback.data.split("_")[2])
@@ -151,6 +173,7 @@ async def process_changes_button(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
+# records a rejection reason
 @router.message(ModerationState.waiting_for_rejection_reason, F.text)
 async def process_rejection_reason(
     message: Message, state: FSMContext, session: AsyncSession
@@ -159,6 +182,7 @@ async def process_rejection_reason(
     event_id = data["mod_event_id"]
     reason = message.text
 
+    # mark the event as rejected with the moderator comment
     moderator = await upsert_user_from_telegram(session, message.from_user)
     event = await update_event_status(
         session, event_id, EventStatus.REJECTED, moderator, comment=reason
@@ -184,9 +208,20 @@ async def process_rejection_reason(
     except Exception:
         pass
 
+    # if the event had detail messages in chats, those chats need a dashboard refresh
+    try:
+        from app.services.dashboard_bus import get_bus, get_chat_ids_for_event
+
+        chat_ids = await get_chat_ids_for_event(session, event_id)
+        if chat_ids:
+            get_bus().schedule_refresh(chat_ids)
+    except Exception:
+        pass
+
     await state.clear()
 
 
+# records a changes-request reason
 @router.message(ModerationState.waiting_for_changes_reason, F.text)
 async def process_changes_reason(
     message: Message, state: FSMContext, session: AsyncSession
@@ -195,6 +230,7 @@ async def process_changes_reason(
     event_id = data["mod_event_id"]
     reason = message.text
 
+    # mark the event as needing changes with the moderator comment
     moderator = await upsert_user_from_telegram(session, message.from_user)
     event = await update_event_status(
         session, event_id, EventStatus.NEEDS_CHANGES, moderator, comment=reason
@@ -217,6 +253,16 @@ async def process_changes_reason(
             f"📝 **Your event '{event.title}' requires changes.**\n\n**Moderator's note:** {reason}",
             parse_mode="Markdown",
         )
+    except Exception:
+        pass
+
+    # signal dashboard refresh for any chats where this event was published
+    try:
+        from app.services.dashboard_bus import get_bus, get_chat_ids_for_event
+
+        chat_ids = await get_chat_ids_for_event(session, event_id)
+        if chat_ids:
+            get_bus().schedule_refresh(chat_ids)
     except Exception:
         pass
 

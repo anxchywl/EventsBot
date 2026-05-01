@@ -6,10 +6,13 @@ from aiogram.types import TelegramObject
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 
+# injects a database session into each update
 class DatabaseSessionMiddleware(BaseMiddleware):
+    # stores the session factory
     def __init__(self, session_maker: async_sessionmaker) -> None:
         self.session_maker = session_maker
 
+    # opens a session for the current handler
     async def __call__(
         self,
         handler: Callable[[TelegramObject, dict[str, Any]], Awaitable[Any]],

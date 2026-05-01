@@ -18,16 +18,19 @@ from app.config import get_settings
 router = Router()
 
 
+# opens the current user's events list
 @router.callback_query(F.data == "my_events")
 async def process_my_events(callback: CallbackQuery, session: AsyncSession):
     await show_my_events(callback, session)
 
 
+# returns to the current user's events list
 @router.callback_query(F.data == "my_events_back")
 async def process_my_events_back(callback: CallbackQuery, session: AsyncSession):
     await show_my_events(callback, session)
 
 
+# renders events created by the current user
 async def show_my_events(callback: CallbackQuery, session: AsyncSession):
     user = await upsert_user_from_telegram(session, callback.from_user)
     events = await get_user_events(session, user.id)
@@ -38,6 +41,7 @@ async def show_my_events(callback: CallbackQuery, session: AsyncSession):
 
     builder = InlineKeyboardBuilder()
 
+    # show status and date on each event button
     for event in events:
         status_emoji = {
             "approved": "✅",
@@ -63,6 +67,7 @@ async def show_my_events(callback: CallbackQuery, session: AsyncSession):
     await callback.answer()
 
 
+# shows management actions for one user event
 @router.callback_query(F.data.startswith("manage_event_"))
 async def process_manage_event(callback: CallbackQuery, session: AsyncSession):
     event_id = int(callback.data.split("_")[2])
@@ -72,6 +77,7 @@ async def process_manage_event(callback: CallbackQuery, session: AsyncSession):
         await callback.answer("Event not found.", show_alert=True)
         return
 
+    # escape user content before rendering html
     safe_title = html.escape(event.title)
     safe_location = html.escape(event.location)
     safe_cat = html.escape(event.category.name)
@@ -98,6 +104,7 @@ async def process_manage_event(callback: CallbackQuery, session: AsyncSession):
     )
 
 
+# forwards edit requests to the edit flow
 @router.callback_query(F.data.startswith("edit_event_"))
 async def process_edit_event(
     callback: CallbackQuery, state: FSMContext, session: AsyncSession
@@ -107,6 +114,7 @@ async def process_edit_event(
     await start_edit_event(callback, state, session)
 
 
+# asks the user to confirm event deletion
 @router.callback_query(F.data.startswith("delete_event_"))
 async def process_delete_event(callback: CallbackQuery):
     event_id = int(callback.data.split("_")[2])
@@ -123,12 +131,14 @@ async def process_delete_event(callback: CallbackQuery):
     )
 
 
+# deletes the event after confirmation
 @router.callback_query(F.data.startswith("confirm_delete_"))
 async def process_confirm_delete(
     callback: CallbackQuery, session: AsyncSession, bot: Bot
 ):
     event_id = int(callback.data.split("_")[2])
 
+    # remove database rows and telegram messages
     success = await delete_event_completely(session, bot, event_id)
     if success:
         await session.commit()
@@ -140,6 +150,7 @@ async def process_confirm_delete(
         )
 
 
+# shows favorite events from the main menu
 @router.callback_query(F.data == "menu_favorites")
 async def process_menu_favorites(callback: CallbackQuery, session: AsyncSession):
     from app.services.reminders import get_user_favorites
@@ -152,6 +163,7 @@ async def process_menu_favorites(callback: CallbackQuery, session: AsyncSession)
         return
 
     lines = ["⭐ **Your Favorite Events**\n"]
+    # render favorites as linked rows when possible
     for event in favorites:
         detail_link = (
             event.detail_messages[0].message_link if event.detail_messages else None
@@ -171,7 +183,7 @@ async def process_menu_favorites(callback: CallbackQuery, session: AsyncSession)
     await callback.answer()
 
 
+# answers unfinished menu items
 @router.callback_query(F.data == "menu_calendar")
-@router.callback_query(F.data == "menu_categories")
 async def process_menu_coming_soon(callback: CallbackQuery):
     await callback.answer("This feature is coming soon!", show_alert=True)

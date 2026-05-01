@@ -6,18 +6,22 @@ from app.config import get_settings
 
 settings = get_settings()
 
+# creates the async database engine
 engine = create_async_engine(
     settings.database_url,
     pool_pre_ping=True,
 )
 
+# builds sessions used by handlers and services
 async_session_maker = async_sessionmaker(
     bind=engine,
     class_=AsyncSession,
     expire_on_commit=False,
+    autoflush=False,
 )
 
 
+# yields one async database session
 async def get_session() -> AsyncIterator[AsyncSession]:
     async with async_session_maker() as session:
         yield session

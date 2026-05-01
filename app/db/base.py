@@ -12,10 +12,12 @@ convention = {
 }
 
 
+# gives all models shared metadata and naming rules
 class Base(DeclarativeBase):
     metadata = MetaData(naming_convention=convention)
 
 
+# adds created and updated timestamps to models
 class TimestampMixin:
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

@@ -16,7 +16,9 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
+# creates the initial database schema
 def upgrade() -> None:
+    # stores telegram users
     op.create_table(
         "users",
         sa.Column("id", sa.BigInteger(), sa.Identity(), nullable=False),
@@ -53,6 +55,7 @@ def upgrade() -> None:
         op.f("ix_users_telegram_id"), "users", ["telegram_id"], unique=False
     )
 
+    # stores event categories
     op.create_table(
         "event_categories",
         sa.Column("id", sa.BigInteger(), sa.Identity(), nullable=False),
@@ -80,6 +83,7 @@ def upgrade() -> None:
         sa.UniqueConstraint("name", name=op.f("uq_event_categories_name")),
         sa.UniqueConstraint("slug", name=op.f("uq_event_categories_slug")),
     )
+    # inserts default event categories
     event_categories = sa.table(
         "event_categories",
         sa.column("name", sa.String),
@@ -104,6 +108,7 @@ def upgrade() -> None:
         ],
     )
 
+    # stores student clubs
     op.create_table(
         "clubs",
         sa.Column("id", sa.BigInteger(), sa.Identity(), nullable=False),
@@ -136,6 +141,7 @@ def upgrade() -> None:
         sa.UniqueConstraint("name", name=op.f("uq_clubs_name")),
     )
 
+    # stores telegram chats
     op.create_table(
         "chats",
         sa.Column("id", sa.BigInteger(), sa.Identity(), nullable=False),
@@ -176,6 +182,7 @@ def upgrade() -> None:
         op.f("ix_chats_telegram_chat_id"), "chats", ["telegram_chat_id"], unique=False
     )
 
+    # stores submitted events
     op.create_table(
         "events",
         sa.Column("id", sa.BigInteger(), sa.Identity(), nullable=False),
@@ -261,6 +268,7 @@ def upgrade() -> None:
         unique=False,
     )
 
+    # stores category settings per chat
     op.create_table(
         "chat_category_settings",
         sa.Column("id", sa.BigInteger(), sa.Identity(), nullable=False),
@@ -301,6 +309,7 @@ def upgrade() -> None:
         ),
     )
 
+    # stores dashboard message ids
     op.create_table(
         "dashboard_messages",
         sa.Column("id", sa.BigInteger(), sa.Identity(), nullable=False),
@@ -330,6 +339,7 @@ def upgrade() -> None:
         sa.UniqueConstraint("chat_id", name=op.f("uq_dashboard_messages_chat_id")),
     )
 
+    # stores published event message ids
     op.create_table(
         "event_detail_messages",
         sa.Column("id", sa.BigInteger(), sa.Identity(), nullable=False),
@@ -375,6 +385,7 @@ def upgrade() -> None:
         unique=False,
     )
 
+    # stores user favorites
     op.create_table(
         "favorites",
         sa.Column("id", sa.BigInteger(), sa.Identity(), nullable=False),
@@ -404,6 +415,7 @@ def upgrade() -> None:
         ),
     )
 
+    # stores moderation history
     op.create_table(
         "moderation_logs",
         sa.Column("id", sa.BigInteger(), sa.Identity(), nullable=False),
@@ -442,6 +454,7 @@ def upgrade() -> None:
         unique=False,
     )
 
+    # stores scheduled reminders
     op.create_table(
         "reminders",
         sa.Column("id", sa.BigInteger(), sa.Identity(), nullable=False),
@@ -504,6 +517,7 @@ def upgrade() -> None:
     )
 
 
+# drops the initial database schema
 def downgrade() -> None:
     op.drop_index("ix_reminders_status_remind_at", table_name="reminders")
     op.drop_table("reminders")

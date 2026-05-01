@@ -20,10 +20,12 @@ if config.config_file_name is not None:
 target_metadata = Base.metadata
 
 
+# reads the database url from app settings
 def get_database_url() -> str:
     return get_settings().database_url
 
 
+# runs migrations without opening an engine
 def run_migrations_offline() -> None:
     url = get_database_url()
     context.configure(
@@ -37,6 +39,7 @@ def run_migrations_offline() -> None:
         context.run_migrations()
 
 
+# runs sync migration operations on a connection
 def do_run_migrations(connection: Connection) -> None:
     context.configure(connection=connection, target_metadata=target_metadata)
 
@@ -44,6 +47,7 @@ def do_run_migrations(connection: Connection) -> None:
         context.run_migrations()
 
 
+# creates an async engine for alembic
 async def run_async_migrations() -> None:
     config_section = config.get_section(config.config_ini_section, {})
     config_section["sqlalchemy.url"] = get_database_url()
@@ -60,6 +64,7 @@ async def run_async_migrations() -> None:
     await connectable.dispose()
 
 
+# starts online migrations through asyncio
 def run_migrations_online() -> None:
     asyncio.run(run_async_migrations())
 

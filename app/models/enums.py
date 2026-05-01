@@ -1,6 +1,7 @@
 from enum import Enum
 
 
+# tracks event review state
 class EventStatus(str, Enum):
     PENDING = "pending"
     APPROVED = "approved"
@@ -9,11 +10,13 @@ class EventStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
+# defines reminder timing choices
 class ReminderType(str, Enum):
     ONE_DAY = "one_day"
     ONE_HOUR = "one_hour"
 
 
+# tracks reminder delivery state
 class ReminderStatus(str, Enum):
     SCHEDULED = "scheduled"
     SENT = "sent"
@@ -21,6 +24,7 @@ class ReminderStatus(str, Enum):
     FAILED = "failed"
 
 
+# records moderation action types
 class ModerationAction(str, Enum):
     SUBMITTED = "submitted"
     APPROVED = "approved"

@@ -1,3 +1,5 @@
+import logging
+
 from aiogram import Bot
 from aiogram.types import InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -6,28 +8,40 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.chat import Chat, ChatCategorySetting
 from app.models.event import Event, EventDetailMessage
-from app.services.dashboard import create_or_update_dashboard_message
+
+logger = logging.getLogger(__name__)
 
 
+# publishes an approved event to all matching chats
 async def publish_approved_event(session: AsyncSession, bot: Bot, event: Event) -> None:
-    # 1. find target chats based on category
+    logger.info(f"publishing event {event.id} to category {event.category_id}")
+
     stmt = (
         select(Chat)
         .join(ChatCategorySetting, ChatCategorySetting.chat_id == Chat.id)
         .where(
             ChatCategorySetting.category_id == event.category_id,
             ChatCategorySetting.is_enabled.is_(True),
+            Chat.is_active.is_(True),
         )
+        .distinct()
     )
     result = await session.execute(stmt)
     chats = result.scalars().all()
+    logger.info(f"found {len(chats)} chats for publishing")
 
+    affected_chat_ids: set[int] = set()
+
+    # create or refresh detail messages in each chat
     for chat in chats:
-        # 2 & 3. create detailed event message and get message id
-        # wait to check if a detail message already exists (if it was an edit)
+        # cache scalar values immediately — avoids lazy loads in error handlers
+        chat_id = chat.id
+        telegram_chat_id = chat.telegram_chat_id
+        chat_username = chat.username
+
         detail_stmt = select(EventDetailMessage).where(
             EventDetailMessage.event_id == event.id,
-            EventDetailMessage.chat_id == chat.id,
+            EventDetailMessage.chat_id == chat_id,
         )
         detail_res = await session.execute(detail_stmt)
         detail_msg = detail_res.scalar_one_or_none()
@@ -36,12 +50,10 @@ async def publish_approved_event(session: AsyncSession, bot: Bot, event: Event) 
         keyboard = get_event_detail_keyboard(event)
 
         if detail_msg:
-            # edit existing detail message
             try:
                 if event.poster_file_id:
-                    # editing caption/media is complex, simpler to edit caption if it was already a photo
                     await bot.edit_message_caption(
-                        chat_id=chat.telegram_chat_id,
+                        chat_id=telegram_chat_id,
                         message_id=detail_msg.message_id,
                         caption=text,
                         reply_markup=keyboard,
@@ -49,36 +61,32 @@ async def publish_approved_event(session: AsyncSession, bot: Bot, event: Event) 
                     )
                 else:
                     await bot.edit_message_text(
-                        chat_id=chat.telegram_chat_id,
+                        chat_id=telegram_chat_id,
                         message_id=detail_msg.message_id,
                         text=text,
                         reply_markup=keyboard,
                         parse_mode="Markdown",
                     )
             except Exception:
-                pass  # ignore if not modified
+                pass
 
-            # update the link if it's missing or using the old format
-            link = None
-            if chat.username:
-                link = f"https://t.me/{chat.username}/{detail_msg.message_id}"
+            if chat_username:
+                link = f"https://t.me/{chat_username}/{detail_msg.message_id}"
             else:
-                clean_chat_id = str(chat.telegram_chat_id)
-                if clean_chat_id.startswith("-100"):
-                    clean_chat_id = clean_chat_id[4:]
-                elif clean_chat_id.startswith("-"):
-                    clean_chat_id = clean_chat_id[1:]
-                link = f"https://t.me/c/{clean_chat_id}/{detail_msg.message_id}"
+                clean = str(telegram_chat_id)
+                if clean.startswith("-100"):
+                    clean = clean[4:]
+                elif clean.startswith("-"):
+                    clean = clean[1:]
+                link = f"https://t.me/c/{clean}/{detail_msg.message_id}"
 
-            if link:
-                detail_msg.message_link = link
+            detail_msg.message_link = link
 
         else:
-            # send new detail message
             try:
                 if event.poster_file_id:
                     msg = await bot.send_photo(
-                        chat_id=chat.telegram_chat_id,
+                        chat_id=telegram_chat_id,
                         photo=event.poster_file_id,
                         caption=text,
                         reply_markup=keyboard,
@@ -86,46 +94,53 @@ async def publish_approved_event(session: AsyncSession, bot: Bot, event: Event) 
                     )
                 else:
                     msg = await bot.send_message(
-                        chat_id=chat.telegram_chat_id,
+                        chat_id=telegram_chat_id,
                         text=text,
                         reply_markup=keyboard,
                         parse_mode="Markdown",
                     )
 
-                # 4. create message link
-                if chat.username:
-                    link = f"https://t.me/{chat.username}/{msg.message_id}"
+                if chat_username:
+                    link = f"https://t.me/{chat_username}/{msg.message_id}"
                 else:
-                    clean_chat_id = str(chat.telegram_chat_id)
-                    if clean_chat_id.startswith("-100"):
-                        clean_chat_id = clean_chat_id[4:]
-                    elif clean_chat_id.startswith("-"):
-                        clean_chat_id = clean_chat_id[1:]
-                    link = f"https://t.me/c/{clean_chat_id}/{msg.message_id}"
+                    clean = str(telegram_chat_id)
+                    if clean.startswith("-100"):
+                        clean = clean[4:]
+                    elif clean.startswith("-"):
+                        clean = clean[1:]
+                    link = f"https://t.me/c/{clean}/{msg.message_id}"
 
-                new_detail = EventDetailMessage(
-                    event_id=event.id,
-                    chat_id=chat.id,
-                    message_id=msg.message_id,
-                    message_link=link,
+                session.add(
+                    EventDetailMessage(
+                        event_id=event.id,
+                        chat_id=chat_id,
+                        message_id=msg.message_id,
+                        message_link=link,
+                    )
                 )
-                session.add(new_detail)
 
-                # manually update the relationship to ensure it's visible in the dashboard update
-                if event.detail_messages is not None:
-                    event.detail_messages.append(new_detail)
+                # note: do NOT access event.detail_messages — it is not eagerly loaded
+                # and would trigger a lazy async load, crashing the loop
 
             except Exception as e:
-                print(f"Failed to send event detail to chat {chat.id}: {e}")
+                logger.error(f"failed to send event detail to chat {chat_id}: {e}")
                 continue
+
+        affected_chat_ids.add(chat_id)
 
     await session.flush()
 
-    # 5 & 6. update dashboard messages
-    for chat in chats:
-        await create_or_update_dashboard_message(session, bot, chat)
+    # signal the dashboard bus to refresh affected chats (debounced, non-blocking)
+    if affected_chat_ids:
+        try:
+            from app.services.dashboard_bus import get_bus
+
+            get_bus().schedule_refresh(affected_chat_ids)
+        except Exception:
+            pass
 
 
+# formats the event detail message body
 def format_event_detail_text(event: Event) -> str:
     text = (
         f"🌟 **{event.title}**\n\n"
@@ -139,6 +154,7 @@ def format_event_detail_text(event: Event) -> str:
     return text
 
 
+# builds actions shown below event details
 def get_event_detail_keyboard(event: Event) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     if event.registration_url:

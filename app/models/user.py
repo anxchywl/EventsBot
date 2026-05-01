@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from app.models.reminder import Reminder
 
 
+# stores telegram user profiles
 class User(TimestampMixin, Base):
     __tablename__ = "users"
     __table_args__ = (
@@ -22,6 +23,7 @@ class User(TimestampMixin, Base):
         Index("ix_users_telegram_id", "telegram_id"),
     )
 
+    # core telegram identity fields
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
     telegram_id: Mapped[int] = mapped_column(BigInteger)
     username: Mapped[str | None] = mapped_column(String(255))
@@ -33,6 +35,7 @@ class User(TimestampMixin, Base):
         Boolean, default=False, server_default="false"
     )
 
+    # links users to owned and created records
     owned_clubs: Mapped[list[Club]] = relationship(back_populates="owner")
     created_events: Mapped[list[Event]] = relationship(
         back_populates="creator",

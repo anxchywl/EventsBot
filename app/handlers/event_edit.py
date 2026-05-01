@@ -18,6 +18,7 @@ from app.services.users import upsert_user_from_telegram
 router = Router(name="event_edit")
 
 
+# tracks states for editing an existing event
 class EventEdit(StatesGroup):
     choosing_field = State()
     editing_title = State()
@@ -29,6 +30,7 @@ class EventEdit(StatesGroup):
     editing_poster = State()
 
 
+# starts the edit workflow for an event
 @router.callback_query(F.data.startswith("edit_event_"))
 async def start_edit_event(
     callback: CallbackQuery, state: FSMContext, session: AsyncSession
@@ -51,7 +53,6 @@ async def start_edit_event(
         )
         return
 
-        # initialize state data with current event values
     await state.clear()
     await state.update_data(
         original_event_id=event.id,
@@ -72,11 +73,13 @@ async def start_edit_event(
     await callback.answer()
 
 
+# shows the editable event preview and field buttons
 async def show_edit_menu(
     message: Message, state: FSMContext, is_new_message: bool = True
 ):
     data = await state.get_data()
 
+    # escape user-provided fields before rendering html
     safe_title = html.escape(data["title"])
     safe_desc = html.escape(data["description"])
     safe_location = html.escape(data["location"])
@@ -103,7 +106,6 @@ async def show_edit_menu(
     builder.button(text="✏️ Time", callback_data="edit_field_time")
     builder.button(text="✏️ Location", callback_data="edit_field_location")
     builder.button(text="✏️ Organizer", callback_data="edit_field_organizer")
-    # category and poster can be added later, keep it simple for now
     builder.button(text="🖼 Poster", callback_data="edit_field_poster")
 
     builder.button(text="✅ Submit Update", callback_data="edit_submit")
@@ -120,6 +122,7 @@ async def show_edit_menu(
         )
 
 
+# routes the selected field to its edit state
 @router.callback_query(EventEdit.choosing_field, F.data.startswith("edit_field_"))
 async def process_edit_field_choice(callback: CallbackQuery, state: FSMContext):
     field = callback.data.split("_")[2]
@@ -136,6 +139,7 @@ async def process_edit_field_choice(callback: CallbackQuery, state: FSMContext):
 
     next_state = states_map.get(field)
     if next_state:
+        # ask for the next value using field-specific guidance
         await state.set_state(next_state)
         prompt = f"Please send the new {field}:"
         if field == "date":
@@ -151,9 +155,8 @@ async def process_edit_field_choice(callback: CallbackQuery, state: FSMContext):
     else:
         await callback.answer("Not implemented yet.", show_alert=True)
 
-        # generic handler for text inputs during edit
 
-
+# validates and stores text edits
 @router.message(
     StateFilter(
         EventEdit.editing_title,
@@ -168,6 +171,7 @@ async def process_text_edit(message: Message, state: FSMContext):
     current_state = await state.get_state()
     field = current_state.split(":")[1].replace("editing_", "")
 
+    # prepare date and time validation helpers
     from zoneinfo import ZoneInfo
     from app.config import get_settings
     from datetime import datetime, timedelta
@@ -176,6 +180,7 @@ async def process_text_edit(message: Message, state: FSMContext):
     tz = ZoneInfo(settings.app_timezone)
     now = datetime.now(tz)
 
+    # validate date and time fields before saving them
     if field == "date":
         try:
             val = datetime.strptime(message.text, "%d.%m.%Y").date()
@@ -204,6 +209,7 @@ async def process_text_edit(message: Message, state: FSMContext):
             return
         field = "event_time"
 
+    # validate plain text fields before saving them
     if field == "title":
         if len(message.text) > 100:
             await message.answer("Title is too long. Max 100 characters.")
@@ -229,10 +235,12 @@ async def process_text_edit(message: Message, state: FSMContext):
             return
         await state.update_data(organizer=message.text)
 
+    # return to the edit menu after each successful change
     await state.set_state(EventEdit.choosing_field)
     await show_edit_menu(message, state, is_new_message=True)
 
 
+# stores a replacement poster
 @router.message(EventEdit.editing_poster, F.photo)
 async def process_poster_edit(message: Message, state: FSMContext):
     photo_id = message.photo[-1].file_id
@@ -241,12 +249,14 @@ async def process_poster_edit(message: Message, state: FSMContext):
     await show_edit_menu(message, state, is_new_message=True)
 
 
+# cancels the edit workflow
 @router.callback_query(EventEdit.choosing_field, F.data == "edit_cancel")
 async def cancel_edit(callback: CallbackQuery, state: FSMContext):
     await state.clear()
     await callback.message.edit_text("Edit cancelled.")
 
 
+# submits an edit draft for moderation
 @router.callback_query(EventEdit.choosing_field, F.data == "edit_submit")
 async def submit_edit(
     callback: CallbackQuery, state: FSMContext, session: AsyncSession
@@ -257,6 +267,7 @@ async def submit_edit(
     original_event_id = data["original_event_id"]
     await get_event_by_id(session, original_event_id)
 
+    # convert stored strings back to date and time objects
     from datetime import datetime
 
     event_date = datetime.strptime(data["event_date"], "%Y-%m-%d").date()
@@ -278,8 +289,9 @@ async def submit_edit(
         status=EventStatus.PENDING.value,
     )
     session.add(draft)
-    await session.flush()  # to get draft.id
+    await session.flush()
 
+    # record that this draft needs moderation
     log = ModerationLog(
         event_id=draft.id,
         action=ModerationAction.SUBMITTED.value,

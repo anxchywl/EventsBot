@@ -5,10 +5,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.user import User
 
 
+# creates or refreshes a user from telegram data
 async def upsert_user_from_telegram(
     session: AsyncSession,
     telegram_user: TelegramUser,
 ) -> User:
+    # look up the user by telegram id
     result = await session.execute(
         select(User).where(User.telegram_id == telegram_user.id),
     )
@@ -18,6 +20,7 @@ async def upsert_user_from_telegram(
         user = User(telegram_id=telegram_user.id)
         session.add(user)
 
+    # keep profile fields in sync with telegram
     user.username = telegram_user.username
     user.first_name = telegram_user.first_name
     user.last_name = telegram_user.last_name

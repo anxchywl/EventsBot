@@ -22,8 +22,10 @@ if TYPE_CHECKING:
     from app.models.event import EventCategory, EventDetailMessage
 
 
+# stores telegram chats that receive dashboards
 class Chat(TimestampMixin, Base):
     __tablename__ = "chats"
+    # enforce chat identity and type values
     __table_args__ = (
         CheckConstraint(
             "chat_type IN ('private', 'group', 'supergroup', 'channel')",
@@ -33,6 +35,7 @@ class Chat(TimestampMixin, Base):
         Index("ix_chats_telegram_chat_id", "telegram_chat_id"),
     )
 
+    # telegram chat fields
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
     telegram_chat_id: Mapped[int] = mapped_column(BigInteger)
     title: Mapped[str | None] = mapped_column(String(255))
@@ -44,7 +47,9 @@ class Chat(TimestampMixin, Base):
     created_by_user_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"),
     )
+    registration_message_id: Mapped[int | None] = mapped_column(BigInteger)
 
+    # links chat to dashboard and category settings
     category_settings: Mapped[list[ChatCategorySetting]] = relationship(
         back_populates="chat",
         cascade="all, delete-orphan",
@@ -59,8 +64,10 @@ class Chat(TimestampMixin, Base):
     )
 
 
+# stores which categories are enabled in a chat
 class ChatCategorySetting(TimestampMixin, Base):
     __tablename__ = "chat_category_settings"
+    # prevent duplicate settings per chat and category
     __table_args__ = (
         UniqueConstraint(
             "chat_id",
@@ -69,6 +76,7 @@ class ChatCategorySetting(TimestampMixin, Base):
         ),
     )
 
+    # setting fields
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
     chat_id: Mapped[int] = mapped_column(ForeignKey("chats.id", ondelete="CASCADE"))
     category_id: Mapped[int] = mapped_column(
@@ -78,13 +86,16 @@ class ChatCategorySetting(TimestampMixin, Base):
         Boolean, default=True, server_default="true"
     )
 
+    # links setting to chat and category
     chat: Mapped[Chat] = relationship(back_populates="category_settings")
     category: Mapped[EventCategory] = relationship(back_populates="chat_settings")
 
 
+# stores the pinned dashboard message for a chat
 class DashboardMessage(TimestampMixin, Base):
     __tablename__ = "dashboard_messages"
 
+    # dashboard message tracking fields
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
     chat_id: Mapped[int] = mapped_column(
         ForeignKey("chats.id", ondelete="CASCADE"),
@@ -94,4 +105,5 @@ class DashboardMessage(TimestampMixin, Base):
     last_rendered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_render_hash: Mapped[str | None] = mapped_column(String(128))
 
+    # links dashboard message to its chat
     chat: Mapped[Chat] = relationship(back_populates="dashboard_message")

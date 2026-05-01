@@ -17,9 +17,11 @@ from zoneinfo import ZoneInfo
 from app.config import get_settings
 
 
+# builds the dashboard message text for a chat
 def render_dashboard(
     chat: Chat, enabled_categories: list[EventCategory], upcoming_events: list[Event]
 ) -> str:
+    # show enabled category names at the bottom
     categories_text = ", ".join(category.name for category in enabled_categories)
     if not categories_text:
         categories_text = "No categories enabled yet"
@@ -29,6 +31,7 @@ def render_dashboard(
     if not upcoming_events:
         lines.append("No approved upcoming events.\n")
     else:
+        # group events by relative date
         settings = get_settings()
         tz = ZoneInfo(settings.app_timezone)
         today = datetime.now(tz).date()
@@ -48,6 +51,7 @@ def render_dashboard(
             escaped_title = html.escape(event.title)
             escaped_location = html.escape(event.location)
 
+            # format event titles as links when possible
             event_title = (
                 f'<a href="{detail_link}">{escaped_title}</a>'
                 if detail_link
@@ -62,6 +66,7 @@ def render_dashboard(
                     f"• {date_str} {time_str} — {event_title}, {escaped_location}"
                 )
 
+            # place each event into its date group
             if days_diff == 0:
                 grouped_events["Today"].append(event_line)
             elif days_diff == 1:
@@ -79,11 +84,20 @@ def render_dashboard(
 
     lines.append("<b>Enabled categories</b>")
     lines.append(f"{categories_text}\n")
-    lines.append("<i>This message is updated automatically.</i>")
+
+    lines.append("<b>Notes:</b>")
+    lines.append("• This message is updated automatically.")
+    lines.append(
+        '• Promote the bot to Admin (with "Delete Messages" right) so it can keep the chat clean.'
+    )
+    lines.append(
+        "• This bot is <a href='https://github.com/anxchywl/events_bot'>open-source</a>."
+    )
 
     return "\n".join(lines)
 
 
+# loads categories enabled for a chat
 async def get_enabled_categories(
     session: AsyncSession,
     chat_id: int,
@@ -101,6 +115,7 @@ async def get_enabled_categories(
     return list(result.scalars().all())
 
 
+# finds the stored dashboard message for a chat
 async def get_dashboard_message(
     session: AsyncSession,
     chat_id: int,
@@ -111,6 +126,7 @@ async def get_dashboard_message(
     return result.scalar_one_or_none()
 
 
+# creates or updates a chat dashboard message
 async def create_or_update_dashboard_message(
     session: AsyncSession,
     bot: Bot,
@@ -129,7 +145,6 @@ async def create_or_update_dashboard_message(
     tz = ZoneInfo(settings.app_timezone)
     today = datetime.now(tz).date()
 
-    # fetch upcoming events for enabled categories (filter past events)
     events_stmt = (
         select(Event)
         .where(
@@ -143,13 +158,11 @@ async def create_or_update_dashboard_message(
     events_res = await session.execute(events_stmt)
     upcoming_events = events_res.scalars().all()
 
-    # fix broken links in the database for upcoming events
     for event in upcoming_events:
         for detail in event.detail_messages:
             if detail.message_link and (
                 "/c/-100" in detail.message_link or "/c/-" in detail.message_link
             ):
-                # fetch the chat to get current username or id
                 from app.models.chat import Chat
 
                 chat_obj = await session.get(Chat, detail.chat_id)
@@ -170,11 +183,13 @@ async def create_or_update_dashboard_message(
 
     await session.flush()
 
+    # render and hash the latest dashboard content
     text = render_dashboard(chat, enabled_categories, upcoming_events)
     text_hash = sha256(text.encode("utf-8")).hexdigest()
 
     dashboard_message = await get_dashboard_message(session, chat.id)
 
+    # create the message once or edit the existing one
     if dashboard_message is None:
         sent_message = await bot.send_message(chat_id=chat.telegram_chat_id, text=text)
         dashboard_message = DashboardMessage(
@@ -182,6 +197,15 @@ async def create_or_update_dashboard_message(
             message_id=sent_message.message_id,
         )
         session.add(dashboard_message)
+        # pin the dashboard message silently so it stays visible
+        try:
+            await bot.pin_chat_message(
+                chat_id=chat.telegram_chat_id,
+                message_id=sent_message.message_id,
+                disable_notification=True,
+            )
+        except Exception:
+            pass
     else:
         await edit_or_recreate_dashboard_message(
             bot=bot,
@@ -196,6 +220,7 @@ async def create_or_update_dashboard_message(
     return dashboard_message
 
 
+# edits a dashboard message or recreates it when needed
 async def edit_or_recreate_dashboard_message(
     bot: Bot,
     chat: Chat,
@@ -209,6 +234,7 @@ async def edit_or_recreate_dashboard_message(
             text=text,
         )
     except TelegramBadRequest as error:
+        # ignore no-op edits from telegram
         message = str(error).lower()
         if "message is not modified" in message:
             return

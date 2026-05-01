@@ -6,6 +6,7 @@ from app.db.session import async_session_maker
 from app.models.event import EventCategory
 
 
+# seeds default event categories
 async def seed_categories():
     categories = [
         {"name": "Computer Science", "slug": "computer_science"},
@@ -23,7 +24,6 @@ async def seed_categories():
 
     async with async_session_maker() as session:
         for i, cat_data in enumerate(categories):
-            # check by both name and slug to be safe
             stmt = select(EventCategory).where(
                 (EventCategory.slug == cat_data["slug"])
                 | (EventCategory.name == cat_data["name"])
@@ -38,10 +38,8 @@ async def seed_categories():
                     sort_order=i * 10,
                 )
                 session.add(new_cat)
-                # commit after each to avoid autoflush issues in the next iteration
                 await session.commit()
             else:
-                # refresh session state
                 await session.rollback()
 
         print("Categories sync completed.")

@@ -12,6 +12,7 @@ from app.models.reminder import Reminder
 from app.models.user import User
 
 
+# toggles an event in the user's favorites
 async def toggle_favorite(session: AsyncSession, user: User, event_id: int) -> bool:
     """toggles favorite status. returns true if added, false if removed."""
     stmt = select(Favorite).where(
@@ -20,6 +21,7 @@ async def toggle_favorite(session: AsyncSession, user: User, event_id: int) -> b
     result = await session.execute(stmt)
     favorite = result.scalar_one_or_none()
 
+    # remove existing favorite or add a new one
     if favorite:
         await session.delete(favorite)
         return False
@@ -29,6 +31,7 @@ async def toggle_favorite(session: AsyncSession, user: User, event_id: int) -> b
         return True
 
 
+# loads events favorited by a user
 async def get_user_favorites(session: AsyncSession, user: User) -> Sequence[Event]:
     stmt = (
         select(Event)
@@ -41,6 +44,7 @@ async def get_user_favorites(session: AsyncSession, user: User) -> Sequence[Even
     return result.scalars().all()
 
 
+# schedules a reminder before an event
 async def schedule_reminder(
     session: AsyncSession, user: User, event: Event, reminder_type: ReminderType
 ) -> str:
@@ -51,10 +55,8 @@ async def schedule_reminder(
     settings = get_settings()
     tz = ZoneInfo(settings.app_timezone)
 
-    # calculate event datetime
     event_dt = datetime.combine(event.event_date, event.event_time).replace(tzinfo=tz)
 
-    # calculate remind_at
     if reminder_type == ReminderType.ONE_DAY:
         remind_at = event_dt - timedelta(days=1)
     else:
@@ -63,7 +65,6 @@ async def schedule_reminder(
     if remind_at <= datetime.now(tz):
         return "It's too late to set this reminder!"
 
-        # check if already scheduled
     stmt = select(Reminder).where(
         Reminder.user_id == user.id,
         Reminder.event_id == event.id,
@@ -75,6 +76,7 @@ async def schedule_reminder(
     if existing:
         return "You already have this reminder set."
 
+    # persist the new reminder
     reminder = Reminder(
         user_id=user.id,
         event_id=event.id,
@@ -86,6 +88,7 @@ async def schedule_reminder(
     return f"Reminder set for {'1 day' if reminder_type == ReminderType.ONE_DAY else '1 hour'} before the event."
 
 
+# loads reminders due for delivery
 async def get_due_reminders(session: AsyncSession) -> Sequence[Reminder]:
     now = datetime.now(UTC)
     stmt = (
@@ -100,10 +103,12 @@ async def get_due_reminders(session: AsyncSession) -> Sequence[Reminder]:
     return result.scalars().all()
 
 
+# marks one reminder as sent
 async def mark_reminder_sent(session: AsyncSession, reminder_id: int) -> None:
     stmt = select(Reminder).where(Reminder.id == reminder_id)
     result = await session.execute(stmt)
     reminder = result.scalar_one_or_none()
+    # update only when the reminder still exists
     if reminder:
         reminder.status = ReminderStatus.SENT.value
         reminder.sent_at = datetime.now(UTC)

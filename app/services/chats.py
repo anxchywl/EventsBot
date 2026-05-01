@@ -1,11 +1,13 @@
 from aiogram.types import Chat as TelegramChat
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.chat import Chat, ChatCategorySetting
 from app.models.event import EventCategory
 
 
+# finds a registered chat by telegram id
 async def get_chat_by_telegram_id(
     session: AsyncSession,
     telegram_chat_id: int,
@@ -16,6 +18,7 @@ async def get_chat_by_telegram_id(
     return result.scalar_one_or_none()
 
 
+# creates or updates a telegram chat record
 async def register_chat(
     session: AsyncSession,
     telegram_chat: TelegramChat,
@@ -23,6 +26,7 @@ async def register_chat(
 ) -> Chat:
     chat = await get_chat_by_telegram_id(session, telegram_chat.id)
 
+    # create the chat if it is not known yet
     if chat is None:
         chat = Chat(
             telegram_chat_id=telegram_chat.id,
@@ -30,6 +34,7 @@ async def register_chat(
         )
         session.add(chat)
 
+    # refresh chat metadata from telegram
     chat.title = telegram_chat.title
     chat.username = telegram_chat.username
     chat.chat_type = getattr(telegram_chat.type, "value", telegram_chat.type)
@@ -41,7 +46,9 @@ async def register_chat(
     return chat
 
 
+# enables missing active categories for a chat
 async def ensure_all_categories_enabled(session: AsyncSession, chat: Chat) -> None:
+    # load active categories and existing settings
     categories = (
         (
             await session.execute(
@@ -64,6 +71,7 @@ async def ensure_all_categories_enabled(session: AsyncSession, chat: Chat) -> No
         .all(),
     )
 
+    # add default settings for new categories
     for category in categories:
         if category.id not in existing_category_ids:
             session.add(
@@ -73,3 +81,37 @@ async def ensure_all_categories_enabled(session: AsyncSession, chat: Chat) -> No
                     is_enabled=True,
                 ),
             )
+
+
+# loads category settings for a chat
+async def get_chat_category_settings(
+    session: AsyncSession,
+    chat_id: int,
+) -> list[ChatCategorySetting]:
+    result = await session.execute(
+        select(ChatCategorySetting)
+        .where(ChatCategorySetting.chat_id == chat_id)
+        .options(selectinload(ChatCategorySetting.category))
+        .join(EventCategory)
+        .order_by(EventCategory.sort_order, EventCategory.name)
+    )
+    return list(result.scalars().all())
+
+
+# toggles a category setting for a chat
+async def toggle_chat_category(
+    session: AsyncSession,
+    chat_id: int,
+    category_id: int,
+) -> bool:
+    result = await session.execute(
+        select(ChatCategorySetting).where(
+            ChatCategorySetting.chat_id == chat_id,
+            ChatCategorySetting.category_id == category_id,
+        )
+    )
+    setting = result.scalar_one_or_none()
+    if setting:
+        setting.is_enabled = not setting.is_enabled
+        return setting.is_enabled
+    return False

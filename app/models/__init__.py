@@ -6,6 +6,7 @@ from app.models.moderation import ModerationLog
 from app.models.reminder import Reminder
 from app.models.user import User
 
+# exports models for imports and migrations
 __all__ = (
     "Chat",
     "ChatCategorySetting",

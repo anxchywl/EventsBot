@@ -24,8 +24,10 @@ if TYPE_CHECKING:
     from app.models.user import User
 
 
+# stores moderation history for events
 class ModerationLog(Base):
     __tablename__ = "moderation_logs"
+    # enforce action values and event history lookup
     __table_args__ = (
         CheckConstraint(
             "action IN ('submitted', 'approved', 'rejected', 'edited', 'needs_changes', 'cancelled')",
@@ -34,6 +36,7 @@ class ModerationLog(Base):
         Index("ix_moderation_logs_event_created", "event_id", "created_at"),
     )
 
+    # moderation log fields
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
     event_id: Mapped[int] = mapped_column(ForeignKey("events.id", ondelete="CASCADE"))
     moderator_user_id: Mapped[int | None] = mapped_column(
@@ -50,5 +53,6 @@ class ModerationLog(Base):
         nullable=False,
     )
 
+    # links moderation log to event and moderator
     event: Mapped[Event] = relationship(back_populates="moderation_logs")
     moderator: Mapped[User | None] = relationship(back_populates="moderation_logs")

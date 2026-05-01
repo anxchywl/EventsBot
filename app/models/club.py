@@ -12,9 +12,11 @@ if TYPE_CHECKING:
     from app.models.user import User
 
 
+# stores student club profiles
 class Club(TimestampMixin, Base):
     __tablename__ = "clubs"
 
+    # club profile fields
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
     name: Mapped[str] = mapped_column(String(255), unique=True)
     description: Mapped[str | None] = mapped_column(Text)
@@ -26,5 +28,6 @@ class Club(TimestampMixin, Base):
         Boolean, default=True, server_default="true"
     )
 
+    # links clubs to owners and events
     owner: Mapped[User | None] = relationship(back_populates="owned_clubs")
     events: Mapped[list[Event]] = relationship(back_populates="club")

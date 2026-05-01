@@ -20,12 +20,15 @@ if TYPE_CHECKING:
     from app.models.user import User
 
 
+# stores events favorited by users
 class Favorite(Base):
     __tablename__ = "favorites"
+    # prevent the same favorite twice
     __table_args__ = (
         UniqueConstraint("user_id", "event_id", name="uq_favorites_user_id_event_id"),
     )
 
+    # favorite identity fields
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     event_id: Mapped[int] = mapped_column(ForeignKey("events.id", ondelete="CASCADE"))
@@ -35,5 +38,6 @@ class Favorite(Base):
         nullable=False,
     )
 
+    # links favorite to user and event
     user: Mapped[User] = relationship(back_populates="favorites")
     event: Mapped[Event] = relationship(back_populates="favorites")

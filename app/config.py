@@ -4,6 +4,7 @@ from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+# stores runtime settings loaded from environment variables
 class Settings(BaseSettings):
     bot_token: SecretStr = Field(alias="BOT_TOKEN")
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
@@ -23,6 +24,7 @@ class Settings(BaseSettings):
     )
 
 
+# returns cached application settings
 @lru_cache
 def get_settings() -> Settings:
     return Settings()

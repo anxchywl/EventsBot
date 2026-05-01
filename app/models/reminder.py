@@ -23,8 +23,10 @@ if TYPE_CHECKING:
     from app.models.user import User
 
 
+# stores scheduled user reminders
 class Reminder(TimestampMixin, Base):
     __tablename__ = "reminders"
+    # enforce reminder uniqueness and lookup speed
     __table_args__ = (
         UniqueConstraint(
             "user_id",
@@ -41,6 +43,7 @@ class Reminder(TimestampMixin, Base):
         Index("ix_reminders_status_remind_at", "status", "remind_at"),
     )
 
+    # reminder timing and state fields
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     event_id: Mapped[int] = mapped_column(ForeignKey("events.id", ondelete="CASCADE"))
@@ -53,5 +56,6 @@ class Reminder(TimestampMixin, Base):
     )
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
+    # links reminder to user and event
     user: Mapped[User] = relationship(back_populates="reminders")
     event: Mapped[Event] = relationship(back_populates="reminders")
