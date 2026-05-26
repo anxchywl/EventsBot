@@ -269,21 +269,22 @@ Open `.env` and fill in the following:
 - `ADMIN_IDS` — your Telegram ID (get it from [@userinfobot](https://t.me/userinfobot))
 
 ### 6. Start Infrastructure
-Make sure Docker Desktop is running, then start the database and cache services:
+Make sure Docker Desktop is running, then start PostgreSQL and Redis:
 ```bash
 docker compose up -d postgres redis
 ```
 
 ### 7. Apply Migrations and Seed Data
+Run these commands from the project root with the virtual environment activated:
 ```bash
-export PYTHONPATH=.
 alembic upgrade head
-python scripts/seed_categories.py
+python -m scripts.seed_categories
 ```
 
 ### 8. Run the Bot
+Always start the bot as a Python module from the project root. Do not run `python app/main.py`, because that can break package imports.
 ```bash
-python3 app/main.py
+python3 -m app.main
 ```
 
 ---
@@ -293,7 +294,19 @@ python3 app/main.py
 **Restarting the Bot:**
 Press `Ctrl + C` to stop the bot, then run:
 ```bash
-python3 app/main.py
+docker compose up -d postgres redis
+python3 -m app.main
+```
+
+**Full Local Startup:**
+Use this after opening a new terminal:
+```bash
+cd events_bot
+source .venv/bin/activate
+docker compose up -d postgres redis
+alembic upgrade head
+python -m scripts.seed_categories
+python3 -m app.main
 ```
 
 **Wiping the Database:**

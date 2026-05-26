@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, time
 from typing import TYPE_CHECKING
+from uuid import uuid4
 
 from sqlalchemy import (
     BigInteger,
@@ -22,6 +23,7 @@ from app.db.base import Base, TimestampMixin
 from app.models.enums import EventStatus
 
 if TYPE_CHECKING:
+    from app.models.analytics import EventAnalytics
     from app.models.chat import Chat, ChatCategorySetting
     from app.models.club import Club
     from app.models.favorite import Favorite
@@ -61,6 +63,7 @@ class Event(TimestampMixin, Base):
             "ix_events_category_date_time", "category_id", "event_date", "event_time"
         ),
         Index("ix_events_status_date_time", "status", "event_date", "event_time"),
+        Index("ix_events_public_token", "public_token", unique=True),
     )
 
     # event identity and ownership
@@ -76,6 +79,11 @@ class Event(TimestampMixin, Base):
     )
     category_id: Mapped[int] = mapped_column(
         ForeignKey("event_categories.id", ondelete="RESTRICT"),
+    )
+    public_token: Mapped[str] = mapped_column(
+        String(36),
+        default=lambda: str(uuid4()),
+        nullable=False,
     )
     # public event content
     title: Mapped[str] = mapped_column(String(255))
@@ -131,6 +139,10 @@ class Event(TimestampMixin, Base):
         cascade="all, delete-orphan",
     )
     moderation_logs: Mapped[list[ModerationLog]] = relationship(
+        back_populates="event",
+        cascade="all, delete-orphan",
+    )
+    analytics: Mapped[list[EventAnalytics]] = relationship(
         back_populates="event",
         cascade="all, delete-orphan",
     )

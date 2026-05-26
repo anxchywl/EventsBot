@@ -15,6 +15,7 @@ from app.handlers import (
     start_router,
     user_events_router,
     event_edit_router,
+    event_pages_router,
     admin_panel_router,
     categories_router,
 )
@@ -107,6 +108,7 @@ async def main() -> None:
     dispatcher.include_router(start_router)
     dispatcher.include_router(user_events_router)
     dispatcher.include_router(event_edit_router)
+    dispatcher.include_router(event_pages_router)
     dispatcher.include_router(admin_panel_router)
     dispatcher.include_router(categories_router)
 

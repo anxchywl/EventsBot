@@ -5,10 +5,10 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     BigInteger,
-    CheckConstraint,
     DateTime,
     ForeignKey,
     Identity,
+    Integer,
     Index,
     String,
     UniqueConstraint,
@@ -31,16 +31,11 @@ class Reminder(TimestampMixin, Base):
         UniqueConstraint(
             "user_id",
             "event_id",
-            "reminder_type",
-            name="uq_reminders_user_id_event_id_reminder_type",
-        ),
-        CheckConstraint(
-            "reminder_type IN ('one_day', 'one_hour')", name="reminder_type"
-        ),
-        CheckConstraint(
-            "status IN ('scheduled', 'sent', 'cancelled', 'failed')", name="status"
+            "offset_minutes",
+            name="uq_reminders_user_id_event_id_offset_minutes",
         ),
         Index("ix_reminders_status_remind_at", "status", "remind_at"),
+        Index("ix_reminders_user_status_remind_at", "user_id", "status", "remind_at"),
     )
 
     # reminder timing and state fields
@@ -48,6 +43,7 @@ class Reminder(TimestampMixin, Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     event_id: Mapped[int] = mapped_column(ForeignKey("events.id", ondelete="CASCADE"))
     remind_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    offset_minutes: Mapped[int] = mapped_column(Integer)
     reminder_type: Mapped[str] = mapped_column(String(32))
     status: Mapped[str] = mapped_column(
         String(32),

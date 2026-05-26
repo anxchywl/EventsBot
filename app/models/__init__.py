@@ -1,3 +1,4 @@
+from app.models.analytics import EventAnalytics
 from app.models.chat import Chat, ChatCategorySetting, DashboardMessage
 from app.models.club import Club
 from app.models.event import Event, EventCategory, EventDetailMessage
@@ -13,6 +14,7 @@ __all__ = (
     "Club",
     "DashboardMessage",
     "Event",
+    "EventAnalytics",
     "EventCategory",
     "EventDetailMessage",
     "Favorite",

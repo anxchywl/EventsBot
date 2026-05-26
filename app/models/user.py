@@ -8,6 +8,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base, TimestampMixin
 
 if TYPE_CHECKING:
+    from app.models.analytics import EventAnalytics
     from app.models.club import Club
     from app.models.event import Event
     from app.models.favorite import Favorite
@@ -52,3 +53,4 @@ class User(TimestampMixin, Base):
     moderation_logs: Mapped[list[ModerationLog]] = relationship(
         back_populates="moderator",
     )
+    event_analytics: Mapped[list[EventAnalytics]] = relationship(back_populates="user")

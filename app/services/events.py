@@ -1,5 +1,7 @@
 import logging
 from typing import Sequence
+from uuid import uuid4
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -42,6 +44,7 @@ async def create_pending_event(
     # build the event from collected form data
     event = Event(
         creator_user_id=creator.id,
+        public_token=str(uuid4()),
         title=event_data["title"],
         description=event_data["description"],
         event_date=event_data["event_date"],
@@ -74,6 +77,76 @@ async def get_event_by_id(session: AsyncSession, event_id: int) -> Event | None:
         .options(selectinload(Event.category), selectinload(Event.creator))
     )
     return result.scalar_one_or_none()
+
+
+async def get_event_by_public_token(
+    session: AsyncSession, public_token: str
+) -> Event | None:
+    public_token = normalize_public_token(public_token)
+    result = await session.execute(
+        select(Event)
+        .where(Event.public_token == public_token)
+        .options(selectinload(Event.category), selectinload(Event.creator))
+    )
+    return result.scalar_one_or_none()
+
+
+async def get_available_event_by_public_token(
+    session: AsyncSession, public_token: str
+) -> Event | None:
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from app.config import get_settings
+
+    public_token = normalize_public_token(public_token)
+    settings = get_settings()
+    today = datetime.now(ZoneInfo(settings.app_timezone)).date()
+
+    result = await session.execute(
+        select(Event)
+        .where(
+            Event.public_token == public_token,
+            Event.status == EventStatus.APPROVED.value,
+            Event.event_date >= today,
+        )
+        .options(selectinload(Event.category), selectinload(Event.creator))
+    )
+    return result.scalar_one_or_none()
+
+
+async def get_approved_upcoming_events(session: AsyncSession) -> Sequence[Event]:
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from app.config import get_settings
+
+    settings = get_settings()
+    today = datetime.now(ZoneInfo(settings.app_timezone)).date()
+
+    result = await session.execute(
+        select(Event)
+        .where(
+            Event.status == EventStatus.APPROVED.value,
+            Event.event_date >= today,
+        )
+        .order_by(Event.event_date, Event.event_time)
+        .options(selectinload(Event.category))
+    )
+    return result.scalars().all()
+
+
+def ensure_event_public_token(event: Event) -> str:
+    if not event.public_token:
+        event.public_token = str(uuid4())
+    return event.public_token
+
+
+def normalize_public_token(public_token: str) -> str:
+    token = public_token.strip()
+    if token.startswith("event_"):
+        token = token.removeprefix("event_")
+    return token
 
 
 # loads events waiting for moderation

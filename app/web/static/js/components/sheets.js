@@ -1,0 +1,330 @@
+import { escapeHtml } from "./events.js";
+import { formatReminderOffset, t } from "../i18n.js?v=20260525-card-spacing-align";
+
+const MAX_REMINDERS = 3;
+
+// ─── Public API ──────────────────────────────────────────────────────────────
+
+export function openReminderSheet({ event, onSubmit }) {
+  closeSheet();
+  const node = document.createElement("div");
+  node.className = "sheet-backdrop";
+  node.innerHTML = buildSheet(event);
+  node._deletedReminderIds = new Set();
+  document.body.append(node);
+  refreshReminderInputs(node);
+
+  // wire up segmented timer inputs
+  const segs = node.querySelectorAll(".timer-seg");
+  segs.forEach((seg, i) => wireSegment(seg, i, segs));
+
+  requestAnimationFrame(() => {
+    node.classList.add("open");
+    // auto-focus first segment after animation settles
+    setTimeout(() => segs[0]?.focus(), 220);
+  });
+
+  node.addEventListener("click", async (e) => {
+    if (e.target === node || e.target.closest("[data-sheet-close]")) {
+      closeSheet();
+      return;
+    }
+
+    // remove existing reminder
+    const removeBtn = e.target.closest("[data-reminder-remove]");
+    if (removeBtn) {
+      const id = removeBtn.dataset.reminderRemove;
+      if (id) node._deletedReminderIds.add(id);
+      removeBtn.closest(".reminder-chip")?.remove();
+      refreshReminderStack(node);
+      refreshReminderInputs(node);
+      return;
+    }
+
+    // save new reminder
+    if (e.target.closest("[data-sheet-save]")) {
+      await handleSave(node, event, onSubmit);
+      return;
+    }
+
+    const preset = e.target.closest("[data-preset-minutes]");
+    if (preset) {
+      writeOffset(node, Number(preset.dataset.presetMinutes || 0));
+      clearError(node);
+    }
+  });
+}
+
+export function closeSheet() {
+  const current = document.querySelector(".sheet-backdrop");
+  if (!current) return;
+  current.classList.remove("open");
+  window.setTimeout(() => current.remove(), 220);
+}
+
+// ─── Sheet HTML ───────────────────────────────────────────────────────────────
+
+function buildSheet(event) {
+  const atLimit = (event?.reminder_offsets?.length ?? 0) >= MAX_REMINDERS;
+  return `
+    <section class="bottom-sheet" role="dialog" aria-modal="true">
+      <div class="sheet-handle"></div>
+      <div class="sheet-header">
+        <h2>${t("reminderTitle")}</h2>
+      </div>
+
+      <div class="preset-grid" aria-label="${t("reminderTitle")}">
+        ${presetButton(60, "1h", atLimit)}
+        ${presetButton(180, "3h", atLimit)}
+        ${presetButton(1440, "1d", atLimit)}
+        ${presetButton(4320, "3d", atLimit)}
+      </div>
+
+      <div class="timer-wrap ${atLimit ? "timer-disabled" : ""}">
+        <div class="timer-display">
+          <div class="timer-field">
+            <input
+              class="timer-seg"
+              type="text"
+              inputmode="numeric"
+              maxlength="2"
+              placeholder="00"
+              data-seg="dd"
+              data-max="99"
+              aria-label="Days"
+              ${atLimit ? "disabled" : ""}
+            />
+            <span class="timer-label">d</span>
+          </div>
+          <span class="timer-colon">:</span>
+          <div class="timer-field">
+            <input
+              class="timer-seg"
+              type="text"
+              inputmode="numeric"
+              maxlength="2"
+              placeholder="00"
+              data-seg="hh"
+              data-max="23"
+              aria-label="Hours"
+              ${atLimit ? "disabled" : ""}
+            />
+            <span class="timer-label">h</span>
+          </div>
+          <span class="timer-colon">:</span>
+          <div class="timer-field">
+            <input
+              class="timer-seg"
+              type="text"
+              inputmode="numeric"
+              maxlength="2"
+              placeholder="00"
+              data-seg="mm"
+              data-max="59"
+              aria-label="Minutes"
+              ${atLimit ? "disabled" : ""}
+            />
+            <span class="timer-label">m</span>
+          </div>
+        </div>
+        <p class="timer-error" data-error></p>
+      </div>
+
+      ${buildReminderStack(event)}
+
+      <div class="sheet-actions">
+        <button class="action primary sheet-save-btn" type="button" data-sheet-save>
+          ${t("save")}
+        </button>
+        <button class="action" type="button" data-sheet-close>${t("cancel")}</button>
+      </div>
+    </section>
+  `;
+}
+
+function presetButton(minutes, label, disabled) {
+  return `
+    <button class="preset-chip" type="button" data-preset-minutes="${minutes}" ${disabled ? "disabled" : ""}>
+      ${escapeHtml(label)}
+    </button>
+  `;
+}
+
+function buildReminderStack(event) {
+  const ids = event?.reminder_ids ?? [];
+  const offsets = event?.reminder_offsets ?? [];
+
+  if (!offsets.length) return "";
+
+  const chips = offsets.map((offset, i) => `
+    <div class="reminder-chip">
+      <span class="reminder-chip-time">${escapeHtml(formatReminderOffset(offset))}</span>
+      <button class="reminder-chip-remove" type="button" data-reminder-remove="${escapeHtml(String(ids[i] ?? ""))}" aria-label="${t("remove")}">×</button>
+    </div>
+  `).join("");
+
+  return `
+    <div class="reminder-stack" data-reminder-stack>
+      <div class="reminder-chips" data-chips>${chips}</div>
+    </div>
+  `;
+}
+
+function refreshReminderStack(node) {
+  const stack = node.querySelector("[data-reminder-stack]");
+  if (stack && !stack.querySelector(".reminder-chip")) stack.remove();
+}
+
+function refreshReminderInputs(node) {
+  const atLimit = node.querySelectorAll(".reminder-chip").length >= MAX_REMINDERS;
+  node.querySelector(".timer-wrap")?.classList.toggle("timer-disabled", atLimit);
+  node.querySelectorAll(".timer-seg").forEach((input) => {
+    input.disabled = atLimit;
+    if (atLimit) input.value = "";
+  });
+  node.querySelectorAll("[data-preset-minutes]").forEach((button) => {
+    button.disabled = atLimit;
+  });
+  if (!atLimit) clearError(node);
+}
+
+// ─── Segmented Input Logic ────────────────────────────────────────────────────
+
+function wireSegment(seg, index, allSegs) {
+  seg.addEventListener("keydown", (e) => {
+    if (e.key === "Backspace" && seg.value === "" && index > 0) {
+      allSegs[index - 1].focus();
+      allSegs[index - 1].select();
+      e.preventDefault();
+      return;
+    }
+    if (e.key === "ArrowLeft" && index > 0) {
+      allSegs[index - 1].focus();
+      allSegs[index - 1].select();
+      e.preventDefault();
+      return;
+    }
+    if (e.key === "ArrowRight" && index < allSegs.length - 1) {
+      allSegs[index + 1].focus();
+      allSegs[index + 1].select();
+      e.preventDefault();
+      return;
+    }
+    // block non-numeric except control keys
+    if (!/^[0-9]$/.test(e.key) && !["Backspace", "Delete", "Tab", "ArrowLeft", "ArrowRight"].includes(e.key)) {
+      e.preventDefault();
+    }
+  });
+
+  seg.addEventListener("input", () => {
+    // strip non-digits
+    seg.value = seg.value.replace(/\D/g, "");
+
+    const max = Number(seg.dataset.max);
+    const val = Number(seg.value);
+
+    // immediately clamp first digit if it would make any 2-digit number exceed max
+    if (seg.value.length === 1) {
+      const maxFirstDigit = Math.floor(max / 10);
+      if (val > maxFirstDigit) {
+        // pad and clamp, then advance
+        seg.value = String(Math.min(val, max)).padStart(2, "0");
+        advanceFocus(index, allSegs);
+        return;
+      }
+    }
+
+    if (seg.value.length >= 2) {
+      seg.value = String(Math.min(val, max)).padStart(2, "0");
+      advanceFocus(index, allSegs);
+    }
+  });
+
+  seg.addEventListener("focus", () => seg.select());
+
+  seg.addEventListener("paste", (e) => {
+    e.preventDefault();
+    const text = (e.clipboardData || window.clipboardData).getData("text");
+    // accept only digits from paste
+    const digits = text.replace(/\D/g, "").slice(0, 2);
+    seg.value = digits;
+    seg.dispatchEvent(new Event("input"));
+  });
+}
+
+function advanceFocus(index, allSegs) {
+  if (index < allSegs.length - 1) {
+    allSegs[index + 1].focus();
+    allSegs[index + 1].select();
+  }
+}
+
+// ─── Save Logic ───────────────────────────────────────────────────────────────
+
+function readOffset(node) {
+  const dd = Number(node.querySelector("[data-seg='dd']")?.value || 0);
+  const hh = Number(node.querySelector("[data-seg='hh']")?.value || 0);
+  const mm = Number(node.querySelector("[data-seg='mm']")?.value || 0);
+  return dd * 1440 + hh * 60 + mm;
+}
+
+function writeOffset(node, minutes) {
+  const days = Math.floor(minutes / 1440);
+  const hours = Math.floor((minutes % 1440) / 60);
+  const mins = minutes % 60;
+  const values = { dd: days, hh: hours, mm: mins };
+  Object.entries(values).forEach(([key, value]) => {
+    const input = node.querySelector(`[data-seg='${key}']`);
+    if (input) {
+      input.value = String(value).padStart(2, "0");
+    }
+  });
+  node.querySelector("[data-seg='mm']")?.focus();
+}
+
+function showError(node, msg) {
+  const el = node.querySelector("[data-error]");
+  if (!el) return;
+  el.textContent = msg;
+  el.classList.remove("timer-error-shake");
+  void el.offsetWidth; // trigger reflow for re-animation
+  el.classList.add("timer-error-shake");
+}
+
+function clearError(node) {
+  const el = node.querySelector("[data-error]");
+  if (el) {
+    el.textContent = "";
+    el.classList.remove("timer-error-shake");
+  }
+}
+
+async function handleSave(node, event, onSubmit) {
+  clearError(node);
+  const offset = readOffset(node);
+  const deletedReminderIds = [...(node._deletedReminderIds || [])];
+
+  if (offset > 143_999) {
+    showError(node, t("invalidReminder"));
+    return;
+  }
+
+  const saveBtn = node.querySelector("[data-sheet-save]");
+  if (saveBtn) {
+    saveBtn.disabled = true;
+    saveBtn.textContent = "…";
+  }
+
+  try {
+    await onSubmit(offset > 0 ? offset : null, deletedReminderIds);
+    // success: close sheet
+    closeSheet();
+  } catch (err) {
+    const msg = err?.message || t("invalidReminder");
+    showError(node, msg);
+    if (saveBtn) {
+      saveBtn.disabled = false;
+      saveBtn.textContent = t("save");
+    }
+  }
+}

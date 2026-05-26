@@ -57,10 +57,8 @@ async def schedule_reminder(
 
     event_dt = datetime.combine(event.event_date, event.event_time).replace(tzinfo=tz)
 
-    if reminder_type == ReminderType.ONE_DAY:
-        remind_at = event_dt - timedelta(days=1)
-    else:
-        remind_at = event_dt - timedelta(hours=1)
+    offset_minutes = 1440 if reminder_type == ReminderType.ONE_DAY else 60
+    remind_at = event_dt - timedelta(minutes=offset_minutes)
 
     if remind_at <= datetime.now(tz):
         return "It's too late to set this reminder!"
@@ -68,7 +66,8 @@ async def schedule_reminder(
     stmt = select(Reminder).where(
         Reminder.user_id == user.id,
         Reminder.event_id == event.id,
-        Reminder.reminder_type == reminder_type.value,
+        Reminder.offset_minutes == offset_minutes,
+        Reminder.status == ReminderStatus.SCHEDULED.value,
     )
     result = await session.execute(stmt)
     existing = result.scalar_one_or_none()
@@ -81,11 +80,120 @@ async def schedule_reminder(
         user_id=user.id,
         event_id=event.id,
         reminder_type=reminder_type.value,
+        offset_minutes=offset_minutes,
         remind_at=remind_at.astimezone(UTC),
         status=ReminderStatus.SCHEDULED.value,
     )
     session.add(reminder)
     return f"Reminder set for {'1 day' if reminder_type == ReminderType.ONE_DAY else '1 hour'} before the event."
+
+
+# max 99 days, 23 hours, 59 minutes = 143_999 minutes
+MAX_OFFSET_MINUTES = 143_999
+MAX_REMINDERS_PER_EVENT = 3
+
+
+def validate_reminder_offset(offset_minutes: int) -> None:
+    if offset_minutes <= 0:
+        raise ValueError("Reminder must be greater than 0 minutes.")
+    if offset_minutes > MAX_OFFSET_MINUTES:
+        raise ValueError("Reminder cannot be more than 99 days before the event.")
+
+
+async def schedule_reminder_offset(
+    session: AsyncSession,
+    user: User,
+    event: Event,
+    offset_minutes: int,
+) -> Reminder:
+    from zoneinfo import ZoneInfo
+    from app.config import get_settings
+
+    validate_reminder_offset(offset_minutes)
+
+    settings = get_settings()
+    tz = ZoneInfo(settings.app_timezone)
+    event_dt = datetime.combine(event.event_date, event.event_time).replace(tzinfo=tz)
+    remind_at = event_dt - timedelta(minutes=offset_minutes)
+
+    if remind_at <= datetime.now(tz):
+        raise ValueError("It's too late to set this reminder.")
+
+    result = await session.execute(
+        select(Reminder)
+        .where(
+            Reminder.user_id == user.id,
+            Reminder.event_id == event.id,
+            Reminder.offset_minutes == offset_minutes,
+        )
+        .order_by(Reminder.id.desc())
+    )
+    existing = result.scalars().first()
+    if existing:
+        existing.reminder_type = f"offset_{offset_minutes}"
+        existing.remind_at = remind_at.astimezone(UTC)
+        existing.status = ReminderStatus.SCHEDULED.value
+        existing.sent_at = None
+        await session.flush()
+        return existing
+
+    count_result = await session.execute(
+        select(Reminder.id).where(
+            Reminder.user_id == user.id,
+            Reminder.event_id == event.id,
+            Reminder.status == ReminderStatus.SCHEDULED.value,
+        )
+    )
+    if len(count_result.scalars().all()) >= MAX_REMINDERS_PER_EVENT:
+        raise ValueError("Reminder limit reached.")
+
+    reminder = Reminder(
+        user_id=user.id,
+        event_id=event.id,
+        reminder_type=f"offset_{offset_minutes}",
+        offset_minutes=offset_minutes,
+        remind_at=remind_at.astimezone(UTC),
+        status=ReminderStatus.SCHEDULED.value,
+    )
+    session.add(reminder)
+    await session.flush()
+    return reminder
+
+
+async def cancel_reminder(
+    session: AsyncSession,
+    user: User,
+    reminder_id: int,
+) -> int | None:
+    result = await session.execute(
+        select(Reminder).where(
+            Reminder.id == reminder_id,
+            Reminder.user_id == user.id,
+            Reminder.status == ReminderStatus.SCHEDULED.value,
+        )
+    )
+    reminder = result.scalar_one_or_none()
+    if not reminder:
+        return None
+    event_id = reminder.event_id
+    await session.delete(reminder)
+    return event_id
+
+
+async def get_user_scheduled_reminders(
+    session: AsyncSession,
+    user: User,
+) -> Sequence[Reminder]:
+    result = await session.execute(
+        select(Reminder)
+        .where(
+            Reminder.user_id == user.id,
+            Reminder.status == ReminderStatus.SCHEDULED.value,
+        )
+        .order_by(Reminder.remind_at)
+        .options(selectinload(Reminder.event).selectinload(Event.category))
+    )
+    return result.scalars().all()
 
 
 # loads reminders due for delivery

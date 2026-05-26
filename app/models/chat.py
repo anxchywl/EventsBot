@@ -61,6 +61,7 @@ class Chat(TimestampMixin, Base):
     )
     event_detail_messages: Mapped[list[EventDetailMessage]] = relationship(
         back_populates="chat",
+        cascade="all, delete-orphan",
     )
 
 

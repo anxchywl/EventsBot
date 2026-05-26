@@ -103,18 +103,27 @@ class DashboardBus:
 
     async def _refresh_chats(self, chat_ids: set[int]) -> None:
         """opens a fresh db session and updates dashboards for each chat."""
-        from app.models.chat import Chat, DashboardMessage
+        from aiogram.exceptions import TelegramForbiddenError
+        from app.models.chat import Chat
+        from app.services.chats import delete_chat_by_id
         from app.services.dashboard import create_or_update_dashboard_message
         from sqlalchemy import select
 
-        async with self._session_factory() as session:
+        for chat_id in chat_ids:
+            telegram_chat_id: int | None = None
             try:
-                result = await session.execute(
-                    select(Chat).where(Chat.id.in_(chat_ids), Chat.is_active.is_(True))
-                )
-                chats = result.scalars().all()
+                async with self._session_factory() as session:
+                    result = await session.execute(
+                        select(Chat).where(
+                            Chat.id == chat_id,
+                            Chat.is_active.is_(True),
+                        )
+                    )
+                    chat = result.scalar_one_or_none()
+                    if chat is None:
+                        continue
 
-                for chat in chats:
+                    telegram_chat_id = chat.telegram_chat_id
                     try:
                         await create_or_update_dashboard_message(
                             session=session,
@@ -123,14 +132,28 @@ class DashboardBus:
                         )
                         await session.commit()
                     except Exception as exc:
+                        await session.rollback()
+                        if isinstance(exc, TelegramForbiddenError):
+                            await delete_chat_by_id(session, chat_id)
+                            await session.commit()
+                            logger.warning(
+                                "removed dashboard chat %s after Telegram forbidden: %s",
+                                telegram_chat_id,
+                                exc,
+                            )
+                            continue
+
                         logger.warning(
                             "failed to refresh dashboard for chat %s: %s",
-                            chat.telegram_chat_id,
+                            telegram_chat_id,
                             exc,
                         )
-                        await session.rollback()
             except Exception as exc:
-                logger.exception("dashboard_bus refresh session error: %s", exc)
+                logger.exception(
+                    "dashboard_bus refresh session error for chat %s: %s",
+                    telegram_chat_id or chat_id,
+                    exc,
+                )
 
 
 # module-level singleton, populated at startup

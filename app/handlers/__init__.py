@@ -2,6 +2,7 @@ from app.handlers.admin_chat import router as admin_chat_router
 from app.handlers.admin_panel import router as admin_panel_router
 from app.handlers.categories import router as categories_router
 from app.handlers.event_edit import router as event_edit_router
+from app.handlers.event_pages import router as event_pages_router
 from app.handlers.event_submission import router as event_submission_router
 from app.handlers.events import router as events_router
 from app.handlers.moderation import router as moderation_router
@@ -18,5 +19,6 @@ __all__ = (
     "events_router",
     "user_events_router",
     "event_edit_router",
+    "event_pages_router",
     "categories_router",
 )

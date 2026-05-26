@@ -14,6 +14,15 @@ class Settings(BaseSettings):
         alias="DATABASE_URL",
     )
     redis_url: str = Field(default="redis://localhost:6379/0", alias="REDIS_URL")
+    miniapp_base_url: str | None = Field(default=None, alias="MINIAPP_BASE_URL")
+    telegram_miniapp_short_name: str | None = Field(
+        default="events",
+        alias="TELEGRAM_MINIAPP_SHORT_NAME",
+    )
+    miniapp_session_ttl_seconds: int = Field(
+        default=86400,
+        alias="MINIAPP_SESSION_TTL_SECONDS",
+    )
     moderator_chat_id: int | None = Field(default=None, alias="MODERATOR_CHAT_ID")
     admin_ids: list[int] = Field(default_factory=list, alias="ADMIN_IDS")
 

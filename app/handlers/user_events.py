@@ -12,6 +12,7 @@ from app.services.events import (
     get_user_events,
 )
 from app.services.users import upsert_user_from_telegram
+from app.services.telegram_links import build_event_deep_link
 from app.handlers.start import get_main_menu_keyboard
 from app.config import get_settings
 
@@ -31,12 +32,25 @@ async def process_my_events_back(callback: CallbackQuery, session: AsyncSession)
 
 
 # renders events created by the current user
-async def show_my_events(callback: CallbackQuery, session: AsyncSession):
+async def show_my_events(
+    callback: CallbackQuery, session: AsyncSession, *, answer: bool = True
+):
     user = await upsert_user_from_telegram(session, callback.from_user)
     events = await get_user_events(session, user.id)
 
     if not events:
-        await callback.answer("You haven't created any events yet.", show_alert=True)
+        settings = get_settings()
+        is_admin = user.telegram_id in settings.admin_ids
+
+        await callback.message.edit_text(
+            "📅 **Your Events**\n\n"
+            "You haven't created any events yet.\n\n"
+            "Use the menu below to create one or explore other options.",
+            reply_markup=get_main_menu_keyboard(is_admin),
+            parse_mode="Markdown",
+        )
+        if answer:
+            await callback.answer()
         return
 
     builder = InlineKeyboardBuilder()
@@ -64,7 +78,8 @@ async def show_my_events(callback: CallbackQuery, session: AsyncSession):
     await callback.message.edit_text(
         text, reply_markup=builder.as_markup(), parse_mode="HTML"
     )
-    await callback.answer()
+    if answer:
+        await callback.answer()
 
 
 # shows management actions for one user event
@@ -143,7 +158,7 @@ async def process_confirm_delete(
     if success:
         await session.commit()
         await callback.answer("✅ Event deleted successfully.", show_alert=True)
-        await process_my_events(callback, session)
+        await show_my_events(callback, session, answer=False)
     else:
         await callback.answer(
             "❌ Error deleting event or event not found.", show_alert=True
@@ -152,7 +167,9 @@ async def process_confirm_delete(
 
 # shows favorite events from the main menu
 @router.callback_query(F.data == "menu_favorites")
-async def process_menu_favorites(callback: CallbackQuery, session: AsyncSession):
+async def process_menu_favorites(
+    callback: CallbackQuery, session: AsyncSession, bot: Bot
+):
     from app.services.reminders import get_user_favorites
 
     user = await upsert_user_from_telegram(session, callback.from_user)
@@ -163,13 +180,17 @@ async def process_menu_favorites(callback: CallbackQuery, session: AsyncSession)
         return
 
     lines = ["⭐ **Your Favorite Events**\n"]
-    # render favorites as linked rows when possible
+    bot_user = await bot.get_me()
+    # render favorites as event-page links when possible
     for event in favorites:
-        detail_link = (
-            event.detail_messages[0].message_link if event.detail_messages else None
+        detail_link = build_event_deep_link(
+            bot_username=bot_user.username,
+            public_token=event.public_token,
         )
         title = (
-            f'<a href="{detail_link}">{event.title}</a>' if detail_link else event.title
+            f'<a href="{html.escape(detail_link, quote=True)}">{html.escape(event.title)}</a>'
+            if detail_link
+            else html.escape(event.title)
         )
         date_str = event.event_date.strftime("%b %d")
         lines.append(f"• {date_str} — {title}")

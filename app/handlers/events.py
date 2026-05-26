@@ -1,7 +1,8 @@
-from aiogram import F, Router
+from aiogram import Bot, F, Router
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
+import html
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.enums import ReminderType
@@ -12,6 +13,7 @@ from app.services.reminders import (
     toggle_favorite,
 )
 from app.services.users import upsert_user_from_telegram
+from app.services.telegram_links import build_event_deep_link
 
 router = Router()
 
@@ -76,7 +78,7 @@ async def process_remind_set(callback: CallbackQuery, session: AsyncSession):
 
 # lists favorite events in private chat
 @router.message(Command("favorites"))
-async def cmd_favorites(message: Message, session: AsyncSession):
+async def cmd_favorites(message: Message, session: AsyncSession, bot: Bot):
     user = await upsert_user_from_telegram(session, message.from_user)
     favorites = await get_user_favorites(session, user)
 
@@ -84,18 +86,22 @@ async def cmd_favorites(message: Message, session: AsyncSession):
         await message.answer("You have no favorite events yet.")
         return
 
-    lines = ["⭐ **Your Favorite Events**\n"]
-    # link each favorite to its published detail message when available
+    lines = ["⭐ <b>Your Favorite Events</b>\n"]
+    bot_user = await bot.get_me()
+    # link each favorite to its private event page
     for event in favorites:
-        detail_link = None
-        if event.detail_messages:
-            detail_link = event.detail_messages[0].message_link
+        detail_link = build_event_deep_link(
+            bot_username=bot_user.username,
+            public_token=event.public_token,
+        )
 
         title = (
-            f'<a href="{detail_link}">{event.title}</a>' if detail_link else event.title
+            f'<a href="{html.escape(detail_link, quote=True)}">{html.escape(event.title)}</a>'
+            if detail_link
+            else html.escape(event.title)
         )
         time_str = event.event_time.strftime("%H:%M")
         date_str = event.event_date.strftime("%b %d")
-        lines.append(f"• {date_str} {time_str} — {title}, {event.location}")
+        lines.append(f"• {date_str} {time_str} — {title}, {html.escape(event.location)}")
 
     await message.answer("\n".join(lines), parse_mode="HTML")

@@ -8,6 +8,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Identity,
+    Index,
     UniqueConstraint,
     func,
 )
@@ -26,6 +27,8 @@ class Favorite(Base):
     # prevent the same favorite twice
     __table_args__ = (
         UniqueConstraint("user_id", "event_id", name="uq_favorites_user_id_event_id"),
+        Index("ix_favorites_user_created", "user_id", "created_at"),
+        Index("ix_favorites_event_id", "event_id"),
     )
 
     # favorite identity fields

@@ -1,5 +1,5 @@
 from aiogram.types import Chat as TelegramChat
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,6 +16,10 @@ async def get_chat_by_telegram_id(
         select(Chat).where(Chat.telegram_chat_id == telegram_chat_id),
     )
     return result.scalar_one_or_none()
+
+
+async def delete_chat_by_id(session: AsyncSession, chat_id: int) -> None:
+    await session.execute(delete(Chat).where(Chat.id == chat_id))
 
 
 # creates or updates a telegram chat record
