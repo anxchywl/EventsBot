@@ -1,5 +1,5 @@
-import { controls, coverStyle, escapeHtml, eventRow, status } from "../components/events.js?v=20260525-card-spacing-align";
-import { formatEventDate, t } from "../i18n.js?v=20260525-card-spacing-align";
+import { controls, coverStyle, escapeHtml, eventRow, status } from "../components/events.js?v=20260527-polished-search-gradient";
+import { formatEventDate, t } from "../i18n.js?v=20260527-polished-search-gradient";
 
 function meta(label, value) {
   return `

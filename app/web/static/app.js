@@ -1,4 +1,4 @@
-import { boot } from "./js/router.js?v=20260525-card-spacing-align";
+import { boot } from "./js/router.js?v=20260527-polished-search-gradient";
 
 boot().catch((error) => {
   console.error(error);

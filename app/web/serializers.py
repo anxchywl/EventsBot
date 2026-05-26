@@ -25,9 +25,11 @@ async def event_list_item(
     user: User | None = None,
     favorite_ids: set[int] | None = None,
     reminder_counts: dict[int, int] | None = None,
+    attendee_counts: dict[int, int] | None = None,
 ) -> EventListItem:
     favorites = favorite_ids or set()
     counts = reminder_counts or {}
+    attendees = attendee_counts or {}
     return EventListItem(
         token=event.public_token,
         title=event.title,
@@ -40,6 +42,7 @@ async def event_list_item(
         if favorite_ids is not None
         else await is_event_favorite(session, user, event.id),
         reminder_count=counts.get(event.id, 0),
+        attendee_count=attendees.get(event.id, 0),
         is_ended=is_event_ended(event),
         cover_url=event_cover_url(event),
     )
@@ -54,6 +57,7 @@ async def event_list_items(
     event_ids = [event.id for event in events]
     favorite_ids = await get_favorite_event_ids(session, user, event_ids)
     reminder_counts = await get_reminder_counts(session, user, event_ids)
+    attendee_counts = await get_attendee_counts(session, event_ids)
     return [
         await event_list_item(
             session,
@@ -61,6 +65,7 @@ async def event_list_items(
             user=user,
             favorite_ids=favorite_ids,
             reminder_counts=reminder_counts,
+            attendee_counts=attendee_counts,
         )
         for event in events
     ]
@@ -108,6 +113,30 @@ async def attendee_count(session: AsyncSession, event_id: int) -> int:
         select(func.count(Reminder.id)).where(Reminder.event_id == event_id)
     )
     return int((favorites or 0) + (reminders or 0))
+
+
+async def get_attendee_counts(
+    session: AsyncSession,
+    event_ids: list[int],
+) -> dict[int, int]:
+    if not event_ids:
+        return {}
+    favorite_result = await session.execute(
+        select(Favorite.event_id, func.count(Favorite.id))
+        .where(Favorite.event_id.in_(event_ids))
+        .group_by(Favorite.event_id)
+    )
+    reminder_result = await session.execute(
+        select(Reminder.event_id, func.count(Reminder.id))
+        .where(Reminder.event_id.in_(event_ids))
+        .group_by(Reminder.event_id)
+    )
+    counts = {event_id: 0 for event_id in event_ids}
+    for event_id, count in favorite_result.all():
+        counts[event_id] = counts.get(event_id, 0) + int(count)
+    for event_id, count in reminder_result.all():
+        counts[event_id] = counts.get(event_id, 0) + int(count)
+    return counts
 
 
 async def get_reminder_counts(

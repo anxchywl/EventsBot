@@ -70,29 +70,38 @@ body {
 
 
 
-html,
-body,
-main,
-header,
-section,
-article,
-div,
-p,
-h1,
-h2,
-span,
-a,
-button,
-svg,
-path,
-circle {
+/* Only apply global theme transitions during active theme changes to optimize layout rendering speed and eliminate scroll/tap lag */
+html.theme-transitioning,
+html.theme-transitioning body,
+html.theme-transitioning main,
+html.theme-transitioning header,
+html.theme-transitioning section,
+html.theme-transitioning article,
+html.theme-transitioning div,
+html.theme-transitioning p,
+html.theme-transitioning h1,
+html.theme-transitioning h2,
+html.theme-transitioning span,
+html.theme-transitioning a,
+html.theme-transitioning button,
+html.theme-transitioning svg,
+html.theme-transitioning path,
+html.theme-transitioning circle {
   transition:
-    background 0.6s cubic-bezier(0.25, 0.8, 0.25, 1),
-    background-color 0.6s cubic-bezier(0.25, 0.8, 0.25, 1),
-    border-color 0.6s cubic-bezier(0.25, 0.8, 0.25, 1),
-    color 0.6s cubic-bezier(0.25, 0.8, 0.25, 1),
-    box-shadow 0.6s cubic-bezier(0.25, 0.8, 0.25, 1),
-    stroke 0.6s cubic-bezier(0.25, 0.8, 0.25, 1);
+    background 0.6s cubic-bezier(0.25, 0.8, 0.25, 1) !important,
+    background-color 0.6s cubic-bezier(0.25, 0.8, 0.25, 1) !important,
+    border-color 0.6s cubic-bezier(0.25, 0.8, 0.25, 1) !important,
+    color 0.6s cubic-bezier(0.25, 0.8, 0.25, 1) !important,
+    box-shadow 0.6s cubic-bezier(0.25, 0.8, 0.25, 1) !important,
+    stroke 0.6s cubic-bezier(0.25, 0.8, 0.25, 1) !important;
+}
+
+/* Lock page scroll behind active bottom sheets */
+html.sheet-open,
+html.sheet-open body {
+  overflow: hidden !important;
+  height: 100% !important;
+  overscroll-behavior: none !important;
 }
 
 ::view-transition-old(root),
@@ -102,11 +111,11 @@ circle {
 }
 
 html.page-transitioning::view-transition-old(root) {
-  animation: pageOldForward 0.34s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: pageOldForward 0.26s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 html.page-transitioning::view-transition-new(root) {
-  animation: pageNewForward 0.34s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: pageNewForward 0.26s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 html.page-transitioning[data-nav-direction="back"]::view-transition-old(root) {
@@ -131,7 +140,8 @@ html.theme-transitioning *::after {
 }
 
 button,
-a {
+a,
+[role="button"] {
   font-family: inherit;
   -webkit-tap-highlight-color: transparent;
 }
@@ -156,18 +166,33 @@ a {
   flex-direction: column;
   justify-content: flex-end;
   background:
-    linear-gradient(135deg, rgba(79, 109, 245, 0.96), rgba(123, 97, 255, 0.92) 48%, rgba(16, 185, 129, 0.82)),
+    radial-gradient(ellipse at 12% 12%, rgba(255, 255, 255, 0.34), transparent 42%),
+    radial-gradient(ellipse at 88% 8%, rgba(45, 212, 191, 0.42), transparent 48%),
+    linear-gradient(135deg, rgba(79, 109, 245, 0.96), rgba(236, 72, 153, 0.82) 42%, rgba(16, 185, 129, 0.78) 78%, rgba(245, 158, 11, 0.72)),
     var(--panel-soft);
   color: #ffffff;
-  animation: slideDown 0.34s ease-out both;
+  background-size: 180% 180%;
+  animation: slideDown 0.34s ease-out both, adaptiveGradient 16s ease-in-out infinite;
+}
+
+.screen[data-route="events"]>.cover {
+  padding-bottom: 14px;
 }
 
 .cover[style*="--fallback-a"] {
   background:
-    radial-gradient(ellipse at 16% 8%, color-mix(in srgb, var(--fallback-c) 24%, transparent) 0%, transparent 62%),
-    radial-gradient(ellipse at 86% 20%, color-mix(in srgb, var(--fallback-b) 18%, transparent) 0%, transparent 66%),
-    radial-gradient(ellipse at 48% 86%, color-mix(in srgb, var(--fallback-a) 22%, transparent) 0%, transparent 68%),
-    linear-gradient(var(--fallback-angle), color-mix(in srgb, var(--fallback-a) 48%, var(--panel)) 0%, color-mix(in srgb, var(--fallback-b) 42%, var(--bg)) 58%, color-mix(in srgb, var(--fallback-c) 28%, var(--text)) 100%);
+    radial-gradient(ellipse at 12% 8%, color-mix(in srgb, var(--fallback-c) 42%, transparent) 0%, transparent 58%),
+    radial-gradient(ellipse at 90% 18%, color-mix(in srgb, var(--fallback-d) 36%, transparent) 0%, transparent 62%),
+    radial-gradient(ellipse at 46% 92%, color-mix(in srgb, var(--fallback-a) 34%, transparent) 0%, transparent 68%),
+    linear-gradient(var(--fallback-angle), color-mix(in srgb, var(--fallback-a) 74%, #ffffff) 0%, color-mix(in srgb, var(--fallback-b) 82%, #ffffff) 48%, color-mix(in srgb, var(--fallback-c) 66%, #ffffff) 100%);
+}
+
+[data-theme="dark"] .cover[style*="--fallback-a"] {
+  background:
+    radial-gradient(ellipse at 12% 8%, color-mix(in srgb, var(--fallback-c) 30%, transparent) 0%, transparent 58%),
+    radial-gradient(ellipse at 90% 18%, color-mix(in srgb, var(--fallback-d) 28%, transparent) 0%, transparent 62%),
+    radial-gradient(ellipse at 46% 92%, color-mix(in srgb, var(--fallback-a) 24%, transparent) 0%, transparent 68%),
+    linear-gradient(var(--fallback-angle), color-mix(in srgb, var(--fallback-a) 58%, #050816) 0%, color-mix(in srgb, var(--fallback-b) 56%, #070718) 48%, color-mix(in srgb, var(--fallback-c) 42%, #03040c) 100%);
 }
 
 .cover.has-cover {
@@ -267,11 +292,12 @@ a {
 }
 
 .cover.compact {
-  min-height: 156px;
+  min-height: 178px;
 }
 
 .no-enter .cover,
 .no-enter .content,
+.no-enter .event-row,
 .no-enter .event-actions {
   animation: none !important;
 }
@@ -293,7 +319,7 @@ a {
 
 h1 {
   margin: 0;
-  max-width: 720px;
+  min-width: 0;
   color: #ffffff;
   font-size: clamp(2.35rem, 10vw, 4rem);
   font-weight: 800;
@@ -301,12 +327,31 @@ h1 {
   letter-spacing: -0.055em;
 }
 
+.events-title-block {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  align-self: flex-start;
+  gap: 14px;
+  width: 100%;
+  min-width: 0;
+  padding-top: 0;
+}
+
+.events-title-block h1 {
+  width: fit-content;
+}
+
 .content {
   position: relative;
   width: min(720px, 100%);
   margin: -30px auto 0;
-  padding: 0 14px calc(84px + env(safe-area-inset-bottom));
+  padding: 0 14px calc(24px + env(safe-area-inset-bottom));
   animation: slideUp 0.44s ease-out 0.04s both;
+}
+
+.screen[data-route="events"] .content {
+  margin-top: 0;
 }
 
 .event-screen .content {
@@ -391,10 +436,10 @@ h1 {
 }
 
 .app-nav {
-  position: fixed;
-  left: 50%;
-  right: auto;
-  bottom: calc(12px + env(safe-area-inset-bottom));
+  position: fixed !important;
+  left: 50% !important;
+  right: auto !important;
+  bottom: calc(12px + env(safe-area-inset-bottom)) !important;
   z-index: 30;
   width: min(520px, calc(100vw - 24px));
   display: grid;
@@ -405,11 +450,37 @@ h1 {
   overflow: hidden;
   border: 1px solid var(--line-strong);
   border-radius: 20px;
-  background: color-mix(in srgb, var(--panel) 92%, transparent);
-  box-shadow: 0 20px 48px rgba(34, 48, 84, 0.18);
-  backdrop-filter: blur(28px);
+  background: color-mix(in srgb, var(--panel) 96%, transparent);
+  box-shadow: 0 16px 36px rgba(34, 48, 84, 0.12);
+  backdrop-filter: blur(12px);
   transform: translateX(-50%);
+  will-change: transform, opacity;
+  transition:
+    transform 0.16s cubic-bezier(0.2, 0.8, 0.2, 1),
+    opacity 0.12s linear;
 }
+
+/* Performance safeguard: disable expensive blur filters during active page transitions */
+html.page-transitioning *,
+html.page-transitioning *::before,
+html.page-transitioning *::after {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.app-nav.nav-hidden {
+  transform: translate(-50%, calc(100% + 30px)) !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+html.event-searching .app-nav {
+  transform: translate(-50%, calc(100% + 24px)) !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+
 
 .app-nav::-webkit-scrollbar {
   display: none;
@@ -432,6 +503,15 @@ h1 {
   display: flex;
   align-items: center;
   justify-content: center;
+  transition:
+    background 0.24s cubic-bezier(0.2, 0.8, 0.2, 1),
+    color 0.24s cubic-bezier(0.2, 0.8, 0.2, 1),
+    box-shadow 0.24s cubic-bezier(0.2, 0.8, 0.2, 1),
+    transform 0.12s ease;
+}
+
+.nav-pill:active {
+  transform: scale(0.95);
 }
 
 .nav-icon {
@@ -442,7 +522,11 @@ h1 {
 .nav-pill.active {
   background: var(--button);
   color: var(--button-text);
-  box-shadow: 0 12px 24px color-mix(in srgb, var(--button) 30%, transparent);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--button) 24%, transparent);
+}
+
+.nav-pill.active:active {
+  transform: scale(0.97);
 }
 
 .nav-pill.active .nav-icon {
@@ -451,6 +535,180 @@ h1 {
 
 .event-list {
   padding: 12px;
+}
+
+.filter-bar-shell {
+  position: static;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 14px 12px;
+  background: transparent;
+  border-bottom: none;
+  backdrop-filter: none;
+}
+
+.filter-bar {
+  display: flex;
+  justify-content: flex-start;
+  gap: 6px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  padding: 2px 0;
+  min-height: 42px;
+}
+
+.filter-bar::-webkit-scrollbar {
+  display: none;
+}
+
+.filter-chip {
+  flex: 0 0 auto;
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text);
+  box-shadow: none;
+  cursor: pointer;
+  font-size: 0.72rem;
+  font-weight: 900;
+  white-space: nowrap;
+  transform-origin: left center;
+  transition:
+    opacity 0.2s ease,
+    transform 0.24s cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 0.2s ease,
+    color 0.2s ease;
+}
+
+.filter-chip-icon {
+  width: 38px;
+  max-width: 38px;
+  padding: 0;
+}
+
+.filter-chip-icon svg {
+  width: 20px;
+  height: 20px;
+}
+
+.filter-bar-shell.search-open .filter-bar {
+  overflow: visible;
+}
+
+.event-search-control {
+  width: 100%;
+  min-height: 36px;
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) 32px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 6px 0 13px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--panel) 86%, transparent);
+  color: var(--text);
+  box-shadow: 0 14px 34px rgba(34, 48, 84, 0.08);
+  backdrop-filter: blur(20px);
+  animation: searchFieldIn 0.26s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.event-search-control svg {
+  width: 20px;
+  height: 20px;
+  color: var(--hint);
+}
+
+.event-search-control input {
+  min-width: 0;
+  width: 100%;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 800;
+}
+
+.event-search-control input::placeholder {
+  color: var(--hint);
+  opacity: 0.86;
+}
+
+.event-search-control button {
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+  color: var(--hint);
+  cursor: pointer;
+  font-size: 1.25rem;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.filter-chip span,
+.filter-chip em {
+  min-width: 0;
+}
+
+.filter-chip em {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--button) 14%, transparent);
+  color: var(--link);
+  font-style: normal;
+  font-size: 0.66rem;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.filter-chip.active {
+  border-color: color-mix(in srgb, var(--button) 46%, var(--line));
+  background: transparent;
+  color: var(--link);
+  transform: none;
+}
+
+.filter-chip.active em {
+  background: var(--button);
+  color: var(--button-text);
+}
+
+.cover .filter-chip {
+  border-color: rgba(255, 255, 255, 0.36);
+  color: #ffffff;
+}
+
+.cover .filter-chip em {
+  background: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+}
+
+.cover .filter-chip.active {
+  border-color: rgba(255, 255, 255, 0.72);
+  color: #ffffff;
+}
+
+.cover .filter-chip.active em {
+  background: #ffffff;
+  color: var(--button);
 }
 
 .event-row {
@@ -468,8 +726,10 @@ h1 {
   font: inherit;
   transition:
     transform 0.2s ease,
+    opacity 0.2s ease,
     border-color 0.2s ease,
     box-shadow 0.2s ease;
+  animation: eventListRise 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 .event-row:active {
@@ -590,6 +850,12 @@ h1 {
 
 .event-row.ended {
   opacity: 0.62;
+  border-style: dashed;
+  filter: saturate(0.78);
+}
+
+.event-row.ended .event-row-cover {
+  filter: grayscale(0.55);
 }
 
 .favorite-remove-button {
@@ -869,6 +1135,17 @@ h1 {
   }
 }
 
+@keyframes adaptiveGradient {
+  0%,
+  100% {
+    background-position: 0% 50%, 100% 50%, 0% 50%;
+  }
+
+  50% {
+    background-position: 100% 50%, 0% 50%, 100% 50%;
+  }
+}
+
 @keyframes activeNavIconPop {
   0% {
     transform: scale(1);
@@ -904,6 +1181,30 @@ h1 {
   to {
     opacity: 1;
     transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes eventListRise {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.992);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes searchFieldIn {
+  from {
+    opacity: 0;
+    transform: translateX(-12px) scaleX(0.92);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0) scaleX(1);
   }
 }
 
@@ -943,92 +1244,87 @@ h1 {
   }
 }
 
+/* Keep legacy keyframes for fallback (non-view-transition) CSS class animations */
 @keyframes pageOldForward {
   from {
     opacity: 1;
-    transform: translateX(0) scale(1);
-    filter: blur(0);
+    transform: translateY(0);
   }
 
   to {
     opacity: 0;
-    transform: translateX(-18px) scale(0.985);
-    filter: blur(5px);
+    transform: translateY(-12px);
   }
 }
 
 @keyframes pageNewForward {
   from {
     opacity: 0;
-    transform: translateX(26px) scale(0.99);
-    filter: blur(5px);
+    transform: translateY(16px);
   }
 
   to {
     opacity: 1;
-    transform: translateX(0) scale(1);
-    filter: blur(0);
+    transform: translateY(0);
   }
 }
 
 @keyframes pageOldBack {
   from {
     opacity: 1;
-    transform: translateX(0) scale(1);
-    filter: blur(0);
+    transform: translateY(0);
   }
 
   to {
     opacity: 0;
-    transform: translateX(24px) scale(0.985);
-    filter: blur(5px);
+    transform: translateY(12px);
   }
 }
 
 @keyframes pageNewBack {
   from {
     opacity: 0;
-    transform: translateX(-22px) scale(0.99);
-    filter: blur(5px);
+    transform: translateY(-16px);
   }
 
   to {
     opacity: 1;
-    transform: translateX(0) scale(1);
-    filter: blur(0);
+    transform: translateY(0);
   }
 }
 
 @keyframes fallbackPageForward {
   from {
     opacity: 0;
-    transform: translateX(22px);
+    transform: translateY(14px) scale(0.975);
   }
 
   to {
     opacity: 1;
-    transform: translateX(0);
+    transform: translateY(0) scale(1);
   }
 }
 
 @keyframes fallbackPageBack {
   from {
     opacity: 0;
-    transform: translateX(-20px);
+    transform: translateY(14px) scale(0.975);
+    filter: blur(8px);
   }
 
   to {
     opacity: 1;
-    transform: translateX(0);
+    transform: translateY(0) scale(1);
+    filter: blur(0);
   }
 }
 
 .page-enter-forward {
-  animation: fallbackPageForward 0.34s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: fallbackPageForward 0.30s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .page-enter-back {
-  animation: fallbackPageBack 0.34s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: fallbackPageBack 0.30s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .wave-transition {
@@ -1061,6 +1357,12 @@ h1 {
 .sheet-backdrop.open {
   pointer-events: auto;
   background: rgba(0, 0, 0, 0.34);
+  backdrop-filter: blur(12px);
+}
+
+.filter-sheet-backdrop {
+  justify-content: stretch;
+  padding: 0;
 }
 
 .bottom-sheet {
@@ -1081,6 +1383,10 @@ h1 {
   transform: translateY(0);
 }
 
+.bottom-sheet.dragging {
+  transition: none;
+}
+
 .sheet-handle {
   width: 42px;
   height: 4px;
@@ -1099,6 +1405,125 @@ h1 {
   font-size: 1.08rem;
   font-weight: 900;
   letter-spacing: 0;
+}
+
+.filter-sheet {
+  width: 100vw;
+  max-height: calc(90vh - env(safe-area-inset-top));
+  padding: 10px 16px calc(18px + env(safe-area-inset-bottom));
+  border-right: none;
+  border-bottom: none;
+  border-left: none;
+  border-radius: 24px 24px 0 0;
+}
+
+.filter-option-group {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.filter-option-group p {
+  margin: 8px 4px 2px;
+  color: var(--hint);
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.filter-option {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 15px;
+  background: var(--panel-soft);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 850;
+  text-align: left;
+}
+
+.filter-option svg {
+  width: 20px;
+  height: 20px;
+  color: transparent;
+  transform: scale(0.72);
+  transition: color 0.18s ease, transform 0.18s ease;
+}
+
+.filter-option.active {
+  border-color: color-mix(in srgb, var(--button) 48%, var(--line));
+  background: color-mix(in srgb, var(--button) 12%, var(--panel-soft));
+  color: var(--link);
+}
+
+.filter-option.active svg {
+  color: var(--link);
+  transform: scale(1);
+}
+
+.filter-search-wrap {
+  margin: 14px 0 12px;
+}
+
+.filter-search {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 15px;
+  outline: none;
+  background: var(--panel-soft);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 750;
+}
+
+.filter-search:focus {
+  border-color: color-mix(in srgb, var(--button) 48%, var(--line));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--button) 12%, transparent);
+}
+
+.filter-chip-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-content: flex-start;
+  max-height: min(48vh, 420px);
+  overflow-y: auto;
+  padding-bottom: 2px;
+}
+
+.selector-chip {
+  min-height: 38px;
+  max-width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel-soft);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 850;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.selector-chip.active {
+  border-color: color-mix(in srgb, var(--button) 52%, var(--line));
+  background: var(--button);
+  color: var(--button-text);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, #ffffff 22%, transparent);
+  transform: none;
 }
 
 .preset-grid {
@@ -1327,69 +1752,89 @@ h1 {
 }
 
 .screen[data-palette="aurora"] .cover:not(.has-cover) {
-  background: linear-gradient(135deg, #34d399, #4f46e5 52%, #111827);
+  background: radial-gradient(ellipse at 18% 12%, rgba(255, 255, 255, 0.28), transparent 44%), linear-gradient(135deg, #22d3ee, #34d399 42%, #6366f1 100%);
 }
 
 .screen[data-palette="sunset"] .cover:not(.has-cover) {
-  background: linear-gradient(135deg, #fb7185, #f59e0b 50%, #312e81);
+  background: radial-gradient(ellipse at 80% 10%, rgba(255, 255, 255, 0.28), transparent 42%), linear-gradient(135deg, #fb7185, #f59e0b 46%, #8b5cf6 100%);
 }
 
 .screen[data-palette="mint"] .cover:not(.has-cover) {
-  background: linear-gradient(135deg, #2dd4bf, #22c55e 48%, #0f172a);
+  background: radial-gradient(ellipse at 16% 10%, rgba(255, 255, 255, 0.3), transparent 44%), linear-gradient(135deg, #2dd4bf, #22c55e 44%, #38bdf8 100%);
 }
 
 .screen[data-palette="violet"] .cover:not(.has-cover) {
-  background: linear-gradient(135deg, #8b5cf6, #ec4899 50%, #020617);
+  background: radial-gradient(ellipse at 82% 12%, rgba(255, 255, 255, 0.24), transparent 42%), linear-gradient(135deg, #8b5cf6, #ec4899 48%, #22d3ee 100%);
 }
 
 .screen[data-palette="sky"] .cover:not(.has-cover) {
-  background: linear-gradient(135deg, #38bdf8, #6366f1 52%, #082f49);
+  background: radial-gradient(ellipse at 22% 8%, rgba(255, 255, 255, 0.3), transparent 42%), linear-gradient(135deg, #38bdf8, #6366f1 48%, #14b8a6 100%);
 }
 
 .screen[data-palette="rose"] .cover:not(.has-cover) {
-  background: linear-gradient(135deg, #f43f5e, #a855f7 50%, #111827);
+  background: radial-gradient(ellipse at 78% 10%, rgba(255, 255, 255, 0.24), transparent 42%), linear-gradient(135deg, #f43f5e, #a855f7 46%, #f97316 100%);
 }
 
 .screen .cover[style*="--fallback-a"]:not(.has-cover) {
   background:
-    radial-gradient(ellipse at 16% 8%, color-mix(in srgb, var(--fallback-c) 24%, transparent) 0%, transparent 62%),
-    radial-gradient(ellipse at 86% 20%, color-mix(in srgb, var(--fallback-b) 18%, transparent) 0%, transparent 66%),
-    radial-gradient(ellipse at 48% 86%, color-mix(in srgb, var(--fallback-a) 22%, transparent) 0%, transparent 68%),
-    linear-gradient(var(--fallback-angle), color-mix(in srgb, var(--fallback-a) 48%, var(--panel)) 0%, color-mix(in srgb, var(--fallback-b) 42%, var(--bg)) 58%, color-mix(in srgb, var(--fallback-c) 28%, var(--text)) 100%);
+    radial-gradient(ellipse at 12% 8%, color-mix(in srgb, var(--fallback-c) 42%, transparent) 0%, transparent 58%),
+    radial-gradient(ellipse at 90% 18%, color-mix(in srgb, var(--fallback-d) 36%, transparent) 0%, transparent 62%),
+    radial-gradient(ellipse at 46% 92%, color-mix(in srgb, var(--fallback-a) 34%, transparent) 0%, transparent 68%),
+    linear-gradient(var(--fallback-angle), color-mix(in srgb, var(--fallback-a) 74%, #ffffff) 0%, color-mix(in srgb, var(--fallback-b) 82%, #ffffff) 48%, color-mix(in srgb, var(--fallback-c) 66%, #ffffff) 100%);
 }
 
-.cover {
-  view-transition-name: page-header;
+[data-theme="dark"] .screen .cover[style*="--fallback-a"]:not(.has-cover) {
+  background:
+    radial-gradient(ellipse at 12% 8%, color-mix(in srgb, var(--fallback-c) 30%, transparent) 0%, transparent 58%),
+    radial-gradient(ellipse at 90% 18%, color-mix(in srgb, var(--fallback-d) 28%, transparent) 0%, transparent 62%),
+    radial-gradient(ellipse at 46% 92%, color-mix(in srgb, var(--fallback-a) 24%, transparent) 0%, transparent 68%),
+    linear-gradient(var(--fallback-angle), color-mix(in srgb, var(--fallback-a) 58%, #050816) 0%, color-mix(in srgb, var(--fallback-b) 56%, #070718) 48%, color-mix(in srgb, var(--fallback-c) 42%, #03040c) 100%);
 }
 
-.content {
-  view-transition-name: page-content;
-}
+/* view-transition-name: page-content and page-header removed.
+   Named layers cause a flash when pseudo-elements are removed and real DOM is revealed.
+   The root-level crossfade (pageOldForward/pageNewForward on ::view-transition-old/new(root))
+   handles the full-page slide as one clean snapshot. */
+
+/* page-title morph removed: titles crossfade as part of their parent containers
+   (page-header / page-content) to prevent laggy position-jump animation caused
+   by the Events h1 sitting lower than the Favourites/Reminders h1. */
 
 .app-nav {
   view-transition-name: page-nav;
 }
 
-::view-transition-old(page-content),
-::view-transition-new(page-content) {
-  animation: none;
-  mix-blend-mode: normal;
+::view-transition-old(page-nav):not(:only-child),
+::view-transition-new(page-nav):not(:only-child) {
+  animation: none !important;
+  mix-blend-mode: normal !important;
 }
 
-html.page-transitioning::view-transition-old(page-content) {
-  animation: pageOldForward 0.34s cubic-bezier(0.22, 1, 0.36, 1) both;
+::view-transition-old(page-nav):only-child {
+  animation: navSlideOut 0.10s cubic-bezier(0.4, 0, 1, 1) both !important;
 }
 
-html.page-transitioning::view-transition-new(page-content) {
-  animation: pageNewForward 0.34s cubic-bezier(0.22, 1, 0.36, 1) both;
+::view-transition-new(page-nav):only-child {
+  animation: navSlideIn 0.22s cubic-bezier(0, 0, 0.2, 1) both !important;
 }
 
-html.page-transitioning[data-nav-direction="back"]::view-transition-old(page-content) {
-  animation-name: pageOldBack;
+@keyframes navSlideOut {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(24px); }
 }
 
-html.page-transitioning[data-nav-direction="back"]::view-transition-new(page-content) {
-  animation-name: pageNewBack;
+@keyframes navSlideIn {
+  from { opacity: 0; transform: translateY(24px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.cache-enter {
+  animation: cacheRestoreFadeIn 0.18s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes cacheRestoreFadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0);   }
 }
 
 .empty-page-state {
@@ -1489,5 +1934,24 @@ html.page-transitioning[data-nav-direction="back"]::view-transition-new(page-con
 
   h1 {
     font-size: 2.15rem;
+  }
+
+  .events-title-block {
+    gap: 10px;
+  }
+
+  .events-title-block h1 {
+    font-size: 2rem;
+  }
+
+  .filter-chip {
+    min-height: 34px;
+    padding: 7px 9px;
+    font-size: 0.68rem;
+  }
+
+  .filter-chip-icon {
+    width: 36px;
+    max-width: 36px;
   }
 }

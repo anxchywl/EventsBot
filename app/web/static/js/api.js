@@ -44,8 +44,19 @@ export async function authenticate() {
   return payload;
 }
 
-export function fetchEvents() {
-  return request("/api/events");
+export function fetchEvents(filters = {}) {
+  const params = new URLSearchParams();
+  if (filters.sort) params.set("sort", filters.sort);
+  if (filters.relevance) params.set("relevance", filters.relevance);
+  if (filters.categories?.length) params.set("categories", filters.categories.join(","));
+  if (filters.organizers?.length) params.set("organizers", filters.organizers.join(","));
+  if (filters.locations?.length) params.set("locations", filters.locations.join(","));
+  const query = params.toString();
+  return request(`/api/events${query ? `?${query}` : ""}`);
+}
+
+export function fetchEventFilters() {
+  return request("/api/events/filters");
 }
 
 export function fetchEvent(token) {

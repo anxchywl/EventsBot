@@ -1,5 +1,5 @@
-import { controls, coverStyle, escapeHtml, eventRow, nav, status } from "../components/events.js?v=20260525-card-spacing-align";
-import { t } from "../i18n.js?v=20260525-card-spacing-align";
+import { controls, coverStyle, escapeHtml, eventRow, nav, status } from "../components/events.js?v=20260527-polished-search-gradient";
+import { t } from "../i18n.js?v=20260527-polished-search-gradient";
 
 export function renderFavorites(events) {
   const active = events.filter((event) => !event.is_ended);
@@ -11,7 +11,6 @@ export function renderFavorites(events) {
         <h1>${t("favorites")}</h1>
       </header>
       <main class="content">
-        ${nav("favorites")}
         ${
           events.length
             ? `
@@ -41,6 +40,7 @@ export function renderFavorites(events) {
             `
         }
       </main>
+      ${nav("favorites")}
     </div>
   `;
 }

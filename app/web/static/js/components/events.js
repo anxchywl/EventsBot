@@ -1,5 +1,5 @@
 import { state } from "../state.js";
-import { categoryLabel, t } from "../i18n.js?v=20260525-card-spacing-align";
+import { categoryLabel, t } from "../i18n.js?v=20260527-polished-search-gradient";
 
 const fallbackCoverStyles = new Map();
 
@@ -21,17 +21,36 @@ export function escapeAttr(value) {
 }
 
 function randomCoverVariables() {
-  const bluePurpleHue = 215 + Math.floor(Math.random() * 80);
-  const hue = Math.random() < 0.72 ? bluePurpleHue : Math.floor(Math.random() * 360);
-  const secondHue = Math.random() < 0.68
-    ? 235 + Math.floor(Math.random() * 80)
-    : (hue + 70 + Math.floor(Math.random() * 150)) % 360;
-  const thirdHue = (hue + 180 + Math.floor(Math.random() * 80)) % 360;
-  const angle = Math.floor(Math.random() * 360);
-  const first = `hsl(${hue} 76% 64%)`;
-  const second = `hsl(${secondHue} 72% 60%)`;
-  const glow = `hsl(${thirdHue} 82% 90%)`;
-  return `--fallback-angle: ${angle}deg; --fallback-a: ${escapeAttr(first)}; --fallback-b: ${escapeAttr(second)}; --fallback-c: ${escapeAttr(glow)}`;
+  const dark = document.documentElement.dataset.theme === "dark";
+  const palettes = dark
+    ? [
+        [252, 312, 178, 34],
+        [218, 278, 162, 330],
+        [190, 246, 28, 324],
+        [268, 338, 202, 46],
+        [230, 300, 150, 18],
+        [206, 260, 118, 348],
+      ]
+    : [
+        [205, 262, 156, 34],
+        [186, 238, 318, 42],
+        [220, 282, 162, 12],
+        [174, 214, 288, 36],
+        [248, 320, 188, 48],
+        [196, 256, 146, 334],
+      ];
+  const palette = palettes[Math.floor(Math.random() * palettes.length)];
+  const jitter = () => Math.floor(Math.random() * 17) - 8;
+  const angle = 110 + Math.floor(Math.random() * 140);
+  const sat = dark ? 76 : 88;
+  const light = dark ? 42 : 66;
+  const glowLight = dark ? 60 : 86;
+  const [a, b, c, d] = palette.map((hue) => (hue + jitter() + 360) % 360);
+  const first = `hsl(${a} ${sat}% ${light}%)`;
+  const second = `hsl(${b} ${sat + 4}% ${light + (dark ? 2 : 4)}%)`;
+  const glow = `hsl(${c} ${sat + 8}% ${glowLight}%)`;
+  const accent = `hsl(${d} ${sat + 6}% ${dark ? 48 : 72}%)`;
+  return `--fallback-angle: ${angle}deg; --fallback-a: ${escapeAttr(first)}; --fallback-b: ${escapeAttr(second)}; --fallback-c: ${escapeAttr(glow)}; --fallback-d: ${escapeAttr(accent)}`;
 }
 
 export function coverStyle(url, key = "") {

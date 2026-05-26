@@ -1,6 +1,16 @@
 const STORED_LANG = "events_miniapp_lang";
 const STORED_THEME = "events_miniapp_theme";
 const STORED_SESSION = "events_miniapp_session";
+const STORED_EVENT_FILTERS = "events_miniapp_event_filters";
+
+const DEFAULT_EVENT_FILTERS = Object.freeze({
+  sort: "time_asc",
+  relevance: "active",
+  categories: [],
+  organizers: [],
+  locations: [],
+  timeOfDay: [],
+});
 
 export const LANGS = ["en", "ru", "kk"];
 
@@ -12,6 +22,17 @@ export const state = {
   lang: normalizeLang(localStorage.getItem(STORED_LANG) || navigator.language || "en"),
   theme: localStorage.getItem(STORED_THEME) || "",
   events: [],
+  eventFilterOptions: {
+    categories: [],
+    organizers: [],
+    locations: [],
+  },
+  eventFilterOptionsLoaded: false,
+  eventFilters: loadEventFilters(),
+  eventSearch: {
+    active: false,
+    query: "",
+  },
   favorites: [],
   reminders: [],
   currentEvent: null,
@@ -21,6 +42,52 @@ export const state = {
     reminders: 0,
   },
 };
+
+export function defaultEventFilters() {
+  return {
+    sort: DEFAULT_EVENT_FILTERS.sort,
+    relevance: DEFAULT_EVENT_FILTERS.relevance,
+    categories: [],
+    organizers: [],
+    locations: [],
+    timeOfDay: [],
+  };
+}
+
+export function loadEventFilters() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(STORED_EVENT_FILTERS) || "{}");
+    return normalizeEventFilters(parsed);
+  } catch {
+    return defaultEventFilters();
+  }
+}
+
+export function normalizeEventFilters(filters = {}) {
+  const next = defaultEventFilters();
+  if (typeof filters.sort === "string" && filters.sort) {
+    next.sort = filters.sort;
+  }
+  if (typeof filters.relevance === "string" && filters.relevance) {
+    next.relevance = filters.relevance;
+  }
+  next.categories = uniqueStrings(filters.categories);
+  next.organizers = uniqueStrings(filters.organizers);
+  next.locations = uniqueStrings(filters.locations);
+  next.timeOfDay = uniqueStrings(filters.timeOfDay);
+  return next;
+}
+
+export function setEventFilters(filters) {
+  state.eventFilters = normalizeEventFilters(filters);
+  localStorage.setItem(STORED_EVENT_FILTERS, JSON.stringify(state.eventFilters));
+  return state.eventFilters;
+}
+
+function uniqueStrings(values) {
+  if (!Array.isArray(values)) return [];
+  return [...new Set(values.map((value) => String(value || "").trim()).filter(Boolean))].sort();
+}
 
 export function normalizeLang(value) {
   const lang = String(value || "en").slice(0, 2).toLowerCase();

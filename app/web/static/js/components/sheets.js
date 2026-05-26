@@ -1,5 +1,5 @@
 import { escapeHtml } from "./events.js";
-import { formatReminderOffset, t } from "../i18n.js?v=20260525-card-spacing-align";
+import { formatReminderOffset, t } from "../i18n.js?v=20260527-polished-search-gradient";
 
 const MAX_REMINDERS = 3;
 
@@ -7,6 +7,7 @@ const MAX_REMINDERS = 3;
 
 export function openReminderSheet({ event, onSubmit }) {
   closeSheet();
+  document.documentElement.classList.add("sheet-open");
   const node = document.createElement("div");
   node.className = "sheet-backdrop";
   node.innerHTML = buildSheet(event);
@@ -59,6 +60,9 @@ export function closeSheet() {
   const current = document.querySelector(".sheet-backdrop");
   if (!current) return;
   current.classList.remove("open");
+  if (!document.querySelector(".filter-sheet-backdrop")) {
+    document.documentElement.classList.remove("sheet-open");
+  }
   window.setTimeout(() => current.remove(), 220);
 }
 

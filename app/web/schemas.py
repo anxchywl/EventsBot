@@ -26,6 +26,7 @@ class EventListItem(BaseModel):
     category: str
     is_favorite: bool = False
     reminder_count: int = 0
+    attendee_count: int = 0
     is_ended: bool = False
     cover_url: str | None = None
 
@@ -67,6 +68,17 @@ class ReminderItem(BaseModel):
 class ReminderGroup(BaseModel):
     date: str
     reminders: list[ReminderItem]
+
+
+class EventFilterOption(BaseModel):
+    value: str
+    label: str
+
+
+class EventFiltersResponse(BaseModel):
+    categories: list[EventFilterOption]
+    organizers: list[EventFilterOption]
+    locations: list[EventFilterOption]
 
 
 class ActionResponse(BaseModel):
