@@ -6,26 +6,28 @@ import {
   fetchEvent,
   fetchEventFilters,
   fetchEvents,
-  fetchFavorites,
   fetchReminders,
   removeFavorite,
   shareEvent,
 } from "./api.js";
-import { loadingScreen, resetFallbackCoverStyles, startCountdowns } from "./components/events.js?v=20260527-polished-search-gradient";
-import { closeFilterSheet, openFilterSheet } from "./components/filterSheet.js?v=20260527-polished-search-gradient";
-import { closeSheet, openReminderSheet } from "./components/sheets.js?v=20260527-polished-search-gradient";
-import { t } from "./i18n.js?v=20260527-polished-search-gradient";
+import { loadingScreen, resetFallbackCoverStyles, startCountdowns } from "./components/events.js?v=20260527-no-event-filter-haptics";
+import { closeFilterSheet, openFilterSheet } from "./components/filterSheet.js?v=20260528-gold-glow";
+import { closeSheet, openReminderSheet } from "./components/sheets.js?v=20260528-gold-glow";
+import { t } from "./i18n.js?v=20260528-gold-glow";
 import { currentTheme, nextLang, normalizeEventFilters, rememberScroll, restoreScroll, setEventFilters, setLang, setTheme, state, toggleTheme } from "./state.js";
 import { configureBackButton, haptic, initTelegram, openLink, openTelegramLink, startParam, tg } from "./telegram.js";
-import { renderEvent } from "./views/event.js";
-import { renderFavorites } from "./views/favorites.js?v=20260527-polished-search-gradient";
-import { renderEventResults, renderFilterBar, renderMenu, renderPlaceholder } from "./views/menu.js?v=20260527-polished-search-gradient";
-import { renderReminders } from "./views/reminders.js?v=20260527-polished-search-gradient";
+import { renderEvent, renderEventUnavailable, renderEventSkeleton } from "./views/event.js?v=20260528-gold-glow";
+import { renderEventResults, renderFilterBar, renderMenu, renderPlaceholder } from "./views/menu.js?v=20260528-gold-glow";
+import { renderReminders } from "./views/reminders.js?v=20260528-gold-glow";
+import { renderCalendarInner, attachCalendarInteractions, refreshCalendarMonthPanels } from "./views/calendar.js?v=20260528-calendar-restore";
 
 const app = document.getElementById("app");
 let backHandler = () => navigate("events", { direction: "back" });
 let eventFetchTimer = null;
 let searchCloseTimer = null;
+const favoriteRequests = new Set();
+let pendingEventsRefreshAfterFavorite = false;
+let lastDirectHapticAt = 0;
 
 // Snapshot of the events menu DOM — saved when leaving for an event page,
 // restored instantly when coming back so the transition is invisible.
@@ -60,7 +62,9 @@ export async function boot() {
   await authenticate().catch(() => null);
   window.addEventListener("hashchange", () => loadFromLocation());
   window.addEventListener("scroll", handleScroll, { passive: true });
-  app.addEventListener("click", onClick);
+  document.addEventListener("pointerdown", onPointerDown, { passive: true });
+  document.addEventListener("touchstart", onPointerDown, { passive: true });
+  document.addEventListener("click", onClick);
   app.addEventListener("input", onInput);
   installKeyboardOverlayNav();
   loadFromLocation();
@@ -95,10 +99,6 @@ function installKeyboardOverlayNav() {
 }
 
 function routeFromLocation() {
-  const start = startParam() || new URLSearchParams(window.location.search).get("startapp") || "";
-  if (start.startsWith("event_")) {
-    return { route: "event", token: start.slice(6) };
-  }
   const pathEvent = window.location.pathname.match(/^\/events\/([^/]+)/);
   if (pathEvent) {
     return { route: "event", token: decodeURIComponent(pathEvent[1]) };
@@ -111,10 +111,21 @@ function routeFromLocation() {
     return { route: "events", token: "" };
   }
   if (hashRoute.startsWith("events/")) {
-    return { route: "event", token: hashRoute.split("/")[1] };
+    return { route: "event", token: decodeURIComponent(hashRoute.split("/")[1] || "") };
   }
-  if (["favorites", "reminders"].includes(hashRoute)) {
-    return { route: hashRoute, token: "" };
+  if (hashRoute === "favorites") {
+    setEventFilters({ ...state.eventFilters, favoritesOnly: true });
+    return { route: "events", token: "" };
+  }
+  if (hashRoute === "reminders") {
+    return { route: "reminders", token: "" };
+  }
+  if (hashRoute === "calendar") {
+    return { route: "calendar", token: "" };
+  }
+  const start = startParam() || new URLSearchParams(window.location.search).get("startapp") || "";
+  if (start.startsWith("event_")) {
+    return { route: "event", token: start.slice(6) };
   }
   return { route: "events", token: "" };
 }
@@ -138,9 +149,9 @@ async function navigate(route, options = {}) {
   // preventing a visual gap where the old page has exited but the new one
   // hasn't yet appeared (caused by awaiting a network request inside the callback).
   let prefetchedEvent = null;
-  let prefetchedFavorites = null;
   let prefetchedReminders = null;
   let prefetchedEvents = null;
+  let shouldRefreshEventsAfterNavigation = false;
 
   // Going events → event: snapshot the current menu DOM for instant restore later.
   // Only save if the DOM actually has a fully-rendered events screen (not a loading screen).
@@ -154,6 +165,8 @@ async function navigate(route, options = {}) {
   // Going back event → events: restore from snapshot — no fetch, no re-render.
   const restoringFromCache = prevRoute === "event" && route === "events" && cachedMenuHTML !== null;
 
+  const returningFromEventWithLocalEvents = prevRoute === "event" && route === "events" && state.events.length > 0;
+
   if (!restoringFromCache) {
     try {
       if (route === "event") {
@@ -161,13 +174,22 @@ async function navigate(route, options = {}) {
         if (token) {
           prefetchedEvent = await fetchEvent(token);
         }
-      } else if (route === "favorites") {
-        prefetchedFavorites = await fetchFavorites();
       } else if (route === "reminders") {
         prefetchedReminders = await fetchReminders();
       } else if (route === "events") {
         await ensureEventFilterOptions();
-        prefetchedEvents = await fetchEvents(state.eventFilters);
+        if (returningFromEventWithLocalEvents) {
+          prefetchedEvents = state.events;
+          shouldRefreshEventsAfterNavigation = true;
+        } else {
+          prefetchedEvents = await fetchEvents(state.eventFilters);
+        }
+      } else if (route === "calendar") {
+        if (state.events.length > 0) {
+          prefetchedEvents = state.events;
+        } else {
+          prefetchedEvents = await fetchEvents(state.eventFilters);
+        }
       }
     } catch (_) {
       // Pre-fetch failed — renderRoute will handle the error gracefully
@@ -223,27 +245,32 @@ async function navigate(route, options = {}) {
         syncHash(route, state.token);
       }
       startCountdowns(app);
+      if (state.calendarMode) {
+        refreshCalendarMonthPanels({ forceVisible: true });
+        attachCalendarInteractions();
+      }
       return;
     }
 
     // Inject pre-fetched data into state so renderRoute skips the network call
     if (prefetchedEvent !== null) {
       state.currentEvent = prefetchedEvent;
-    } else if (prefetchedFavorites !== null) {
-      state.favorites = prefetchedFavorites;
     } else if (prefetchedReminders !== null) {
       state.reminders = prefetchedReminders;
     } else if (prefetchedEvents !== null) {
       state.events = prefetchedEvents;
     }
     await renderRoute({ quiet: options.quiet ?? isTopLevelRoute(route), prefetched: true });
-    if (route === "events" || route === "favorites" || route === "reminders") {
+    if (route === "events" || route === "reminders" || route === "calendar") {
       restoreScroll(route);
     } else {
       window.scrollTo({ top: 0, behavior: "instant" });
     }
     if (options.replaceHash !== false) {
       syncHash(route, state.token);
+    }
+    if (shouldRefreshEventsAfterNavigation) {
+      refreshEventsAfterNavigation();
     }
   };
 
@@ -257,6 +284,66 @@ async function navigate(route, options = {}) {
   // completely invisible to the user.
   if (restoringFromCache) {
     await performNavigation();
+    
+    // Sync badges from state.events to the restored cached DOM instantly
+    state.events.forEach(item => setEventRowFavoriteBadge(item.token, item.is_favorite));
+    
+    // If in favoritesOnly mode, remove rows that are no longer favorites
+    if (state.eventFilters.favoritesOnly) {
+      app.querySelectorAll("[data-event-token]").forEach((row) => {
+        const token = row.dataset.eventToken;
+        const eventItem = state.events.find(e => e.token === token);
+        if (eventItem && !eventItem.is_favorite) {
+          row.remove();
+        }
+      });
+    }
+
+    return;
+  }
+
+  if (options.circularEvent && document.startViewTransition) {
+    const event = options.circularEvent;
+    const x = event.clientX || window.innerWidth / 2;
+    const y = event.clientY || window.innerHeight / 2;
+    const endRadius = Math.hypot(
+      Math.max(x, window.innerWidth - x),
+      Math.max(y, window.innerHeight - y),
+    );
+
+    document.documentElement.classList.add("theme-transitioning");
+
+    const transition = document.startViewTransition(async () => {
+      document.documentElement.classList.add("no-transitions");
+      await performNavigation();
+    });
+
+    transition.ready.then(() => {
+      document.documentElement.animate(
+        {
+          clipPath: [
+            `circle(0px at ${x}px ${y}px)`,
+            `circle(${endRadius}px at ${x}px ${y}px)`,
+          ],
+        },
+        {
+          duration: 450,
+          easing: "cubic-bezier(0.4, 0, 0.2, 1)",
+          pseudoElement: "::view-transition-new(root)",
+        },
+      );
+    });
+
+    try {
+      await transition.finished;
+    } finally {
+      document.documentElement.classList.remove("theme-transitioning");
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          document.documentElement.classList.remove("no-transitions");
+        });
+      });
+    }
     return;
   }
 
@@ -300,7 +387,7 @@ async function navigate(route, options = {}) {
 }
 
 function getRouteIndex(route) {
-  const order = ["events", "favorites", "reminders"];
+  const order = ["events", "calendar", "reminders"];
   return order.indexOf(route);
 }
 
@@ -309,9 +396,8 @@ async function renderRoute({ quiet = false, prefetched = false } = {}) {
   // so the DOM swap is synchronous and the animation is perfectly smooth.
   const useCache = prefetched &&
     ((state.route === "event" && state.currentEvent !== undefined) ||
-      (state.route === "favorites" && state.favorites !== undefined) ||
       (state.route === "reminders" && state.reminders !== undefined) ||
-      (state.route === "events" && state.events !== undefined));
+      ((state.route === "events" || state.route === "calendar") && state.events !== undefined));
 
   if (!quiet && !useCache) {
     app.innerHTML = loadingScreen();
@@ -320,22 +406,18 @@ async function renderRoute({ quiet = false, prefetched = false } = {}) {
     if (state.route === "event") {
       if (!state.token) {
         state.currentEvent = null;
-        app.innerHTML = renderEvent(null);
+        app.innerHTML = renderEventUnavailable();
         applyQuietRender(quiet);
         return;
       }
       if (!useCache) {
+        // Optimistically render skeleton if we don't have the event yet
+        if (!quiet) {
+          app.innerHTML = renderEventSkeleton(state.token);
+        }
         state.currentEvent = await fetchEvent(state.token);
       }
       app.innerHTML = renderEvent(state.currentEvent);
-      applyQuietRender(quiet);
-      return;
-    }
-    if (state.route === "favorites") {
-      if (!useCache) {
-        state.favorites = await fetchFavorites();
-      }
-      app.innerHTML = renderFavorites(state.favorites);
       applyQuietRender(quiet);
       return;
     }
@@ -353,9 +435,10 @@ async function renderRoute({ quiet = false, prefetched = false } = {}) {
     }
     app.innerHTML = renderMenu(state.events);
     applyQuietRender(quiet);
+    if (state.calendarMode) attachCalendarInteractions();
   } catch (error) {
     if (state.route === "event" && error.status === 404) {
-      app.innerHTML = renderEvent(null);
+      app.innerHTML = renderEventUnavailable();
       applyQuietRender(quiet);
       return;
     }
@@ -369,12 +452,7 @@ function renderCurrent({ quiet = false } = {}) {
   const filterScroll = filterBar ? filterBar.scrollLeft : 0;
 
   if (state.route === "event") {
-    app.innerHTML = renderEvent(state.currentEvent);
-    applyQuietRender(quiet);
-    return;
-  }
-  if (state.route === "favorites") {
-    app.innerHTML = renderFavorites(state.favorites);
+    renderEventPreservingFavorite();
     applyQuietRender(quiet);
     return;
   }
@@ -385,6 +463,7 @@ function renderCurrent({ quiet = false } = {}) {
   }
   app.innerHTML = renderMenu(state.events);
   applyQuietRender(quiet);
+  if (state.calendarMode) attachCalendarInteractions();
 
   if (filterScroll) {
     const newFilterBar = app.querySelector(".filter-bar");
@@ -410,6 +489,21 @@ function syncHash(route, token) {
   }
 }
 
+function renderEventPreservingFavorite() {
+  const currentButton = app.querySelector(".event-screen [data-action='favorite']");
+  app.innerHTML = renderEvent(state.currentEvent);
+
+  const nextButton = app.querySelector(".event-screen [data-action='favorite']");
+  if (!currentButton || !nextButton) {
+    return;
+  }
+
+  currentButton.classList.toggle("active", Boolean(state.currentEvent?.is_favorite));
+  currentButton.classList.remove("favorite-spin", "favorite-unspin", "is-loading");
+  currentButton.disabled = false;
+  nextButton.replaceWith(currentButton);
+}
+
 function eventsHash() {
   const params = new URLSearchParams();
   const filters = state.eventFilters;
@@ -419,6 +513,7 @@ function eventsHash() {
   if (filters.organizers.length) params.set("org", filters.organizers.join(","));
   if (filters.locations.length) params.set("loc", filters.locations.join(","));
   if (filters.timeOfDay?.length) params.set("tod", filters.timeOfDay.join(","));
+  if (filters.favoritesOnly) params.set("fav", "1");
   const query = params.toString();
   return query ? `#/?${query}` : "#/";
 }
@@ -435,6 +530,7 @@ function hydrateFiltersFromParams(params) {
     organizers: splitParam(params.get("org")),
     locations: splitParam(params.get("loc")),
     timeOfDay: splitParam(params.get("tod")),
+    favoritesOnly: params.get("fav") === "1",
   }));
 }
 
@@ -457,17 +553,62 @@ async function ensureEventFilterOptions() {
 
 function updateEventFilters(patch) {
   setEventFilters({ ...state.eventFilters, ...patch });
+  cachedMenuHTML = null;
   syncHash("events", "");
   patchEventsFilterBar();
+  
+  if (state.route === "calendar") {
+    window.clearTimeout(eventFetchTimer);
+    eventFetchTimer = window.setTimeout(async () => {
+      try {
+        state.events = await fetchEvents(state.eventFilters);
+        refreshCalendarMonthPanels();
+      } catch {
+        haptic("error");
+      }
+    }, 180);
+    return;
+  }
+  
+  const region = app.querySelector("[data-events-list-region]");
+  if (region) {
+    region.classList.add("events-list-loading");
+  }
+
   window.clearTimeout(eventFetchTimer);
   eventFetchTimer = window.setTimeout(async () => {
     try {
       state.events = await fetchEvents(state.eventFilters);
-      patchEventsList();
+      if (region) region.classList.remove("events-list-loading");
+      patchEventsList({ animate: true });
     } catch {
+      if (region) region.classList.remove("events-list-loading");
       haptic("error");
     }
   }, 180);
+}
+
+function refreshEventsAfterNavigation() {
+  if (favoriteRequests.size) {
+    pendingEventsRefreshAfterFavorite = true;
+    return;
+  }
+  refreshEventsList({ animate: true });
+}
+
+async function refreshEventsList({ animate = false } = {}) {
+  if (state.route !== "events" && state.route !== "calendar") {
+    return;
+  }
+  try {
+    state.events = await fetchEvents(state.eventFilters);
+    if (state.route === "events") patchEventsList({ quiet: true, animate });
+    if (state.route === "calendar") {
+        refreshCalendarMonthPanels();
+    }
+  } catch {
+    haptic("error");
+  }
 }
 
 function openEventSearch() {
@@ -510,7 +651,7 @@ function patchEventsFilterBar() {
   }
 }
 
-function patchEventsList({ quiet = false } = {}) {
+function patchEventsList({ quiet = false, animate = false } = {}) {
   const region = app.querySelector("[data-events-list-region]");
   if (!region) {
     renderCurrent({ quiet: true });
@@ -520,28 +661,52 @@ function patchEventsList({ quiet = false } = {}) {
   if (quiet) {
     screen?.classList.add("no-enter");
   }
-  region.innerHTML = renderEventResults(state.events);
+  const newHTML = renderEventResults(state.events);
+  if (region.innerHTML === newHTML) {
+    return;
+  }
+  region.innerHTML = newHTML;
+  if (animate) {
+    region.classList.remove("events-list-soft-update");
+    void region.offsetWidth;
+    region.classList.add("events-list-soft-update");
+  }
   startCountdowns(app);
+}
+
+function onPointerDown(event) {
+  if (!event.target.closest("[data-action='theme'], [data-action='lang'], [data-action='reminder'], [data-action='share']")) {
+    return;
+  }
+  lastDirectHapticAt = Date.now();
+  haptic("impact");
+}
+
+function hapticImpactFallback() {
+  if (Date.now() - lastDirectHapticAt > 260) {
+    haptic("impact");
+  }
 }
 
 async function onClick(event) {
   const theme = event.target.closest("[data-action='theme']");
   if (theme) {
+    triggerControlAnimation(theme, "theme-switching");
+    hapticImpactFallback();
     runCircularTransition(event, () => {
       toggleTheme();
       resetFallbackCoverStyles();
       renderCurrent({ quiet: true });
     });
-    haptic();
     return;
   }
   const lang = event.target.closest("[data-action='lang']");
   if (lang) {
+    hapticImpactFallback();
     runCircularTransition(event, () => {
       nextLang();
       renderCurrent({ quiet: true });
     });
-    haptic();
     return;
   }
   const reminderRemove = event.target.closest("[data-reminder-id]");
@@ -558,7 +723,6 @@ async function onClick(event) {
       type: filterOpen.dataset.filterOpen,
       onChange: updateEventFilters,
     });
-    haptic();
     return;
   }
   const searchOpen = event.target.closest("[data-action='event-search-open']");
@@ -567,24 +731,94 @@ async function onClick(event) {
     haptic();
     return;
   }
+  const calendarToggle = event.target.closest("[data-action='calendar-toggle']");
+  if (calendarToggle) {
+    haptic("light");
+    rememberScroll(state.calendarMode ? "calendar" : "events");
+    runCircularTransition(event, () => {
+      state.calendarMode = !state.calendarMode;
+      const screen = document.querySelector('[data-route="events"]');
+      if (screen) {
+        screen.classList.toggle("calendar-mode-active", state.calendarMode);
+        calendarToggle.classList.toggle("mode-active", state.calendarMode);
+        
+        const titleH1 = screen.querySelector('.events-title-block h1');
+        if (titleH1) {
+          titleH1.textContent = state.calendarMode ? t("eventsCalendar") : t("events");
+        }
+        
+        const eventsContainer = screen.querySelector('.events-mode-container');
+        const calendarContainer = screen.querySelector('.calendar-mode-container');
+        
+        if (state.calendarMode && calendarContainer && !calendarContainer.innerHTML.trim()) {
+             import("./views/calendar.js?v=20260528-calendar-restore").then(({ renderCalendarInner }) => {
+             calendarContainer.innerHTML = renderCalendarInner(state.events);
+             attachCalendarInteractions();
+           });
+        }
+        
+        if (eventsContainer) eventsContainer.classList.toggle("mode-hidden", state.calendarMode);
+        if (calendarContainer) calendarContainer.classList.toggle("mode-hidden", !state.calendarMode);
+      }
+      
+      if (state.calendarMode && document.querySelector('.calendar-widget-container')) {
+        attachCalendarInteractions();
+      }
+      restoreScroll(state.calendarMode ? "calendar" : "events");
+    });
+    return;
+  }
   const searchClose = event.target.closest("[data-action='event-search-close']");
   if (searchClose) {
     closeEventSearch();
     haptic();
     return;
   }
+  const copyTarget = event.target.closest("[data-copy-value]");
+  if (copyTarget) {
+    await copyText(copyTarget.dataset.copyValue || "");
+    copyTarget.classList.add("copied");
+    window.setTimeout(() => copyTarget.classList.remove("copied"), 520);
+    haptic("success");
+    return;
+  }
+  const favoriteFilter = event.target.closest("[data-action='favorite-filter-toggle']");
+  if (favoriteFilter) {
+    updateEventFilters({ favoritesOnly: !state.eventFilters.favoritesOnly });
+    return;
+  }
   const favoriteRemove = event.target.closest("[data-favorite-remove]");
   if (favoriteRemove) {
+    const token = favoriteRemove.dataset.favoriteRemove;
+    if (favoriteRequests.has(token)) return;
+    favoriteRequests.add(token);
     favoriteRemove.disabled = true;
+    
+    // Optimistic UI update
+    const eventItem = state.events.find((item) => item.token === token);
+    if (eventItem) {
+      eventItem.is_favorite = false;
+      syncFavoriteState(token, false);
+      if (state.eventFilters.favoritesOnly) {
+        state.events = state.events.filter((item) => item.token !== token);
+        patchEventsList({ quiet: true, animate: true });
+      } else {
+        setEventRowFavoriteBadge(token, false);
+      }
+    }
+    
     try {
-      await removeFavorite(favoriteRemove.dataset.favoriteRemove);
+      await removeFavorite(token);
       haptic("success");
-      state.favorites = state.favorites.filter((item) => item.token !== favoriteRemove.dataset.favoriteRemove);
-      app.innerHTML = renderFavorites(state.favorites);
-      applyQuietRender(true);
     } catch {
+      if (eventItem) {
+        eventItem.is_favorite = true;
+        syncFavoriteState(token, true);
+      }
       favoriteRemove.disabled = false;
       haptic("error");
+    } finally {
+      favoriteRequests.delete(token);
     }
     return;
   }
@@ -611,6 +845,13 @@ async function onClick(event) {
   }
 }
 
+function triggerControlAnimation(element, className) {
+  element.classList.remove(className);
+  void element.offsetWidth;
+  element.classList.add(className);
+  window.setTimeout(() => element.classList.remove(className), 520);
+}
+
 function onInput(event) {
   const searchInput = event.target.closest("[data-event-search-input]");
   if (!searchInput) {
@@ -627,6 +868,7 @@ async function handleEventAction(action, element) {
     await toggleFavorite(event);
   }
   if (action === "reminder") {
+    hapticImpactFallback();
     openReminderSheet({
       event: state.currentEvent,
       onSubmit: async (offset, deletedReminderIds = []) => {
@@ -662,6 +904,7 @@ async function handleEventAction(action, element) {
     }
   }
   if (action === "share") {
+    hapticImpactFallback();
     const payload = await shareEvent(event.token);
     haptic("success");
     openTelegramLink(payload.url || event.share_url);
@@ -671,7 +914,30 @@ async function handleEventAction(action, element) {
   }
 }
 
+async function copyText(value) {
+  if (!value) {
+    return;
+  }
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value);
+    return;
+  }
+  const input = document.createElement("textarea");
+  input.value = value;
+  input.setAttribute("readonly", "");
+  input.style.position = "fixed";
+  input.style.opacity = "0";
+  document.body.appendChild(input);
+  input.select();
+  document.execCommand("copy");
+  input.remove();
+}
+
 async function toggleFavorite(event) {
+  if (favoriteRequests.has(event.token)) {
+    return;
+  }
+  favoriteRequests.add(event.token);
   const previous = event.is_favorite;
   event.is_favorite = !previous;
   setFavoriteButtonState(event.is_favorite, true);
@@ -683,7 +949,13 @@ async function toggleFavorite(event) {
       await addFavorite(event.token);
     } else {
       await removeFavorite(event.token);
+      if (state.eventFilters.favoritesOnly) {
+        state.events = state.events.filter((item) => item.token !== event.token);
+      }
     }
+    // We intentionally DO NOT nullify cachedMenuHTML here.
+    // This allows the back navigation to instantly restore the menu from cache.
+    // The navigation code will dynamically patch the badges and remove unfavorited items.
     haptic("success");
   } catch (error) {
     event.is_favorite = previous;
@@ -691,6 +963,13 @@ async function toggleFavorite(event) {
     setFavoriteButtonState(previous, false);
     setEventRowFavoriteBadge(event.token, previous);
     haptic("error");
+  } finally {
+    favoriteRequests.delete(event.token);
+    setFavoriteButtonLoading(false);
+    if (pendingEventsRefreshAfterFavorite && favoriteRequests.size === 0) {
+      pendingEventsRefreshAfterFavorite = false;
+      refreshEventsList({ animate: true });
+    }
   }
 }
 
@@ -737,15 +1016,25 @@ function setFavoriteButtonState(isFavorite, animate) {
     return;
   }
   button.classList.toggle("active", isFavorite);
-  if (animate && isFavorite) {
-    button.classList.remove("favorite-spin");
+  setFavoriteButtonLoading(true);
+  if (animate) {
+    button.classList.remove("favorite-spin", "favorite-unspin");
     void button.offsetWidth;
-    button.classList.add("favorite-spin");
+    button.classList.add(isFavorite ? "favorite-spin" : "favorite-unspin");
   }
 }
 
+function setFavoriteButtonLoading(loading) {
+  const button = app.querySelector("[data-action='favorite']");
+  if (!button) {
+    return;
+  }
+  button.disabled = loading;
+  button.classList.toggle("is-loading", loading);
+}
+
 function isTopLevelRoute(route) {
-  return route === "events" || route === "favorites" || route === "reminders";
+  return route === "events" || route === "calendar" || route === "reminders";
 }
 
 function runCircularTransition(event, apply) {

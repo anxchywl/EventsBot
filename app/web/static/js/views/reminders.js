@@ -1,5 +1,5 @@
-import { controls, coverStyle, escapeAttr, escapeHtml, nav } from "../components/events.js?v=20260527-polished-search-gradient";
-import { t } from "../i18n.js?v=20260527-polished-search-gradient";
+import { controls, coverStyle, escapeAttr, escapeHtml, nav } from "../components/events.js?v=20260527-no-event-filter-haptics";
+import { t } from "../i18n.js?v=20260527-no-event-filter-haptics";
 
 function formatReminderLeadTime(minutes) {
   const days = Math.floor(minutes / 1440);
@@ -52,7 +52,7 @@ function groupRemindersByEvent(reminders) {
 
 function reminderCard(group) {
   return `
-    <article class="reminder-card" data-event-token="${escapeAttr(group.event.token)}">
+    <article class="reminder-card" role="button" tabindex="0" data-event-token="${escapeAttr(group.event.token)}">
       <div class="reminder-card-cover ${group.event.cover_url ? "has-image" : ""}" ${coverStyle(group.event.cover_url, `event-${group.event.token || group.event.title}`)}></div>
       <div class="reminder-card-main">
         <strong>${escapeHtml(group.event.title)}</strong>
@@ -79,7 +79,6 @@ export function renderReminders(groups) {
   return `
     <div class="screen" data-route="reminders">
       <header class="cover compact" ${coverStyle(null, "header-main")}>
-        ${controls()}
         <h1>${t("reminders")}</h1>
       </header>
       <main class="content">

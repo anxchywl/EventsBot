@@ -32,15 +32,46 @@ export function startParam() {
 }
 
 export function haptic(type = "selection") {
+  if (type === "impact") {
+    callHaptic(() => tg?.HapticFeedback?.impactOccurred?.("medium"));
+    callHaptic(() => tg?.HapticFeedback?.selectionChanged?.());
+    vibrate(24);
+    return;
+  }
+  if (type === "light") {
+    callHaptic(() => tg?.HapticFeedback?.impactOccurred?.("light"));
+    callHaptic(() => tg?.HapticFeedback?.selectionChanged?.());
+    vibrate(12);
+    return;
+  }
   if (type === "success") {
-    tg?.HapticFeedback?.notificationOccurred?.("success");
+    callHaptic(() => tg?.HapticFeedback?.notificationOccurred?.("success"));
+    vibrate([18, 24, 18]);
     return;
   }
   if (type === "error") {
-    tg?.HapticFeedback?.notificationOccurred?.("error");
+    callHaptic(() => tg?.HapticFeedback?.notificationOccurred?.("error"));
+    vibrate([30, 20, 30]);
     return;
   }
-  tg?.HapticFeedback?.selectionChanged?.();
+  callHaptic(() => tg?.HapticFeedback?.selectionChanged?.());
+  vibrate(10);
+}
+
+function callHaptic(run) {
+  try {
+    run();
+  } catch {
+    // Some Android WebViews expose partial Telegram haptic APIs that throw.
+  }
+}
+
+function vibrate(pattern) {
+  try {
+    window.navigator?.vibrate?.(pattern);
+  } catch {
+    // Native vibration is best-effort and unavailable in some Telegram clients.
+  }
 }
 
 export function openTelegramLink(url) {

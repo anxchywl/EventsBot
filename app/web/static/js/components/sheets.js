@@ -1,5 +1,5 @@
 import { escapeHtml } from "./events.js";
-import { formatReminderOffset, t } from "../i18n.js?v=20260527-polished-search-gradient";
+import { formatReminderOffset, t } from "../i18n.js?v=20260527-no-event-filter-haptics";
 
 const MAX_REMINDERS = 3;
 

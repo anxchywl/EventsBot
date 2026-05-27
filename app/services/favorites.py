@@ -43,8 +43,13 @@ async def add_favorite(session: AsyncSession, user: User, event: Event) -> bool:
     if await is_event_favorite(session, user, event.id):
         return False
     session.add(Favorite(user_id=user.id, event_id=event.id))
-    await session.flush()
-    return True
+    from sqlalchemy.exc import IntegrityError
+    try:
+        await session.flush()
+        return True
+    except IntegrityError:
+        await session.rollback()
+        return False
 
 
 async def remove_favorite(session: AsyncSession, user: User, event: Event) -> bool:

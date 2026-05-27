@@ -1,5 +1,5 @@
-import { controls, coverStyle, escapeAttr, escapeHtml, eventRow, nav, status } from "../components/events.js?v=20260527-polished-search-gradient";
-import { t } from "../i18n.js?v=20260527-polished-search-gradient";
+import { controls, coverStyle, escapeAttr, escapeHtml, eventRow, nav, status } from "../components/events.js?v=20260527-no-event-filter-haptics";
+import { t } from "../i18n.js?v=20260527-no-event-filter-haptics";
 import { state } from "../state.js";
 
 export function formatGroupDate(dateStr, lang) {
@@ -12,19 +12,30 @@ export function formatGroupDate(dateStr, lang) {
   }).format(date);
 }
 
+import { renderCalendarInner } from "./calendar.js";
+
 export function renderMenu(events) {
+  const isCalendar = state.calendarMode;
   return `
-    <div class="screen" data-route="events">
+    <div class="screen ${isCalendar ? "calendar-mode-active" : ""}" data-route="events">
       <header class="cover compact" ${coverStyle(null, "header-main")}>
-        ${controls()}
+        <button class="calendar-toggle-btn ${isCalendar ? "mode-active" : ""}" type="button" data-action="calendar-toggle" aria-label="Calendar">
+          <svg class="icon-calendar" viewBox="0 0 24 24" width="22" height="22"><path d="M19 3h-1V1h-2v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11zM7 10h5v5H7v-5z" fill="currentColor"/></svg>
+          <svg class="icon-list" viewBox="0 0 24 24" width="22" height="22"><path d="M3 13h2v-2H3v2zm0 4h2v-2H3v2zm0-8h2V7H3v2zm4 4h14v-2H7v2zm0 4h14v-2H7v2zM7 7v2h14V7H7z" fill="currentColor"/></svg>
+        </button>
         <div class="events-title-block">
-          <h1>${t("events")}</h1>
+          <h1>${isCalendar ? t("eventsCalendar") : t("events")}</h1>
         </div>
       </header>
       <main class="content">
-        ${renderFilterBar()}
-        <div data-events-list-region>
-          ${renderEventResults(events)}
+        <div class="events-mode-container ${isCalendar ? "mode-hidden" : ""}">
+          ${renderFilterBar()}
+          <div data-events-list-region>
+            ${renderEventResults(events)}
+          </div>
+        </div>
+        <div class="calendar-mode-container ${!isCalendar ? "mode-hidden" : ""}">
+          ${isCalendar ? renderCalendarInner(events) : ""}
         </div>
       </main>
       ${nav("events")}
@@ -64,6 +75,10 @@ export function renderEventResults(events) {
   let sortedEvents = query
     ? events.filter((event) => String(event.title || "").toLowerCase().includes(query))
     : [...events];
+
+  if (state.eventFilters.favoritesOnly) {
+    sortedEvents = sortedEvents.filter((event) => event.is_favorite);
+  }
 
   if (state.eventFilters.timeOfDay?.length) {
     sortedEvents = sortedEvents.filter((event) => matchesTimeOfDay(event.time, state.eventFilters.timeOfDay));
@@ -126,11 +141,12 @@ export function renderFilterBar() {
         ${isSearching ? renderSearchField() : `
           ${searchFilterButton()}
           ${sortFilterButton(filters.sort !== "time_asc")}
-          ${filterButton("relevance", t("relevance"), relevanceCount, relevanceCount > 0)}
+          ${filterButton("relevance", filters.relevance === "active" ? t("relevance") : relevanceLabel(filters.relevance), 0, filters.relevance !== "active")}
           ${filterButton("timeOfDay", t("timeOfDay"), timeOfDayCount, timeOfDayCount > 0)}
           ${filterButton("categories", t("categories"), categoryCount, categoryCount > 0)}
           ${filterButton("locations", t("location"), locationCount, locationCount > 0)}
           ${filterButton("organizers", t("organizers"), organizerCount, organizerCount > 0)}
+          ${favoriteFilterButton(filters.favoritesOnly)}
         `}
       </div>
     </div>
@@ -178,6 +194,16 @@ function filterButton(filter, label, count, active) {
   `;
 }
 
+function favoriteFilterButton(active) {
+  return `
+    <button class="filter-chip filter-chip-icon favorite-filter-chip ${active ? "active" : ""}" type="button" data-action="favorite-filter-toggle" aria-label="${escapeAttr(t("favorites"))}">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M12 2.8l2.65 5.76 6.3.73-4.66 4.3 1.25 6.21L12 16.69 6.46 19.8l1.25-6.21-4.66-4.3 6.3-.73L12 2.8z" fill="currentColor"/>
+      </svg>
+    </button>
+  `;
+}
+
 export function sortLabel(sort) {
   const labels = {
     time_asc: t("nearestFirst"),
@@ -203,8 +229,6 @@ export function renderPlaceholder(active) {
   return `
     <div class="screen" data-route="${active}">
       <header class="cover compact" ${coverStyle(null, "header-main")}>
-        ${controls()}
-        <p class="eyebrow">${t(active)}</p>
         <h1>${t(active)}</h1>
       </header>
       <main class="content">

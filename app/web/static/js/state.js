@@ -10,6 +10,7 @@ const DEFAULT_EVENT_FILTERS = Object.freeze({
   organizers: [],
   locations: [],
   timeOfDay: [],
+  favoritesOnly: false,
 });
 
 export const LANGS = ["en", "ru", "kk"];
@@ -36,10 +37,17 @@ export const state = {
   favorites: [],
   reminders: [],
   currentEvent: null,
+  calendarState: {
+    currentDate: new Date().toISOString(),
+    viewMode: "month",
+    selectedEventId: null,
+  },
+  calendarMode: false,
   scroll: {
     events: 0,
     favorites: 0,
     reminders: 0,
+    calendar: 0,
   },
 };
 
@@ -51,6 +59,7 @@ export function defaultEventFilters() {
     organizers: [],
     locations: [],
     timeOfDay: [],
+    favoritesOnly: false,
   };
 }
 
@@ -75,6 +84,7 @@ export function normalizeEventFilters(filters = {}) {
   next.organizers = uniqueStrings(filters.organizers);
   next.locations = uniqueStrings(filters.locations);
   next.timeOfDay = uniqueStrings(filters.timeOfDay);
+  next.favoritesOnly = Boolean(filters.favoritesOnly);
   return next;
 }
 
@@ -104,6 +114,10 @@ export function setLang(lang) {
   state.lang = normalizeLang(lang);
   localStorage.setItem(STORED_LANG, state.lang);
   document.documentElement.lang = state.lang;
+  const btn = document.querySelector(".lang-toggle");
+  if (btn) {
+    btn.textContent = state.lang.toUpperCase();
+  }
 }
 
 export function setTheme(theme) {

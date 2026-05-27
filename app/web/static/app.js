@@ -1,4 +1,4 @@
-import { boot } from "./js/router.js?v=20260527-polished-search-gradient";
+import { boot } from "./js/router.js?v=20260528-calendar-restore";
 
 boot().catch((error) => {
   console.error(error);

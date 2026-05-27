@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, select
+from sqlalchemy import exists, func, select, String, Interval, TIMESTAMP
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -50,6 +50,7 @@ async def list_events(
     categories: str = Query(""),
     organizers: str = Query(""),
     locations: str = Query(""),
+    favorite_only: bool = Query(False),
     miniapp_user: MiniAppUser | None = Depends(optional_miniapp_user),
     session: AsyncSession = Depends(get_session),
 ) -> list[EventListItem]:
@@ -62,7 +63,8 @@ async def list_events(
     cache_key = (
         f"events:list:{user.id if user else 'public'}:"
         f"{sort}:{relevance}:"
-        f"{','.join(category_values)}:{','.join(organizer_values)}:{','.join(location_values)}"
+        f"{','.join(category_values)}:{','.join(organizer_values)}:{','.join(location_values)}:"
+        f"{int(favorite_only)}"
     )
     cached = event_cache.get(cache_key)
     if cached is not None:
@@ -75,6 +77,8 @@ async def list_events(
         categories=category_values,
         organizers=organizer_values,
         locations=location_values,
+        favorite_only=favorite_only,
+        user=user,
     )
     data = await event_list_items(session, events, user=user)
     event_cache.set(cache_key, data)
@@ -201,6 +205,8 @@ async def _filtered_events(
     categories: list[str],
     organizers: list[str],
     locations: list[str],
+    favorite_only: bool,
+    user: User | None,
 ) -> list[Event]:
     today = _today()
     reminder_counts = (
@@ -228,10 +234,28 @@ async def _filtered_events(
         .limit(200)
     )
 
+    event_start_utc = func.timezone(
+        "UTC", 
+        func.timezone(
+            Event.timezone, 
+            func.cast(func.cast(Event.event_date, String) + ' ' + func.cast(Event.event_time, String), TIMESTAMP)
+        )
+    )
+    
+    if favorite_only:
+        if user is None:
+            return []
+        stmt = stmt.where(
+            exists().where(
+                Favorite.event_id == Event.id,
+                Favorite.user_id == user.id,
+            )
+        )
+
     if relevance == "active":
-        stmt = stmt.where(Event.event_date >= today)
+        stmt = stmt.where(event_start_utc + timedelta(hours=2) >= func.timezone("UTC", func.now()))
     elif relevance == "archived":
-        stmt = stmt.where(Event.event_date < today)
+        stmt = stmt.where(event_start_utc + timedelta(hours=2) < func.timezone("UTC", func.now()))
 
     if categories:
         stmt = stmt.where(EventCategory.slug.in_(categories))

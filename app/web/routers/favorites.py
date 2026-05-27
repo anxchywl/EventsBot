@@ -12,6 +12,7 @@ from app.services.analytics import record_event_action_by_ids
 from app.services.events import get_event_by_public_token
 from app.services.favorites import add_favorite, get_user_favorite_events, remove_favorite
 from app.web.auth import MiniAppUser, require_miniapp_user, upsert_miniapp_user
+from app.web.routers.events import event_cache
 from app.web.schemas import EventListItem, FavoriteResponse
 from app.web.serializers import event_list_items
 
@@ -42,16 +43,17 @@ async def favorite_event(
     if not event:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Event no longer available")
 
-    added = await add_favorite(session, user, event)
-    await record_event_action_by_ids(
-        session,
-        event_id=event.id,
-        user_id=user.id,
-        action="favorite_add",
-        source="miniapp",
-    )
+    if await add_favorite(session, user, event):
+        await record_event_action_by_ids(
+            session,
+            event_id=event.id,
+            user_id=user.id,
+            action="favorite_add",
+            source="miniapp",
+        )
     await session.commit()
-    return FavoriteResponse(is_favorite=True if added else True)
+    event_cache.clear()
+    return FavoriteResponse(is_favorite=True)
 
 
 @router.delete("/api/events/{public_token}/favorite", response_model=FavoriteResponse)
@@ -65,13 +67,14 @@ async def unfavorite_event(
     if not event:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Event no longer available")
 
-    await remove_favorite(session, user, event)
-    await record_event_action_by_ids(
-        session,
-        event_id=event.id,
-        user_id=user.id,
-        action="favorite_remove",
-        source="miniapp",
-    )
+    if await remove_favorite(session, user, event):
+        await record_event_action_by_ids(
+            session,
+            event_id=event.id,
+            user_id=user.id,
+            action="favorite_remove",
+            source="miniapp",
+        )
     await session.commit()
+    event_cache.clear()
     return FavoriteResponse(is_favorite=False)

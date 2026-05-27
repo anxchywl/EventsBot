@@ -1,5 +1,5 @@
 import { state } from "../state.js";
-import { categoryLabel, t } from "../i18n.js?v=20260527-polished-search-gradient";
+import { categoryLabel, t } from "../i18n.js?v=20260527-no-event-filter-haptics";
 
 const fallbackCoverStyles = new Map();
 
@@ -22,34 +22,19 @@ export function escapeAttr(value) {
 
 function randomCoverVariables() {
   const dark = document.documentElement.dataset.theme === "dark";
-  const palettes = dark
-    ? [
-        [252, 312, 178, 34],
-        [218, 278, 162, 330],
-        [190, 246, 28, 324],
-        [268, 338, 202, 46],
-        [230, 300, 150, 18],
-        [206, 260, 118, 348],
-      ]
-    : [
-        [205, 262, 156, 34],
-        [186, 238, 318, 42],
-        [220, 282, 162, 12],
-        [174, 214, 288, 36],
-        [248, 320, 188, 48],
-        [196, 256, 146, 334],
-      ];
-  const palette = palettes[Math.floor(Math.random() * palettes.length)];
-  const jitter = () => Math.floor(Math.random() * 17) - 8;
-  const angle = 110 + Math.floor(Math.random() * 140);
-  const sat = dark ? 76 : 88;
-  const light = dark ? 42 : 66;
-  const glowLight = dark ? 60 : 86;
-  const [a, b, c, d] = palette.map((hue) => (hue + jitter() + 360) % 360);
-  const first = `hsl(${a} ${sat}% ${light}%)`;
-  const second = `hsl(${b} ${sat + 4}% ${light + (dark ? 2 : 4)}%)`;
-  const glow = `hsl(${c} ${sat + 8}% ${glowLight}%)`;
-  const accent = `hsl(${d} ${sat + 6}% ${dark ? 48 : 72}%)`;
+  const h1 = Math.floor(Math.random() * 360);
+  const h2 = (h1 + 60 + Math.floor(Math.random() * 120)) % 360;
+  const h3 = (h2 + 60 + Math.floor(Math.random() * 120)) % 360;
+  const h4 = (h3 + 60 + Math.floor(Math.random() * 120)) % 360;
+  const sat = 88 + Math.floor(Math.random() * 13);  // 88–100% for both themes
+  const light = dark ? 58 + Math.floor(Math.random() * 18) : 60 + Math.floor(Math.random() * 16);
+  const glowLight = dark ? 72 + Math.floor(Math.random() * 16) : 80 + Math.floor(Math.random() * 12);
+  const accentLight = dark ? 62 + Math.floor(Math.random() * 16) : 66 + Math.floor(Math.random() * 14);
+  const angle = Math.floor(Math.random() * 360);
+  const first = `hsl(${h1} ${sat}% ${light}%)`;
+  const second = `hsl(${h2} ${sat}% ${light}%)`;
+  const glow = `hsl(${h3} ${sat}% ${glowLight}%)`;
+  const accent = `hsl(${h4} ${sat}% ${accentLight}%)`;
   return `--fallback-angle: ${angle}deg; --fallback-a: ${escapeAttr(first)}; --fallback-b: ${escapeAttr(second)}; --fallback-c: ${escapeAttr(glow)}; --fallback-d: ${escapeAttr(accent)}`;
 }
 
@@ -84,7 +69,6 @@ export function controls() {
 export function nav(active) {
   const items = [
     ["events", `<svg class="nav-icon" viewBox="0 0 24 24" width="20" height="20"><path d="M19 4H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V10h14v10zm0-12H5V6h14v2z" fill="currentColor"/></svg>`],
-    ["favorites", `<svg class="nav-icon" viewBox="0 0 24 24" width="20" height="20"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z" fill="currentColor"/></svg>`],
     ["reminders", `<svg class="nav-icon" viewBox="0 0 24 24" width="20" height="20"><path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.89 2 2 2zm6-6v-5c0-3.07-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z" fill="currentColor"/></svg>`],
   ];
   return `
@@ -112,7 +96,7 @@ export function eventRow(event, options = {}) {
     showFavoriteAction = false,
   } = options;
   return `
-    <article class="event-row ${badgesOnSide ? "has-side-badges" : ""} ${showFavoriteAction ? "has-favorite-action" : ""} ${event.is_ended ? "ended" : ""}" role="button" tabindex="0" data-event-token="${escapeAttr(event.token)}">
+    <article class="event-row ${badgesOnSide ? "has-side-badges" : ""} ${showFavoriteAction ? "has-favorite-action" : ""} ${event.is_archived ? "archived" : event.is_ended ? "ended" : ""}" role="button" tabindex="0" data-event-token="${escapeAttr(event.token)}">
       <div class="event-row-cover ${event.cover_url ? "has-image" : ""}" ${coverStyle(event.cover_url, `event-${event.token || event.title}`)}></div>
       <div class="event-row-body">
         ${showCountdown ? `<span class="event-countdown" data-countdown-target="${escapeAttr(eventTimestamp(event))}"></span>` : ""}
@@ -124,7 +108,6 @@ export function eventRow(event, options = {}) {
         <em>${escapeHtml(categoryLabel(event.category))}</em>
         ${showFavoriteBadge && event.is_favorite ? `<em data-favorite-badge>★</em>` : ""}
         ${showReminderBadge && event.reminder_count ? `<em>${event.reminder_count}</em>` : ""}
-        ${event.is_ended ? `<em>${escapeHtml(t("ended"))}</em>` : ""}
       </div>
       ${showFavoriteAction ? `<button class="favorite-remove-button active" type="button" data-favorite-remove="${escapeAttr(event.token)}" aria-label="${t("remove")}"><span>★</span></button>` : ""}
     </article>
@@ -186,7 +169,7 @@ export function status(message) {
 export function loadingScreen(title = t("loading")) {
   return `
     <div class="screen">
-      <div class="cover skeleton compact">${controls()}</div>
+      <div class="cover skeleton compact"></div>
       <main class="content">
         <div class="panel">
           <div class="line skeleton wide"></div>

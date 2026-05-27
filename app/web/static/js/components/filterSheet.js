@@ -1,5 +1,5 @@
 import { escapeAttr, escapeHtml } from "./events.js";
-import { categoryLabel, t } from "../i18n.js?v=20260527-polished-search-gradient";
+import { categoryLabel, t } from "../i18n.js?v=20260527-no-event-filter-haptics";
 import { state } from "../state.js";
 
 const SORT_GROUPS = [

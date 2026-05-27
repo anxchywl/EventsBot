@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
 from urllib.parse import quote_plus
 
 from sqlalchemy import func, select
@@ -44,6 +45,7 @@ async def event_list_item(
         reminder_count=counts.get(event.id, 0),
         attendee_count=attendees.get(event.id, 0),
         is_ended=is_event_ended(event),
+        is_archived=is_event_archived(event),
         cover_url=event_cover_url(event),
     )
 
@@ -101,6 +103,7 @@ async def event_detail(
         reminder_ids=reminder_ids,
         background_seed=event.public_token,
         palette_key=palette_key(event.public_token),
+        is_archived=is_event_archived(event),
         related_events=await event_list_items(session, related_events, user=user),
     )
 
@@ -202,8 +205,21 @@ def event_cover_url(event: Event) -> str | None:
 
 
 def is_event_ended(event: Event) -> bool:
-    event_dt = datetime.combine(event.event_date, event.event_time).replace(tzinfo=UTC)
-    return event_dt < datetime.now(UTC)
+    try:
+        tz = ZoneInfo(event.timezone)
+    except Exception:
+        tz = UTC
+    event_dt = datetime.combine(event.event_date, event.event_time).replace(tzinfo=tz)
+    return event_dt + timedelta(hours=2) < datetime.now(tz)
+
+
+def is_event_archived(event: Event) -> bool:
+    try:
+        tz = ZoneInfo(event.timezone)
+    except Exception:
+        tz = UTC
+    event_dt = datetime.combine(event.event_date, event.event_time).replace(tzinfo=tz)
+    return event_dt + timedelta(hours=2) < datetime.now(tz)
 
 
 def palette_key(token: str) -> str:

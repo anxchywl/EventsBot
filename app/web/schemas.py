@@ -28,6 +28,7 @@ class EventListItem(BaseModel):
     reminder_count: int = 0
     attendee_count: int = 0
     is_ended: bool = False
+    is_archived: bool = False
     cover_url: str | None = None
 
 
@@ -50,6 +51,7 @@ class EventDetail(BaseModel):
     reminder_ids: list[int] = Field(default_factory=list)
     background_seed: str
     palette_key: str
+    is_archived: bool = False
     related_events: list[EventListItem]
 
 
