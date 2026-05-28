@@ -1,7 +1,7 @@
 import { authHeaders, setSession } from "./state.js";
 import { initData } from "./telegram.js";
 
-async function request(path, options = {}) {
+export async function request(path, options = {}) {
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), 8000);
   try {
@@ -90,3 +90,98 @@ export function deleteReminder(reminderId) {
 export function shareEvent(token) {
   return request(`/api/events/${encodeURIComponent(token)}/share`, { method: "POST" });
 }
+
+export function registerEvent(token) {
+  return request(`/api/events/${encodeURIComponent(token)}/register`, { method: "POST" });
+}
+
+// auth and profile APIs
+export function register(email, password) {
+  return request("/api/auth/register", {
+    method: "POST",
+    body: JSON.stringify({ email, password }),
+  });
+}
+
+export async function verifyCode(email, code) {
+  const payload = await request("/api/auth/verify", {
+    method: "POST",
+    body: JSON.stringify({ email, code }),
+  });
+  setSession(payload.token, payload.user);
+  return payload;
+}
+
+export function resendCode(email) {
+  return request("/api/auth/resend", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+}
+
+export async function login(email, password) {
+  const payload = await request("/api/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ email, password }),
+  });
+  setSession(payload.token, payload.user);
+  return payload;
+}
+
+export function fetchProfile() {
+  return request("/api/auth/profile");
+}
+
+export function updateNickname(nickname) {
+  return request("/api/auth/profile/nickname", {
+    method: "PUT",
+    body: JSON.stringify({ nickname }),
+  });
+}
+
+export async function logout() {
+  await request("/api/auth/profile/logout", { method: "POST" }).catch(() => null);
+  setSession("", null);
+  await authenticate();
+}
+
+// forgot-password APIs (unauthenticated — no miniapp auth header needed for these)
+export function forgotPasswordRequest(email) {
+  return request("/api/auth/forgot-password/request", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+}
+
+export function forgotPasswordVerify(email, code) {
+  return request("/api/auth/forgot-password/verify", {
+    method: "POST",
+    body: JSON.stringify({ email, code }),
+  });
+}
+
+export function forgotPasswordReset(email, code, newPassword) {
+  return request("/api/auth/forgot-password/reset", {
+    method: "POST",
+    body: JSON.stringify({ email, code, new_password: newPassword }),
+  });
+}
+
+// ratings and reviews APIs
+export function submitReview(token, score, content) {
+  return request(`/api/events/${encodeURIComponent(token)}/reviews`, {
+    method: "POST",
+    body: JSON.stringify({ score, content }),
+  });
+}
+
+export function deleteReview(token) {
+  return request(`/api/events/${encodeURIComponent(token)}/reviews`, {
+    method: "DELETE",
+  });
+}
+
+export function fetchReviews(token) {
+  return request(`/api/events/${encodeURIComponent(token)}/reviews`);
+}
+

@@ -26,6 +26,15 @@ class Settings(BaseSettings):
     moderator_chat_id: int | None = Field(default=None, alias="MODERATOR_CHAT_ID")
     admin_ids: list[int] = Field(default_factory=list, alias="ADMIN_IDS")
 
+    # email settings
+    email_host: str | None = Field(default="console", alias="EMAIL_HOST")
+    email_port: int = Field(default=587, alias="EMAIL_PORT")
+    email_username: str | None = Field(default=None, alias="EMAIL_USERNAME")
+    email_password: SecretStr | None = Field(default=None, alias="EMAIL_PASSWORD")
+    email_from: str | None = Field(default=None, alias="EMAIL_FROM")
+    email_code_ttl_minutes: int = Field(default=10, alias="EMAIL_CODE_TTL_MINUTES")
+    email_resend_cooldown_seconds: int = Field(default=60, alias="EMAIL_RESEND_COOLDOWN_SECONDS")
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

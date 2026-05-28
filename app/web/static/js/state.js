@@ -49,6 +49,17 @@ export const state = {
     reminders: 0,
     calendar: 0,
   },
+
+  // forgot-password flow state
+  forgotStep: null,         // null | "email" | "code" | "newpwd"
+  forgotEmail: "",
+  forgotCode: "",
+  forgotResendCooldown: 0,
+
+  // preserved error messages on language/theme toggle
+  authErrorMsg: "",
+  forgotErrorMsg: "",
+  nicknameErrorMsg: "",
 };
 
 export function defaultEventFilters() {
@@ -143,11 +154,19 @@ export function setSession(token, user) {
   state.user = user || null;
   if (state.session) {
     localStorage.setItem(STORED_SESSION, state.session);
+  } else {
+    localStorage.removeItem(STORED_SESSION);
   }
 }
 
 export function authHeaders() {
-  return state.session ? { Authorization: `Bearer ${state.session}` } : {};
+  const headers = {};
+  if (state.session) {
+    headers["Authorization"] = `Bearer ${state.session}`;
+  }
+  headers["X-Language"] = state.lang || "en";
+  headers["X-Theme"] = (typeof currentTheme === "function" ? currentTheme() : (state.theme || "light"));
+  return headers;
 }
 
 export function rememberScroll(route = state.route) {

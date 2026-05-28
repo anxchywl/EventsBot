@@ -98,7 +98,7 @@ function multiSelectBody(type) {
   return `
     ${type === "timeOfDay" ? "" : `
     <div class="filter-search-wrap">
-      <input class="filter-search" type="search" placeholder="${escapeAttr(t("search"))}" data-filter-search autocomplete="off" />
+      <input class="filter-search" type="search" placeholder="${escapeAttr(t("search"))}" data-filter-search maxlength="100" autocomplete="off" />
     </div>
     `}
     <div class="filter-chip-grid" data-filter-options>
@@ -141,12 +141,31 @@ function wireSheet(node, type, onChange) {
     }
   });
 
-  node.querySelector("[data-filter-search]")?.addEventListener("input", (event) => {
-    const query = event.target.value.trim().toLowerCase();
-    node.querySelectorAll("[data-filter-toggle]").forEach((button) => {
-      button.hidden = query && !button.textContent.toLowerCase().includes(query);
+  const searchInput = node.querySelector("[data-filter-search]");
+  if (searchInput) {
+    searchInput.addEventListener("input", (event) => {
+      // Sanitize in real-time (max 100 length, no SQL/script chars)
+      let val = event.target.value.slice(0, 100).replace(/[<>&"'/`\\;]/g, "");
+      // Do not accept leading spaces, and collapse multiple consecutive spaces to a single space
+      val = val.replace(/^\s+/, "").replace(/\s{2,}/g, " ");
+      event.target.value = val;
+
+      const query = val.trim().toLowerCase();
+      node.querySelectorAll("[data-filter-toggle]").forEach((button) => {
+        button.hidden = query && !button.textContent.toLowerCase().includes(query);
+      });
     });
-  });
+
+    searchInput.addEventListener("blur", (event) => {
+      // Strip any trailing spaces on focus out / blur
+      let val = event.target.value.trim();
+      event.target.value = val;
+      const query = val.toLowerCase();
+      node.querySelectorAll("[data-filter-toggle]").forEach((button) => {
+        button.hidden = query && !button.textContent.toLowerCase().includes(query);
+      });
+    });
+  }
 
   wireDragClose(node);
 }

@@ -30,6 +30,8 @@ if TYPE_CHECKING:
     from app.models.moderation import ModerationLog
     from app.models.reminder import Reminder
     from app.models.user import User
+    from app.models.rating import Rating
+    from app.models.comment import Comment
 
 
 # stores event category metadata
@@ -143,6 +145,14 @@ class Event(TimestampMixin, Base):
         cascade="all, delete-orphan",
     )
     analytics: Mapped[list[EventAnalytics]] = relationship(
+        back_populates="event",
+        cascade="all, delete-orphan",
+    )
+    ratings: Mapped[list[Rating]] = relationship(
+        back_populates="event",
+        cascade="all, delete-orphan",
+    )
+    comments: Mapped[list[Comment]] = relationship(
         back_populates="event",
         cascade="all, delete-orphan",
     )

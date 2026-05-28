@@ -12,6 +12,7 @@ from app.config import get_settings
 from app.db.session import get_session
 from app.models.enums import EventStatus
 from app.models.event import Event, EventCategory
+from app.models.analytics import EventAnalytics
 from app.models.favorite import Favorite
 from app.models.reminder import Reminder
 from app.models.user import User
@@ -21,9 +22,9 @@ from app.services.events import (
     get_event_by_public_token,
 )
 from app.services.telegram_links import build_telegram_miniapp_direct_link
-from app.web.auth import MiniAppUser, optional_miniapp_user, upsert_miniapp_user
+from app.web.auth import MiniAppUser, optional_miniapp_user, require_miniapp_user, upsert_miniapp_user
 from app.web.cache import TTLCache
-from app.web.schemas import EventDetail, EventFilterOption, EventFiltersResponse, EventListItem
+from app.web.schemas import EventDetail, EventFilterOption, EventFiltersResponse, EventListItem, RegisterResponse
 from app.web.serializers import event_detail as serialize_event_detail
 from app.web.serializers import event_list_items
 from app.web.telegram import get_bot_username
@@ -168,6 +169,47 @@ async def event_detail(
     )
     await session.commit()
     return data
+
+
+@router.post("/{public_token}/register", response_model=RegisterResponse)
+async def register_event_click(
+    public_token: str,
+    miniapp_user: MiniAppUser = Depends(require_miniapp_user),
+    session: AsyncSession = Depends(get_session),
+) -> RegisterResponse:
+    user = await upsert_miniapp_user(session, miniapp_user)
+    event = await get_event_by_public_token(session, public_token)
+    if not event or event.status != EventStatus.APPROVED.value:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Event no longer available")
+
+    already_registered = await session.scalar(
+        select(
+            exists().where(
+                EventAnalytics.event_id == event.id,
+                EventAnalytics.user_id == user.id,
+                EventAnalytics.action == "register_click",
+            )
+        )
+    )
+    if not already_registered:
+        await record_event_action_by_ids(
+            session,
+            event_id=event.id,
+            user_id=user.id,
+            action="register_click",
+            source="miniapp",
+        )
+        event_cache.clear()
+
+    count = await session.scalar(
+        select(func.count(func.distinct(EventAnalytics.user_id))).where(
+            EventAnalytics.event_id == event.id,
+            EventAnalytics.action == "register_click",
+            EventAnalytics.user_id.is_not(None),
+        )
+    )
+    await session.commit()
+    return RegisterResponse(attendee_count=int(count or 0))
 
 
 async def _related_events(session: AsyncSession, event: Event) -> list[Event]:

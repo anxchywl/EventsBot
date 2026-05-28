@@ -7,19 +7,35 @@ import {
   fetchEventFilters,
   fetchEvents,
   fetchReminders,
+  registerEvent,
   removeFavorite,
   shareEvent,
+  register,
+  verifyCode,
+  resendCode,
+  login,
+  fetchProfile,
+  updateNickname,
+  logout,
+  submitReview,
+  deleteReview,
+  fetchReviews,
+  request,
+  forgotPasswordRequest,
+  forgotPasswordVerify,
+  forgotPasswordReset,
 } from "./api.js";
-import { loadingScreen, resetFallbackCoverStyles, startCountdowns } from "./components/events.js?v=20260527-no-event-filter-haptics";
-import { closeFilterSheet, openFilterSheet } from "./components/filterSheet.js?v=20260528-gold-glow";
-import { closeSheet, openReminderSheet } from "./components/sheets.js?v=20260528-gold-glow";
-import { t } from "./i18n.js?v=20260528-gold-glow";
+import { loadingScreen, resetFallbackCoverStyles, startCountdowns } from "./components/events.js?v=20260528-sanitize-spaces-v2";
+import { closeFilterSheet, openFilterSheet } from "./components/filterSheet.js?v=20260528-sanitize-spaces-v2";
+import { closeSheet, openReminderSheet } from "./components/sheets.js?v=20260528-sanitize-spaces-v2";
+import { t, translateError } from "./i18n.js?v=20260528-sanitize-spaces-v2";
 import { currentTheme, nextLang, normalizeEventFilters, rememberScroll, restoreScroll, setEventFilters, setLang, setTheme, state, toggleTheme } from "./state.js";
 import { configureBackButton, haptic, initTelegram, openLink, openTelegramLink, startParam, tg } from "./telegram.js";
-import { renderEvent, renderEventUnavailable, renderEventSkeleton } from "./views/event.js?v=20260528-gold-glow";
+import { renderEvent, renderEventUnavailable, renderEventSkeleton } from "./views/event.js?v=20260528-register-attendees";
 import { renderEventResults, renderFilterBar, renderMenu, renderPlaceholder } from "./views/menu.js?v=20260528-gold-glow";
 import { renderReminders } from "./views/reminders.js?v=20260528-gold-glow";
 import { renderCalendarInner, attachCalendarInteractions, refreshCalendarMonthPanels } from "./views/calendar.js?v=20260528-calendar-restore";
+import { renderAuthSection, renderRatingsTab, renderForgotPasswordCard } from "./views/ratings.js";
 
 const app = document.getElementById("app");
 let backHandler = () => navigate("events", { direction: "back" });
@@ -41,14 +57,25 @@ function handleScroll() {
   const navElement = document.querySelector(".app-nav");
   if (!navElement) return;
 
+  // On Profile (ratings) and Reminders/Favorites, the navigation bar must stay permanently still (always visible)
+  if (state.route === "ratings" || state.route === "reminders") {
+    navElement.classList.remove("nav-hidden");
+    return;
+  }
+  
+  // On event details page, the navigation bar must stay completely hidden and scroll must not affect it
+  if (state.route === "event") {
+    return;
+  }
+
   const currentScrollY = window.scrollY;
   const diff = currentScrollY - lastScrollY;
 
   if (currentScrollY <= 10) {
     navElement.classList.remove("nav-hidden");
-  } else if (diff > 15) {
+  } else if (diff > 1) {
     navElement.classList.add("nav-hidden");
-  } else if (diff < -15) {
+  } else if (diff < -8) {
     navElement.classList.remove("nav-hidden");
   }
 
@@ -58,14 +85,34 @@ function handleScroll() {
 export async function boot() {
   setLang(state.lang);
   setTheme(state.theme || currentTheme());
-  initTelegram(() => renderCurrent());
+  initTelegram(() => {
+    resetFallbackCoverStyles();
+    renderCurrent();
+  });
   await authenticate().catch(() => null);
+  renderCurrent({ quiet: true });
   window.addEventListener("hashchange", () => loadFromLocation());
   window.addEventListener("scroll", handleScroll, { passive: true });
   document.addEventListener("pointerdown", onPointerDown, { passive: true });
   document.addEventListener("touchstart", onPointerDown, { passive: true });
   document.addEventListener("click", onClick);
   app.addEventListener("input", onInput);
+  app.addEventListener("focusin", (e) => {
+    if (e.target.closest("#auth-profile-container input")) {
+      document.documentElement.classList.add("auth-focusing");
+    }
+  });
+  app.addEventListener("focusout", (e) => {
+    onFocusOut(e);
+    if (e.target.closest("#auth-profile-container input")) {
+      // Small timeout to allow focus to transfer to another input without flickering the nav bar
+      setTimeout(() => {
+        if (!document.activeElement || !document.activeElement.closest("#auth-profile-container input")) {
+          document.documentElement.classList.remove("auth-focusing");
+        }
+      }, 50);
+    }
+  });
   installKeyboardOverlayNav();
   loadFromLocation();
 }
@@ -119,6 +166,9 @@ function routeFromLocation() {
   }
   if (hashRoute === "reminders") {
     return { route: "reminders", token: "" };
+  }
+  if (hashRoute === "ratings") {
+    return { route: "ratings", token: "" };
   }
   if (hashRoute === "calendar") {
     return { route: "calendar", token: "" };
@@ -176,6 +226,16 @@ async function navigate(route, options = {}) {
         }
       } else if (route === "reminders") {
         prefetchedReminders = await fetchReminders();
+      } else if (route === "ratings") {
+        let profile = null;
+        let feed = [];
+        try {
+          if (state.user && state.user.is_verified) {
+            profile = await fetchProfile();
+          }
+          feed = await request("/api/events/reviews/feed");
+        } catch (_) {}
+        state.prefetchedRatings = { profile, feed };
       } else if (route === "events") {
         await ensureEventFilterOptions();
         if (returningFromEventWithLocalEvents) {
@@ -185,11 +245,8 @@ async function navigate(route, options = {}) {
           prefetchedEvents = await fetchEvents(state.eventFilters);
         }
       } else if (route === "calendar") {
-        if (state.events.length > 0) {
-          prefetchedEvents = state.events;
-        } else {
-          prefetchedEvents = await fetchEvents(state.eventFilters);
-        }
+        await ensureEventFilterOptions();
+        prefetchedEvents = await fetchEvents({ ...state.eventFilters, relevance: "all" });
       }
     } catch (_) {
       // Pre-fetch failed — renderRoute will handle the error gracefully
@@ -199,13 +256,32 @@ async function navigate(route, options = {}) {
   const performNavigation = async () => {
     state.route = route;
     state.token = options.token || "";
-    if (route !== "events") {
+    if (route === "calendar") {
+      state.calendarMode = true;
+    } else if (route === "events") {
+      state.calendarMode = false;
+    }
+    if (route !== "events" && route !== "calendar") {
       window.clearTimeout(searchCloseTimer);
       state.eventSearch.active = false;
       state.eventSearch.query = "";
       document.documentElement.classList.remove("event-searching", "event-search-closing");
     }
-    configureBackButton(route !== "events", backHandler);
+    configureBackButton(route !== "events" && route !== "calendar", backHandler);
+
+    // Synchronize global static navbar state
+    const navEl = document.querySelector(".app-nav");
+    if (navEl) {
+      if (route === "event") {
+        navEl.classList.add("nav-hidden");
+      } else {
+        navEl.classList.remove("nav-hidden");
+        const activeRoute = route === "calendar" ? "events" : route;
+        navEl.querySelectorAll("button[data-route]").forEach(btn => {
+          btn.classList.toggle("active", btn.dataset.route === activeRoute);
+        });
+      }
+    }
 
     if (restoringFromCache) {
       // Restore the events menu DOM from cache — synchronous, no network, no flicker.
@@ -214,10 +290,7 @@ async function navigate(route, options = {}) {
       suppressNavScroll = true;
       app.innerHTML = cachedMenuHTML.replace(/(<div class="screen)/, '$1 no-enter');
 
-      // The cache was saved AFTER the click handler added `nav-hidden` to the nav
-      // (to hide it while navigating to the event page). Strip that class so the
-      // nav bar is always visible when returning to the events menu.
-      const navEl = app.querySelector(".app-nav");
+      // Strip nav-hidden class from the static navbar.
       if (navEl) {
         // Temporarily disable transitions so the nav becomes visible instantly
         // when restoring from cache on mobile devices — prevents a visible
@@ -261,7 +334,9 @@ async function navigate(route, options = {}) {
       state.events = prefetchedEvents;
     }
     await renderRoute({ quiet: options.quiet ?? isTopLevelRoute(route), prefetched: true });
-    if (route === "events" || route === "reminders" || route === "calendar") {
+    if (options.keepScroll) {
+      // Do not reset scroll
+    } else if (route === "events" || route === "reminders" || route === "calendar") {
       restoreScroll(route);
     } else {
       window.scrollTo({ top: 0, behavior: "instant" });
@@ -387,7 +462,7 @@ async function navigate(route, options = {}) {
 }
 
 function getRouteIndex(route) {
-  const order = ["events", "calendar", "reminders"];
+  const order = ["events", "calendar", "ratings", "reminders"];
   return order.indexOf(route);
 }
 
@@ -397,7 +472,8 @@ async function renderRoute({ quiet = false, prefetched = false } = {}) {
   const useCache = prefetched &&
     ((state.route === "event" && state.currentEvent !== undefined) ||
       (state.route === "reminders" && state.reminders !== undefined) ||
-      ((state.route === "events" || state.route === "calendar") && state.events !== undefined));
+      (state.route === "ratings" && state.prefetchedRatings !== undefined) ||
+      ((state.route === "events" || state.route === "calendar") && state.events !== undefined && state.events !== null && state.events.length > 0));
 
   if (!quiet && !useCache) {
     app.innerHTML = loadingScreen();
@@ -419,6 +495,7 @@ async function renderRoute({ quiet = false, prefetched = false } = {}) {
       }
       app.innerHTML = renderEvent(state.currentEvent);
       applyQuietRender(quiet);
+      initEventReviewsHandlers();
       return;
     }
     if (state.route === "reminders") {
@@ -429,9 +506,36 @@ async function renderRoute({ quiet = false, prefetched = false } = {}) {
       applyQuietRender(quiet);
       return;
     }
+    if (state.route === "ratings") {
+      let profile = null;
+      let feed = [];
+      if (state.prefetchedRatings) {
+        profile = state.prefetchedRatings.profile;
+        feed = state.prefetchedRatings.feed;
+      } else {
+        try {
+          if (state.user && state.user.is_verified) {
+            profile = await fetchProfile();
+          }
+          feed = await request("/api/events/reviews/feed");
+        } catch (_) {}
+      }
+      state.cachedRatingsProfile = profile;
+      state.cachedRatingsFeed = feed;
+      app.innerHTML = renderRatingsTab(profile, feed);
+      applyQuietRender(quiet);
+      initRatingsHandlers();
+
+      // If user is not logged in / verified, automatically trigger the bottom sheet popup!
+      if (!state.user || !state.user.is_verified) {
+        openAuthSheet();
+      }
+      return;
+    }
     if (!useCache) {
       await ensureEventFilterOptions();
-      state.events = await fetchEvents(state.eventFilters);
+      const fetchFilters = state.route === "calendar" ? { ...state.eventFilters, relevance: "all" } : state.eventFilters;
+      state.events = await fetchEvents(fetchFilters);
     }
     app.innerHTML = renderMenu(state.events);
     applyQuietRender(quiet);
@@ -459,6 +563,32 @@ function renderCurrent({ quiet = false } = {}) {
   if (state.route === "reminders") {
     app.innerHTML = renderReminders(state.reminders);
     applyQuietRender(quiet);
+    return;
+  }
+  if (state.route === "ratings") {
+    // Save current error messages before DOM replacement
+    const authErr = app.querySelector("#auth-error-msg");
+    if (authErr && !authErr.classList.contains("hide")) {
+      state.authErrorMsg = authErr.textContent || "";
+    } else {
+      state.authErrorMsg = "";
+    }
+    const forgotErr = app.querySelector("#forgot-error-msg");
+    if (forgotErr && !forgotErr.classList.contains("hide")) {
+      state.forgotErrorMsg = forgotErr.textContent || "";
+    } else {
+      state.forgotErrorMsg = "";
+    }
+    const nicknameErr = app.querySelector("#nickname-error-msg");
+    if (nicknameErr && !nicknameErr.classList.contains("hide")) {
+      state.nicknameErrorMsg = nicknameErr.textContent || "";
+    } else {
+      state.nicknameErrorMsg = "";
+    }
+
+    app.innerHTML = renderRatingsTab(state.cachedRatingsProfile, state.cachedRatingsFeed);
+    applyQuietRender(quiet);
+    initRatingsHandlers();
     return;
   }
   app.innerHTML = renderMenu(state.events);
@@ -490,18 +620,25 @@ function syncHash(route, token) {
 }
 
 function renderEventPreservingFavorite() {
+  // Snapshot the current favorite button's visual state before re-render.
   const currentButton = app.querySelector(".event-screen [data-action='favorite']");
+  const wasFavorite = currentButton
+    ? currentButton.classList.contains("active")
+    : Boolean(state.currentEvent?.is_favorite);
+
+  // Re-render the event HTML.
   app.innerHTML = renderEvent(state.currentEvent);
 
+  // Patch the freshly-created button in-place — never move detached DOM nodes
+  // back into the tree, which can fire color transitions when no-transitions is lifted.
   const nextButton = app.querySelector(".event-screen [data-action='favorite']");
-  if (!currentButton || !nextButton) {
-    return;
+  if (nextButton) {
+    nextButton.classList.toggle("active", wasFavorite);
+    nextButton.classList.remove("favorite-spin", "favorite-unspin", "is-loading");
+    nextButton.disabled = false;
   }
 
-  currentButton.classList.toggle("active", Boolean(state.currentEvent?.is_favorite));
-  currentButton.classList.remove("favorite-spin", "favorite-unspin", "is-loading");
-  currentButton.disabled = false;
-  nextButton.replaceWith(currentButton);
+  initEventReviewsHandlers();
 }
 
 function eventsHash() {
@@ -601,7 +738,8 @@ async function refreshEventsList({ animate = false } = {}) {
     return;
   }
   try {
-    state.events = await fetchEvents(state.eventFilters);
+    const fetchFilters = state.route === "calendar" ? { ...state.eventFilters, relevance: "all" } : state.eventFilters;
+    state.events = await fetchEvents(fetchFilters);
     if (state.route === "events") patchEventsList({ quiet: true, animate });
     if (state.route === "calendar") {
         refreshCalendarMonthPanels();
@@ -694,8 +832,8 @@ async function onClick(event) {
     triggerControlAnimation(theme, "theme-switching");
     hapticImpactFallback();
     runCircularTransition(event, () => {
-      toggleTheme();
       resetFallbackCoverStyles();
+      toggleTheme();
       renderCurrent({ quiet: true });
     });
     return;
@@ -734,38 +872,8 @@ async function onClick(event) {
   const calendarToggle = event.target.closest("[data-action='calendar-toggle']");
   if (calendarToggle) {
     haptic("light");
-    rememberScroll(state.calendarMode ? "calendar" : "events");
-    runCircularTransition(event, () => {
-      state.calendarMode = !state.calendarMode;
-      const screen = document.querySelector('[data-route="events"]');
-      if (screen) {
-        screen.classList.toggle("calendar-mode-active", state.calendarMode);
-        calendarToggle.classList.toggle("mode-active", state.calendarMode);
-        
-        const titleH1 = screen.querySelector('.events-title-block h1');
-        if (titleH1) {
-          titleH1.textContent = state.calendarMode ? t("eventsCalendar") : t("events");
-        }
-        
-        const eventsContainer = screen.querySelector('.events-mode-container');
-        const calendarContainer = screen.querySelector('.calendar-mode-container');
-        
-        if (state.calendarMode && calendarContainer && !calendarContainer.innerHTML.trim()) {
-             import("./views/calendar.js?v=20260528-calendar-restore").then(({ renderCalendarInner }) => {
-             calendarContainer.innerHTML = renderCalendarInner(state.events);
-             attachCalendarInteractions();
-           });
-        }
-        
-        if (eventsContainer) eventsContainer.classList.toggle("mode-hidden", state.calendarMode);
-        if (calendarContainer) calendarContainer.classList.toggle("mode-hidden", !state.calendarMode);
-      }
-      
-      if (state.calendarMode && document.querySelector('.calendar-widget-container')) {
-        attachCalendarInteractions();
-      }
-      restoreScroll(state.calendarMode ? "calendar" : "events");
-    });
+    const nextRoute = state.calendarMode ? "events" : "calendar";
+    navigate(nextRoute, { circularEvent: event });
     return;
   }
   const searchClose = event.target.closest("[data-action='event-search-close']");
@@ -857,8 +965,24 @@ function onInput(event) {
   if (!searchInput) {
     return;
   }
-  state.eventSearch.query = searchInput.value;
+  // Sanitize in real-time (max 100 length, no SQL/script chars, no extra spaces)
+  let val = searchInput.value.slice(0, 100).replace(/[<>&"'/`\\;]/g, "");
+  val = val.replace(/^\s+/, "").replace(/\s{2,}/g, " ");
+  searchInput.value = val;
+  state.eventSearch.query = val;
   patchEventsList({ quiet: true });
+}
+
+function onFocusOut(event) {
+  const searchInput = event.target.closest("[data-event-search-input]");
+  if (searchInput) {
+    const val = searchInput.value.trim();
+    if (searchInput.value !== val) {
+      searchInput.value = val;
+      state.eventSearch.query = val;
+      patchEventsList({ quiet: true });
+    }
+  }
 }
 
 async function handleEventAction(action, element) {
@@ -911,6 +1035,35 @@ async function handleEventAction(action, element) {
   }
   if (action === "register" && event.registration_url) {
     openLink(event.registration_url);
+    registerEvent(event.token)
+      .then((payload) => {
+        if (Number.isFinite(payload?.attendee_count)) {
+          setEventAttendeeCount(event.token, payload.attendee_count);
+        }
+      })
+      .catch(() => null);
+  }
+}
+
+function setEventAttendeeCount(token, count) {
+  const normalized = Math.max(0, Number(count) || 0);
+  const apply = (item) => {
+    if (item?.token === token) {
+      item.attendee_count = normalized;
+    }
+  };
+
+  apply(state.currentEvent);
+  state.events.forEach(apply);
+  state.favorites.forEach(apply);
+  state.reminders.forEach((group) => {
+    group.reminders?.forEach((reminder) => apply(reminder.event));
+  });
+  state.currentEvent?.related_events?.forEach(apply);
+
+  const value = app.querySelector("[data-attendee-count]");
+  if (value && state.currentEvent?.token === token) {
+    value.textContent = String(normalized);
   }
 }
 
@@ -1034,7 +1187,7 @@ function setFavoriteButtonLoading(loading) {
 }
 
 function isTopLevelRoute(route) {
-  return route === "events" || route === "calendar" || route === "reminders";
+  return route === "events" || route === "calendar" || route === "reminders" || route === "ratings";
 }
 
 function runCircularTransition(event, apply) {
@@ -1078,10 +1231,13 @@ function runCircularTransition(event, apply) {
   });
 
   transition.finished.finally(() => {
+    // Remove theme-transitioning FIRST so the favorite button's inline
+    // color pin (set in renderEventPreservingFavorite) is released at the
+    // same time no-transitions is lifted — preventing any color flash.
+    document.documentElement.classList.remove("theme-transitioning");
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         document.documentElement.classList.remove("no-transitions");
-        document.documentElement.classList.remove("theme-transitioning");
       });
     });
   });
@@ -1096,3 +1252,1027 @@ window.addEventListener("keydown", (event) => {
     closeFilterSheet();
   }
 });
+
+
+let resendInterval = null;
+let forgotResendInterval = null;
+
+function startResendCountdown() {
+  window.clearInterval(resendInterval);
+  resendInterval = window.setInterval(() => {
+    if (state.resendCooldown > 0) {
+      state.resendCooldown--;
+      const timerEl = app.querySelector(".resend-timer strong");
+      if (timerEl) {
+        timerEl.textContent = `${state.resendCooldown}s`;
+      }
+      if (state.resendCooldown <= 0) {
+        window.clearInterval(resendInterval);
+        renderCurrent({ quiet: true });
+        initRatingsHandlers();
+      }
+    } else {
+      window.clearInterval(resendInterval);
+    }
+  }, 1000);
+}
+
+function updateAuthSectionDOM(options = {}) {
+  const app = document.querySelector(".auth-sheet-backdrop") || document.getElementById("app");
+  const container = app.querySelector("#auth-profile-container");
+  if (!container) {
+    renderCurrent({ quiet: true });
+    return;
+  }
+  const newContent = renderAuthSection(state.cachedRatingsProfile);
+  const sheet = app.querySelector(".auth-bottom-sheet");
+
+  if (!options.skipTransition && sheet) {
+    // 1. Measure and lock current height to prevent instant content pop snaps
+    const oldHeight = sheet.offsetHeight;
+    sheet.style.height = `${oldHeight}px`;
+    sheet.style.transition = "height 0.28s cubic-bezier(0.22, 1, 0.36, 1)";
+
+    // 2. Smoothly fade out old content first
+    container.style.transition = "opacity 0.12s ease-out, transform 0.12s ease-out";
+    container.style.opacity = "0";
+    container.style.transform = "translateY(-4px)";
+
+    setTimeout(() => {
+      // 3. Swap the DOM content
+      container.innerHTML = newContent;
+      initRatingsHandlers();
+
+      // 4. Measure new target natural height
+      sheet.style.height = "auto";
+      const newHeight = sheet.offsetHeight;
+      
+      // 5. Restore back to old height temporarily
+      sheet.style.height = `${oldHeight}px`;
+      
+      // Force immediate reflow/repaint
+      sheet.offsetHeight;
+
+      // 6. Smoothly transition the sheet height to the new container boundaries
+      sheet.style.height = `${newHeight}px`;
+
+      // 7. Render organic slide-up and fade-in animation for the new elements
+      container.style.transition = "opacity 0.22s cubic-bezier(0.22, 1, 0.36, 1), transform 0.22s cubic-bezier(0.22, 1, 0.36, 1)";
+      container.style.opacity = "0";
+      container.style.transform = "translateY(8px)";
+      
+      // Force repaint on container
+      container.offsetHeight;
+      
+      container.style.opacity = "1";
+      container.style.transform = "translateY(0)";
+
+      // 8. Clean up inline styles once transitions complete
+      setTimeout(() => {
+        sheet.style.height = "auto";
+        sheet.style.transition = "";
+      }, 300);
+    }, 120);
+  } else {
+    container.innerHTML = newContent;
+    initRatingsHandlers();
+  }
+}
+
+function initRatingsHandlers() {
+  const isAuthSheetOpen = document.querySelector(".auth-sheet-backdrop") !== null;
+  if (state.route !== "ratings" && !isAuthSheetOpen) return;
+
+  const app = document.querySelector(".auth-sheet-backdrop") || document.getElementById("app");
+
+  const guestTrigger = document.querySelector("#guest-profile-trigger");
+  if (guestTrigger) {
+    guestTrigger.onclick = () => {
+      haptic("light");
+      openAuthSheet();
+    };
+  }
+
+  const tabReg = app.querySelector("#tab-register-btn");
+  if (tabReg) {
+    tabReg.onclick = () => {
+      haptic("light");
+      state.authMode = "register";
+      updateAuthSectionDOM({ skipTransition: true });
+    };
+  }
+
+  const tabLogin = app.querySelector("#tab-login-btn");
+  if (tabLogin) {
+    tabLogin.onclick = () => {
+      haptic("light");
+      state.authMode = "login";
+      updateAuthSectionDOM({ skipTransition: true });
+    };
+  }
+
+  const changeEmail = app.querySelector("#change-email-btn");
+  if (changeEmail) {
+    changeEmail.onclick = () => {
+      haptic("light");
+      state.authMode = "register";
+      updateAuthSectionDOM({ skipTransition: true });
+    };
+  }
+
+  const resendBtn = app.querySelector("#resend-code-btn");
+  if (resendBtn) {
+    resendBtn.onclick = async () => {
+      haptic("light");
+      resendBtn.disabled = true;
+      resendBtn.textContent = "Sending…";
+      const errEl = app.querySelector("#auth-error-msg");
+      errEl?.classList.add("hide");
+      try {
+        await resendCode(state.authEmail);
+        haptic("success");
+        state.resendCooldown = 60;
+        updateAuthSectionDOM();
+      } catch (err) {
+        haptic("error");
+        resendBtn.disabled = false;
+        resendBtn.textContent = "Resend Code";
+        if (errEl) {
+          errEl.textContent = translateError(err.message) || t("failedToResendCode");
+          errEl.classList.remove("hide");
+        }
+      }
+    };
+  }
+
+  const emailInput = app.querySelector("#auth-email-field");
+  if (emailInput) {
+    emailInput.oninput = (e) => {
+      const originalVal = e.target.value;
+      const selectionStart = e.target.selectionStart;
+      let val = originalVal.slice(0, 100).replace(/\s/g, "").replace(/[<>&"'/`\\;]/g, "");
+      if (originalVal !== val) {
+        e.target.value = val;
+        const diff = originalVal.length - val.length;
+        const newPos = Math.max(0, selectionStart - diff);
+        e.target.setSelectionRange(newPos, newPos);
+      }
+      state.authEmail = val;
+    };
+    emailInput.onblur = (e) => {
+      const val = e.target.value.trim();
+      e.target.value = val;
+      state.authEmail = val;
+    };
+  }
+
+  const passwordInput = app.querySelector("#auth-password-field");
+  if (passwordInput) {
+    passwordInput.oninput = (e) => {
+      const originalVal = e.target.value;
+      const selectionStart = e.target.selectionStart;
+      let val = originalVal.slice(0, 64).replace(/[<>&"'/`\\;]/g, "");
+      if (val.startsWith(" ") || val.endsWith(" ")) {
+        val = val.trim();
+      }
+      if (originalVal !== val) {
+        e.target.value = val;
+        const diff = originalVal.length - val.length;
+        const newPos = Math.max(0, selectionStart - diff);
+        e.target.setSelectionRange(newPos, newPos);
+      }
+      state.authPassword = val;
+    };
+  }
+
+  const confirmPasswordInput = app.querySelector("#auth-confirm-password-field");
+  if (confirmPasswordInput) {
+    confirmPasswordInput.oninput = (e) => {
+      const originalVal = e.target.value;
+      const selectionStart = e.target.selectionStart;
+      let val = originalVal.slice(0, 64).replace(/[<>&"'/`\\;]/g, "");
+      if (val.startsWith(" ") || val.endsWith(" ")) {
+        val = val.trim();
+      }
+      if (originalVal !== val) {
+        e.target.value = val;
+        const diff = originalVal.length - val.length;
+        const newPos = Math.max(0, selectionStart - diff);
+        e.target.setSelectionRange(newPos, newPos);
+      }
+      state.authConfirmPassword = val;
+    };
+  }
+
+  app.querySelectorAll(".toggle-pass").forEach(btn => {
+    btn.onclick = () => {
+      haptic("light");
+      state.authPasswordVisible = !state.authPasswordVisible;
+      
+      const pwdInput = app.querySelector("#auth-password-field");
+      if (pwdInput) {
+        pwdInput.type = state.authPasswordVisible ? "text" : "password";
+      }
+      const confirmInput = app.querySelector("#auth-confirm-password-field");
+      if (confirmInput) {
+        confirmInput.type = state.authPasswordVisible ? "text" : "password";
+      }
+      
+      btn.classList.toggle("is-visible", state.authPasswordVisible);
+      btn.setAttribute("aria-label", state.authPasswordVisible ? "Hide password" : "Show password");
+      btn.setAttribute("title", state.authPasswordVisible ? "Hide password" : "Show password");
+    };
+  });
+
+  const codeInput = app.querySelector("#auth-code-field");
+  if (codeInput) {
+    codeInput.oninput = (e) => {
+      let val = e.target.value.replace(/[^0-9]/g, "").slice(0, 6);
+      e.target.value = val;
+      state.authCode = val;
+    };
+  }
+
+  const credsForm = app.querySelector("#auth-credentials-form");
+  if (credsForm) {
+    credsForm.onsubmit = async (e) => {
+      e.preventDefault();
+      const email = app.querySelector("#auth-email-field").value.trim();
+      const password = app.querySelector("#auth-password-field").value.trim();
+      const isReg = (state.authMode || "login") === "register";
+      const submitBtn = credsForm.querySelector(".auth-submit-btn");
+      const errEl = app.querySelector("#auth-error-msg");
+      
+      errEl?.classList.add("hide");
+      
+      if (isReg) {
+        const confirmPassword = app.querySelector("#auth-confirm-password-field").value.trim();
+        if (password !== confirmPassword) {
+          haptic("error");
+          if (errEl) {
+            errEl.textContent = t("confirmPasswordLabel") ? (t("passwordLabel") === "Пароль" ? "Пароли не совпадают." : (t("passwordLabel") === "Құпия сөз" ? "Құпия сөздер сәйкес келмейді." : "Passwords do not match.")) : "Passwords do not match.";
+            errEl.classList.remove("hide");
+          }
+          return;
+        }
+      }
+
+      submitBtn.disabled = true;
+      const originalText = submitBtn.textContent;
+      submitBtn.textContent = "Please wait…";
+
+      try {
+        if (isReg) {
+          await register(email, password);
+          haptic("success");
+          state.authEmail = email;
+          state.authConfirmPassword = "";
+          state.authMode = "verify";
+          state.resendCooldown = 60;
+          updateAuthSectionDOM();
+        } else {
+          await login(email, password);
+          haptic("success");
+          state.authEmail = "";
+          state.authPassword = "";
+          state.authConfirmPassword = "";
+          state.authMode = "register";
+          if (state.reopenReviewToken) {
+            const tokenToReopen = state.reopenReviewToken;
+            state.reopenReviewToken = null;
+            closeAuthSheet();
+            await navigate("event", { token: tokenToReopen, keepScroll: true });
+            const modal = app.querySelector("#review-submission-modal");
+            if (modal) modal.classList.add("is-open");
+          } else {
+            closeAuthSheet();
+            // Force a fresh ratings render even if we're already on that route
+            state.route = "";
+            await navigate("ratings", { replaceHash: false, quiet: true, keepScroll: true });
+          }
+        }
+      } catch (err) {
+        haptic("error");
+        submitBtn.disabled = false;
+        submitBtn.textContent = originalText;
+        if (errEl) {
+          errEl.textContent = translateError(err.message) || t("anErrorOccurred");
+          errEl.classList.remove("hide");
+        }
+      }
+    };
+  }
+
+  const verifyForm = app.querySelector("#verify-form");
+  if (verifyForm) {
+    if (state.resendCooldown > 0) {
+      startResendCountdown();
+    }
+    verifyForm.onsubmit = async (e) => {
+      e.preventDefault();
+      const code = app.querySelector("#auth-code-field").value.trim();
+      const submitBtn = verifyForm.querySelector(".auth-submit-btn");
+      const errEl = app.querySelector("#auth-error-msg");
+
+      errEl?.classList.add("hide");
+      submitBtn.disabled = true;
+      submitBtn.textContent = "Verifying…";
+
+      try {
+        await verifyCode(state.authEmail, code);
+        haptic("success");
+        state.authEmail = "";
+        state.authPassword = "";
+        state.authConfirmPassword = "";
+        state.authMode = "register";
+        state.resendCooldown = 0;
+        window.clearInterval(resendInterval);
+        if (state.reopenReviewToken) {
+          const tokenToReopen = state.reopenReviewToken;
+          state.reopenReviewToken = null;
+          closeAuthSheet();
+          await navigate("event", { token: tokenToReopen, keepScroll: true });
+          const modal = app.querySelector("#review-submission-modal");
+          if (modal) modal.classList.add("is-open");
+        } else {
+          closeAuthSheet();
+          // Force a fresh ratings render even if we're already on that route
+          state.route = "";
+          await navigate("ratings", { replaceHash: false, quiet: true, keepScroll: true });
+        }
+      } catch (err) {
+        haptic("error");
+        submitBtn.disabled = false;
+        submitBtn.textContent = "Verify Code";
+        if (errEl) {
+          errEl.textContent = translateError(err.message) || t("invalidCode");
+          errEl.classList.remove("hide");
+        }
+      }
+    };
+  }
+
+  const logoutBtn = app.querySelector("#logout-btn");
+  if (logoutBtn) {
+    logoutBtn.onclick = async () => {
+      haptic("light");
+      logoutBtn.disabled = true;
+      logoutBtn.textContent = "Logging out…";
+      await logout();
+      state.authEmail = "";
+      state.authPassword = "";
+      state.authConfirmPassword = "";
+      await navigate("ratings", { replaceHash: false, quiet: true });
+    };
+  }
+
+  const editTrigger = app.querySelector("#edit-nickname-trigger");
+  if (editTrigger) {
+    editTrigger.onclick = () => {
+      haptic("light");
+      app.querySelector("#profile-nickname-display").parentElement.classList.add("hide");
+      app.querySelector("#nickname-edit-row").classList.remove("hide");
+    };
+  }
+
+  const cancelNickname = app.querySelector("#cancel-nickname-btn");
+  if (cancelNickname) {
+    cancelNickname.onclick = () => {
+      haptic("light");
+      app.querySelector("#profile-nickname-display").parentElement.classList.remove("hide");
+      app.querySelector("#nickname-edit-row").classList.add("hide");
+      app.querySelector("#nickname-error-msg")?.classList.add("hide");
+    };
+  }
+
+  const saveNickname = app.querySelector("#save-nickname-btn");
+  if (saveNickname) {
+    saveNickname.onclick = async () => {
+      const input = app.querySelector("#nickname-input-field").value.trim();
+      const errEl = app.querySelector("#nickname-error-msg");
+      errEl?.classList.add("hide");
+      saveNickname.disabled = true;
+      saveNickname.textContent = "Saving…";
+
+      try {
+        await updateNickname(input);
+        haptic("success");
+        state.user.nickname = input;
+        await navigate("ratings", { replaceHash: false, quiet: true });
+      } catch (err) {
+        haptic("error");
+        saveNickname.disabled = false;
+        saveNickname.textContent = "Save";
+        if (errEl) {
+          errEl.textContent = translateError(err.message) || t("failedToUpdateNickname");
+          errEl.classList.remove("hide");
+        }
+      }
+    };
+  }
+
+  app.querySelectorAll("[data-delete-review-token]").forEach((btn) => {
+    btn.onclick = async () => {
+      const token = btn.dataset.deleteReviewToken;
+      const doDelete = () => {
+        haptic("light");
+        btn.disabled = true;
+        deleteReview(token)
+          .then(async () => {
+            haptic("success");
+            await navigate("ratings", { replaceHash: false, quiet: true });
+          })
+          .catch(() => {
+            haptic("error");
+            btn.disabled = false;
+          });
+      };
+      
+      if (tg && tg.showConfirm) {
+        tg.showConfirm("Are you sure you want to delete this rating and comment?", (ok) => {
+          if (ok) doDelete();
+        });
+      } else if (confirm("Are you sure you want to delete this rating and comment?")) {
+        doDelete();
+      }
+    };
+  });
+
+  app.querySelectorAll("[data-edit-review-token]").forEach((btn) => {
+    btn.onclick = async () => {
+      haptic("light");
+      const token = btn.dataset.editReviewToken;
+      await navigate("event", { token });
+      const reviewsBlock = document.getElementById("reviews-section-anchor");
+      reviewsBlock?.scrollIntoView({ behavior: "smooth" });
+    };
+  });
+
+  app.querySelectorAll("[data-event-token]").forEach((element) => {
+    element.addEventListener("click", async (e) => {
+      if (e.target.closest("button, form, input")) return;
+      const token = element.dataset.eventToken;
+      if (token) {
+        haptic("light");
+        await navigate("event", { token });
+      }
+    });
+  });
+
+  // ── Forgot password button (login tab only) ──
+  const forgotBtn = app.querySelector("#forgot-password-btn");
+  if (forgotBtn) {
+    forgotBtn.onclick = () => {
+      haptic("light");
+      state.forgotStep = "email";
+      state.forgotEmail = state.authEmail || "";
+      state.forgotCode = "";
+      state.forgotResendCooldown = 0;
+      window.clearInterval(forgotResendInterval);
+      updateAuthSectionDOM();
+    };
+  }
+
+  initForgotPasswordHandlers();
+}
+
+
+function startForgotResendCountdown() {
+  window.clearInterval(forgotResendInterval);
+  forgotResendInterval = window.setInterval(() => {
+    if (state.forgotResendCooldown > 0) {
+      state.forgotResendCooldown--;
+      const root = document.querySelector(".auth-sheet-backdrop") || app;
+      const timerEl = root.querySelector(".resend-timer");
+      if (timerEl) {
+        // Update just the timer text in-place to avoid re-render
+        const key = t("resendAvailableIn").replace("{sec}", state.forgotResendCooldown);
+        timerEl.textContent = key;
+      }
+      if (state.forgotResendCooldown <= 0) {
+        window.clearInterval(forgotResendInterval);
+        updateAuthSectionDOM();
+        initForgotPasswordHandlers();
+      }
+    } else {
+      window.clearInterval(forgotResendInterval);
+    }
+  }, 1000);
+}
+
+function initForgotPasswordHandlers() {
+  const isAuthSheetOpen = document.querySelector(".auth-sheet-backdrop") !== null;
+  if (state.route !== "ratings" && !isAuthSheetOpen) return;
+  if (!state.forgotStep) return;
+
+  const root = document.querySelector(".auth-sheet-backdrop") || app;
+
+  // ── Back button (all steps) ──
+  const backBtn = root.querySelector("#forgot-back-btn");
+  if (backBtn) {
+    backBtn.onclick = () => {
+      haptic("light");
+      window.clearInterval(forgotResendInterval);
+      if (state.forgotStep === "code" || state.forgotStep === "email") {
+        state.forgotStep = null;
+        state.forgotCode = "";
+        state.forgotResendCooldown = 0;
+      } else if (state.forgotStep === "newpwd") {
+        state.forgotStep = "code";
+      }
+      updateAuthSectionDOM();
+    };
+  }
+
+  // ── Step 1: Email form ──
+  const emailForm = root.querySelector("#forgot-email-form");
+  if (emailForm) {
+    const emailInput = root.querySelector("#forgot-email-field");
+    if (emailInput) {
+      emailInput.oninput = (e) => {
+        let val = e.target.value.slice(0, 100).replace(/\s/g, "").replace(/[<>&"'/`\\;]/g, "");
+        e.target.value = val;
+        state.forgotEmail = val;
+      };
+      emailInput.onblur = (e) => {
+        const val = e.target.value.trim();
+        e.target.value = val;
+        state.forgotEmail = val;
+      };
+    }
+
+    emailForm.onsubmit = async (e) => {
+      e.preventDefault();
+      const email = (root.querySelector("#forgot-email-field")?.value || "").trim();
+      const submitBtn = emailForm.querySelector(".auth-submit-btn");
+      const errEl = root.querySelector("#forgot-error-msg");
+      const successEl = root.querySelector("#forgot-success-msg");
+
+      errEl?.classList.add("hide");
+      successEl?.classList.add("hide");
+      submitBtn.disabled = true;
+      const origText = submitBtn.textContent;
+      submitBtn.textContent = t("loading") + "…";
+
+      try {
+        await forgotPasswordRequest(email);
+        haptic("success");
+        state.forgotEmail = email;
+        state.forgotStep = "code";
+        state.forgotCode = "";
+        state.forgotResendCooldown = 60;
+        updateAuthSectionDOM();
+        startForgotResendCountdown();
+      } catch (err) {
+        haptic("error");
+        submitBtn.disabled = false;
+        submitBtn.textContent = origText;
+        if (errEl) {
+          errEl.textContent = translateError(err.message) || t("invalidOrExpiredCode");
+          errEl.classList.remove("hide");
+        }
+      }
+    };
+  }
+
+  // ── Step 2: Code form ──
+  const codeForm = root.querySelector("#forgot-code-form");
+  if (codeForm) {
+    const codeInput = root.querySelector("#forgot-code-field");
+    if (codeInput) {
+      codeInput.oninput = (e) => {
+        let val = e.target.value.replace(/[^0-9]/g, "").slice(0, 6);
+        e.target.value = val;
+        state.forgotCode = val;
+      };
+    }
+
+    codeForm.onsubmit = async (e) => {
+      e.preventDefault();
+      const code = (root.querySelector("#forgot-code-field")?.value || "").trim();
+      const submitBtn = codeForm.querySelector(".auth-submit-btn");
+      const errEl = root.querySelector("#forgot-error-msg");
+
+      errEl?.classList.add("hide");
+      submitBtn.disabled = true;
+      const origText = submitBtn.textContent;
+      submitBtn.textContent = t("loading") + "…";
+
+      try {
+        await forgotPasswordVerify(state.forgotEmail, code);
+        haptic("success");
+        state.forgotCode = code;
+        state.forgotStep = "newpwd";
+        window.clearInterval(forgotResendInterval);
+        updateAuthSectionDOM();
+      } catch (err) {
+        haptic("error");
+        submitBtn.disabled = false;
+        submitBtn.textContent = origText;
+        if (errEl) {
+          errEl.textContent = t("invalidOrExpiredCode");
+          errEl.classList.remove("hide");
+        }
+      }
+    };
+
+    // Start the countdown if still ticking
+    if (state.forgotResendCooldown > 0) {
+      startForgotResendCountdown();
+    }
+
+    // Resend button
+    const resendBtn = root.querySelector("#forgot-resend-btn");
+    if (resendBtn) {
+      resendBtn.onclick = async () => {
+        haptic("light");
+        resendBtn.disabled = true;
+        resendBtn.textContent = t("loading") + "…";
+        const errEl = root.querySelector("#forgot-error-msg");
+        errEl?.classList.add("hide");
+        try {
+          await forgotPasswordRequest(state.forgotEmail);
+          haptic("success");
+          state.forgotResendCooldown = 60;
+          updateAuthSectionDOM();
+          startForgotResendCountdown();
+        } catch (err) {
+          haptic("error");
+          resendBtn.disabled = false;
+          resendBtn.textContent = t("resendCode");
+          if (errEl) {
+            errEl.textContent = translateError(err.message) || t("tooManyAttempts");
+            errEl.classList.remove("hide");
+          }
+        }
+      };
+    }
+  }
+
+  // ── Step 3: New password form ──
+  const resetForm = root.querySelector("#forgot-reset-form");
+  if (resetForm) {
+    // Password visibility toggle (reuses existing .toggle-pass pattern)
+    resetForm.querySelectorAll(".toggle-pass").forEach(btn => {
+      btn.onclick = () => {
+        haptic("light");
+        const targetId = btn.dataset.toggleFor;
+        const input = resetForm.querySelector(`#${targetId}`);
+        if (!input) return;
+        const isVisible = input.type === "text";
+        input.type = isVisible ? "password" : "text";
+        btn.classList.toggle("is-visible", !isVisible);
+      };
+    });
+
+    resetForm.onsubmit = async (e) => {
+      e.preventDefault();
+      const newPwd = (root.querySelector("#forgot-newpwd-field")?.value || "");
+      const confirmPwd = (root.querySelector("#forgot-confirmpwd-field")?.value || "");
+      const submitBtn = resetForm.querySelector(".auth-submit-btn");
+      const errEl = root.querySelector("#forgot-error-msg");
+
+      errEl?.classList.add("hide");
+
+      if (newPwd !== confirmPwd) {
+        haptic("error");
+        if (errEl) {
+          errEl.textContent = t("passwordsDoNotMatch");
+          errEl.classList.remove("hide");
+        }
+        return;
+      }
+
+      submitBtn.disabled = true;
+      const origText = submitBtn.textContent;
+      submitBtn.textContent = t("loading") + "…";
+
+      try {
+        await forgotPasswordReset(state.forgotEmail, state.forgotCode, newPwd);
+        haptic("success");
+
+        // Reset all forgot-password state
+        state.forgotStep = null;
+        state.forgotEmail = "";
+        state.forgotCode = "";
+        state.forgotResendCooldown = 0;
+        window.clearInterval(forgotResendInterval);
+
+        // Switch to login tab and show success message
+        state.authMode = "login";
+        updateAuthSectionDOM();
+
+        // Show a non-intrusive success banner
+        requestAnimationFrame(() => {
+          const container = root.querySelector("#auth-profile-container");
+          if (container) {
+            const banner = document.createElement("div");
+            banner.className = "auth-success auth-reset-success";
+            banner.textContent = t("passwordResetSuccess");
+            container.prepend(banner);
+            window.setTimeout(() => banner.remove(), 4000);
+          }
+        });
+      } catch (err) {
+        haptic("error");
+        submitBtn.disabled = false;
+        submitBtn.textContent = origText;
+        if (errEl) {
+          errEl.textContent = t("invalidOrExpiredCode");
+          errEl.classList.remove("hide");
+        }
+      }
+    };
+  }
+}
+
+function initEventReviewsHandlers() {
+  const form = app.querySelector("#event-review-form");
+  
+  const penTrigger = app.querySelector("#reviews-pen-trigger");
+  if (penTrigger) {
+    penTrigger.onclick = () => {
+      haptic("light");
+      const isVerified = state.user && state.user.is_verified;
+      if (isVerified) {
+        const modal = app.querySelector("#review-submission-modal");
+        if (modal) modal.classList.add("is-open");
+      } else {
+        state.reopenReviewToken = state.currentEvent?.token;
+        openAuthSheet();
+      }
+    };
+  }
+
+  const modalClose = app.querySelector("#review-modal-close");
+  if (modalClose) {
+    modalClose.onclick = () => {
+      haptic("light");
+      const modal = app.querySelector("#review-submission-modal");
+      if (modal) modal.classList.remove("is-open");
+    };
+  }
+
+  const modalBackdrop = app.querySelector("#review-submission-modal");
+  if (modalBackdrop) {
+    modalBackdrop.onclick = (e) => {
+      if (e.target === modalBackdrop) {
+        haptic("light");
+        modalBackdrop.classList.remove("is-open");
+      }
+    };
+  }
+
+  const promoBtn = app.querySelector("#review-verify-btn");
+  if (promoBtn) {
+    promoBtn.onclick = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      haptic("light");
+      state.reopenReviewToken = state.currentEvent?.token;
+      openAuthSheet();
+    };
+  }
+
+  if (!form) return;
+
+  const eventToken = state.currentEvent?.token;
+  
+  const starsContainer = form.querySelector(".star-rating-selector");
+  const starBtns = form.querySelectorAll(".star-rating-selector .star-btn");
+  const scoreField = form.querySelector("#review-score-field");
+
+  starBtns.forEach((btn) => {
+    btn.onclick = () => {
+      const score = parseInt(btn.dataset.starScore || "0", 10);
+      scoreField.value = score;
+      starsContainer.dataset.selectedScore = score;
+      
+      starBtns.forEach((s) => {
+        const sScore = parseInt(s.dataset.starScore || "0", 10);
+        s.classList.toggle("active", sScore <= score);
+      });
+      
+      const submitBtn = form.querySelector(".submit-review-btn");
+      if (submitBtn) {
+        submitBtn.disabled = score === 0;
+      }
+      
+      haptic("light");
+    };
+  });
+
+  const commentField = form.querySelector("#review-comment-field");
+  if (commentField) {
+    commentField.oninput = () => {
+      let val = commentField.value;
+      // Do not allow spaces first
+      val = val.replace(/^\s+/, "");
+      // Do not allow more than 1 consecutive space
+      val = val.replace(/\s{2,}/g, " ");
+      if (commentField.value !== val) {
+        commentField.value = val;
+      }
+    };
+  }
+
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    const scoreVal = parseInt(scoreField.value, 10);
+    const rawContent = commentField ? commentField.value : "";
+    const submitBtn = form.querySelector(".submit-review-btn");
+    const errEl = form.querySelector("#review-error-msg");
+
+    if (isNaN(scoreVal) || scoreVal === 0) {
+      haptic("error");
+      if (errEl) {
+        errEl.textContent = t("pleaseSelectStarRating");
+        errEl.classList.remove("hide");
+      }
+      return;
+    }
+
+    if (rawContent && !rawContent.trim()) {
+      haptic("error");
+      if (errEl) {
+        errEl.textContent = "Comments consisting only of spaces are invalid.";
+        errEl.classList.remove("hide");
+      }
+      return;
+    }
+
+    // Clean hidden formatting / control characters (Cc, Cf, Cs, Co, Cn)
+    let cleanedContent = rawContent.replace(/[\u200b-\u200d\uFEFF\u200e\u200f\u202a-\u202e\u0000-\u001f\u007f-\u009f]/g, "");
+    // Compress consecutive spaces, tabs, and newlines to a single space
+    cleanedContent = cleanedContent.replace(/\s+/g, " ").trim();
+
+    if (cleanedContent.length > 256) {
+      haptic("error");
+      if (errEl) {
+        errEl.textContent = "Comment cannot exceed 256 characters.";
+        errEl.classList.remove("hide");
+      }
+      return;
+    }
+
+    errEl?.classList.add("hide");
+    submitBtn.disabled = true;
+    submitBtn.textContent = "Submitting…";
+
+    try {
+      await submitReview(eventToken, scoreVal, cleanedContent);
+      haptic("success");
+      const modal = app.querySelector("#review-submission-modal");
+      if (modal) modal.classList.remove("is-open");
+      state.currentEvent = await fetchEvent(eventToken);
+      app.innerHTML = renderEvent(state.currentEvent);
+      initEventReviewsHandlers();
+    } catch (err) {
+      haptic("error");
+      submitBtn.disabled = false;
+      submitBtn.textContent = "Submit";
+      if (errEl) {
+        errEl.textContent = translateError(err.message) || t("failedToSubmitReview");
+        errEl.classList.remove("hide");
+      }
+    }
+  };
+
+  const deleteOwnBtn = form.querySelector("#delete-own-review-btn");
+  if (deleteOwnBtn) {
+    deleteOwnBtn.onclick = async () => {
+      const doDelete = () => {
+        haptic("light");
+        deleteOwnBtn.disabled = true;
+        deleteOwnBtn.textContent = "Deleting…";
+        deleteReview(eventToken)
+          .then(async () => {
+            haptic("success");
+            state.currentEvent = await fetchEvent(eventToken);
+            app.innerHTML = renderEvent(state.currentEvent);
+            initEventReviewsHandlers();
+          })
+          .catch(() => {
+            haptic("error");
+            deleteOwnBtn.disabled = false;
+            deleteOwnBtn.textContent = "Delete Review";
+          });
+      };
+
+      if (tg && tg.showConfirm) {
+        tg.showConfirm("Are you sure you want to delete your review?", (ok) => {
+          if (ok) doDelete();
+        });
+      } else if (confirm("Are you sure you want to delete your review?")) {
+        doDelete();
+      }
+    };
+  }
+}
+
+let savedScrollY = 0;
+
+export function openAuthSheet() {
+  if (!document.querySelector(".auth-sheet-backdrop")) {
+    savedScrollY = window.scrollY;
+  }
+  closeAuthSheet();
+  document.documentElement.classList.add("sheet-open");
+  const node = document.createElement("div");
+  node.className = "sheet-backdrop auth-sheet-backdrop";
+  node.innerHTML = `
+    <section class="bottom-sheet auth-bottom-sheet" role="dialog" aria-modal="true">
+      <div class="sheet-handle"></div>
+      <div id="auth-profile-container" style="padding-top: 10px;">
+        ${renderAuthSection(state.cachedRatingsProfile)}
+      </div>
+    </section>
+  `;
+  document.body.append(node);
+
+  const sheet = node.querySelector(".auth-bottom-sheet");
+  
+  // High-fidelity swipe/drag down to close handlers
+  let startY = 0;
+  let currentY = 0;
+  let isDragging = false;
+
+  const onTouchStart = (e) => {
+    if (e.target.closest("input, button, a, select, textarea")) return;
+    startY = e.touches[0].clientY;
+    currentY = startY;
+    isDragging = true;
+    sheet.classList.add("dragging");
+    sheet.style.transition = "none";
+  };
+
+  const onTouchMove = (e) => {
+    if (!isDragging) return;
+    currentY = e.touches[0].clientY;
+    const deltaY = currentY - startY;
+    if (deltaY > 0) {
+      sheet.style.transform = `translateY(${deltaY}px)`;
+    } else {
+      sheet.style.transform = "translateY(0)";
+    }
+  };
+
+  const onTouchEnd = () => {
+    if (!isDragging) return;
+    isDragging = false;
+    sheet.classList.remove("dragging");
+    
+    const deltaY = currentY - startY;
+    sheet.style.transition = "transform 0.22s cubic-bezier(0.22, 1, 0.36, 1)";
+    
+    if (deltaY > 80) {
+      sheet.style.transform = "translateY(104%)";
+      closeAuthSheet();
+    } else {
+      sheet.style.transform = "translateY(0)";
+    }
+  };
+
+  sheet.addEventListener("touchstart", onTouchStart, { passive: true });
+  sheet.addEventListener("touchmove", onTouchMove, { passive: true });
+  sheet.addEventListener("touchend", onTouchEnd, { passive: true });
+
+  node.onclick = (e) => {
+    if (e.target === node) closeAuthSheet();
+  };
+
+  // Silently re-establish the Telegram guest session if we don't have one.
+  // This ensures the Bearer token is present when the user submits login/register,
+  // preventing the "Missing session" error from the backend.
+  if (!state.session) {
+    authenticate().catch(() => null);
+  }
+
+  // If user is verified but the profile is not in the cache, fetch it asynchronously and re-render
+  if (state.user && state.user.is_verified && !state.cachedRatingsProfile) {
+    fetchProfile().then((profile) => {
+      state.cachedRatingsProfile = profile;
+      updateAuthSectionDOM({ skipTransition: true });
+    }).catch(() => null);
+  }
+
+  initRatingsHandlers();
+  requestAnimationFrame(() => {
+    node.classList.add("open");
+  });
+}
+
+export function closeAuthSheet() {
+  const current = document.querySelector(".auth-sheet-backdrop");
+  if (!current) return;
+  current.classList.remove("open");
+  if (!document.querySelector(".sheet-backdrop:not(.auth-sheet-backdrop)")) {
+    document.documentElement.classList.remove("sheet-open");
+  }
+  requestAnimationFrame(() => {
+    window.scrollTo(0, savedScrollY);
+  });
+  window.setTimeout(() => current.remove(), 220);
+}
+
+

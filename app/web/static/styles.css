@@ -8,7 +8,7 @@
   --link: #4f6df5;
   --button: #4f6df5;
   --button-text: #ffffff;
-  --panel: rgba(255, 255, 255, 0.9);
+  --panel: #ffffff;
   --panel-soft: #f9fbff;
   --line: #e3e8f2;
   --line-strong: #d5deed;
@@ -30,7 +30,7 @@
   --link: #8b5cf6;
   --button: #8b5cf6;
   --button-text: #ffffff;
-  --panel: rgba(15, 15, 22, 0.85);
+  --panel: #0f0f16;
   --panel-soft: #0f0f16;
   --line: rgba(255, 255, 255, 0.08);
   --line-strong: rgba(255, 255, 255, 0.12);
@@ -100,7 +100,6 @@ html.theme-transitioning circle {
 html.sheet-open,
 html.sheet-open body {
   overflow: hidden !important;
-  height: 100% !important;
   overscroll-behavior: none !important;
 }
 
@@ -135,13 +134,27 @@ html.theme-transitioning *::after {
 /* The favorite-toggle and its star span must NOT inherit the theme-transitioning
    color transition — when the DOM is fully replaced (on theme/lang change),
    the freshly-inserted button would animate FROM a transparent/default color TO
-   the correct color, causing a visible 1-frame flash. Snap it instantly instead. */
+   the correct color, causing a visible flash. Snap everything instantly. */
 html.theme-transitioning .favorite-toggle,
-html.theme-transitioning .favorite-toggle span,
+html.theme-transitioning .favorite-toggle *,
 html.theme-transitioning .favorite-remove-button,
-html.theme-transitioning .favorite-remove-button span {
+html.theme-transitioning .favorite-remove-button * {
   transition: none !important;
+  animation: none !important;
 }
+
+/* Prevent newly-created event rows, cover images, panels, and their descendants
+   from transitioning background, colors, or shadows when mounted during active
+   theme or language switches. This eliminates the 0.6s shadow/color flicker. */
+html.theme-transitioning .event-row,
+html.theme-transitioning .event-row *,
+html.theme-transitioning .panel,
+html.theme-transitioning .panel * {
+  transition: none !important;
+  animation: none !important;
+}
+
+
 
 .no-transitions,
 .no-transitions *,
@@ -341,7 +354,8 @@ a {
 }
 
 .theme-toggle,
-.lang-toggle {
+.lang-toggle,
+.favorite-toggle {
   width: 40px;
   height: 40px;
   border: 1px solid rgba(255, 255, 255, 0.24);
@@ -415,7 +429,9 @@ a {
 .no-enter .cover,
 .no-enter .content,
 .no-enter .event-row,
-.no-enter .event-actions {
+.no-enter .event-actions,
+.no-enter .auth-card,
+.no-enter .profile-card {
   animation: none !important;
 }
 
@@ -576,9 +592,9 @@ h1 {
   right: auto !important;
   bottom: calc(12px + env(safe-area-inset-bottom)) !important;
   z-index: 30;
-  width: min(240px, calc(100vw - 64px));
+  width: min(280px, calc(100vw - 64px));
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 4px;
   margin: 0;
   padding: 5px;
@@ -588,29 +604,34 @@ h1 {
   background: color-mix(in srgb, var(--panel) 96%, transparent);
   box-shadow: 0 16px 36px rgba(34, 48, 84, 0.12);
   backdrop-filter: blur(12px);
-  transform: translateX(-50%);
+  transform: translate(-50%, var(--keyboard-cover-offset, 0px));
   will-change: transform, opacity;
   transition:
-    transform 0.16s cubic-bezier(0.2, 0.8, 0.2, 1),
-    opacity 0.12s linear;
+    transform 0.52s cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 0.42s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-/* Performance safeguard: disable expensive blur filters during active page transitions */
-html.page-transitioning *,
-html.page-transitioning *::before,
-html.page-transitioning *::after {
+/* Performance safeguard: disable expensive blur filters during active page and theme transitions
+   Exempt the toggle buttons so they don't instantly lose their frosted glass effect and flash transparent. */
+html.page-transitioning *:not(.theme-toggle):not(.lang-toggle):not(.favorite-toggle),
+html.page-transitioning *:not(.theme-toggle):not(.lang-toggle):not(.favorite-toggle)::before,
+html.page-transitioning *:not(.theme-toggle):not(.lang-toggle):not(.favorite-toggle)::after,
+html.theme-transitioning *:not(.theme-toggle):not(.lang-toggle):not(.favorite-toggle),
+html.theme-transitioning *:not(.theme-toggle):not(.lang-toggle):not(.favorite-toggle)::before,
+html.theme-transitioning *:not(.theme-toggle):not(.lang-toggle):not(.favorite-toggle)::after {
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
 }
 
 .app-nav.nav-hidden {
-  transform: translate(-50%, calc(100% + 30px)) !important;
+  transform: translate(-50%, calc(100% + 30px + var(--keyboard-cover-offset, 0px))) !important;
   opacity: 0 !important;
   pointer-events: none !important;
 }
 
-html.event-searching .app-nav {
-  transform: translate(-50%, calc(100% + 24px)) !important;
+html.event-searching .app-nav,
+html.auth-focusing .app-nav {
+  transform: translate(-50%, calc(100% + 24px + var(--keyboard-cover-offset, 0px))) !important;
   opacity: 0 !important;
   pointer-events: none !important;
 }
@@ -1015,7 +1036,7 @@ html.event-searching .app-nav {
 }
 
 .event-screen.archived .cover {
-  filter: none;
+  filter: grayscale(1) saturate(0.45);
 }
 
 .event-screen.archived .cover.has-cover {
@@ -1031,8 +1052,6 @@ html.event-searching .app-nav {
   inset: 0;
   z-index: 0;
   pointer-events: none;
-  -webkit-backdrop-filter: grayscale(1) saturate(0.45);
-  backdrop-filter: grayscale(1) saturate(0.45);
 }
 
 .archived-badge {
@@ -1083,19 +1102,14 @@ html.event-searching .app-nav {
   cursor: default;
 }
 
+/* Position override only — all base styles come from the shared .theme-toggle/.lang-toggle/.favorite-toggle rule */
 .favorite-toggle {
   position: absolute;
   top: calc(16px + env(safe-area-inset-top));
   left: 16px;
   z-index: 2;
-  width: 40px;
-  height: 40px;
-  border: 1px solid rgba(255, 255, 255, 0.24);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.16);
-  color: rgba(255, 255, 255, 0.82);
-  cursor: pointer;
-  backdrop-filter: blur(14px);
+  /* Keep opacity from parent button rule, not a color-variable */
+  color: rgba(255, 255, 255, 0.72);
 }
 
 .favorite-toggle span {
@@ -1103,7 +1117,14 @@ html.event-searching .app-nav {
   font-size: 1.12rem;
   line-height: 1;
   transform: scale(1) rotate(0deg);
-  transition: transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1), color 0.22s ease;
+  /* Only animate transform, never color — color is static white on the button */
+  transition: transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.favorite-toggle:hover span,
+.favorite-toggle.favorite-spin span,
+.favorite-toggle.favorite-unspin span {
+  transition: transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .favorite-toggle:not(.active):not(.favorite-spin):not(.favorite-unspin) span {
@@ -2126,20 +2147,20 @@ html.event-searching .app-nav {
 }
 
 ::view-transition-old(page-nav):only-child {
-  animation: navSlideOut 0.10s cubic-bezier(0.4, 0, 1, 1) both !important;
+  animation: navSlideOut 0.28s cubic-bezier(0.16, 1, 0.3, 1) both !important;
 }
 
 ::view-transition-new(page-nav):only-child {
-  animation: navSlideIn 0.22s cubic-bezier(0, 0, 0.2, 1) both !important;
+  animation: navSlideIn 0.36s cubic-bezier(0.16, 1, 0.3, 1) both !important;
 }
 
 @keyframes navSlideOut {
   from { opacity: 1; transform: translateY(0); }
-  to { opacity: 0; transform: translateY(24px); }
+  to { opacity: 0; transform: translateY(32px); }
 }
 
 @keyframes navSlideIn {
-  from { opacity: 0; transform: translateY(24px); }
+  from { opacity: 0; transform: translateY(32px); }
   to { opacity: 1; transform: translateY(0); }
 }
 
@@ -2311,7 +2332,7 @@ html.event-searching .app-nav {
   transform: translateY(8px);
   z-index: 10;
   display: table;
-  margin: 0 auto 10px;
+  margin: 0 auto 18px;
   padding: 5px 14px;
   background: color-mix(in srgb, var(--panel) 90%, transparent);
   backdrop-filter: blur(10px);
@@ -2677,3 +2698,1049 @@ html.event-searching .app-nav {
 .popup-empty-state p {
   margin: 0;
 }
+
+/* Premium Authentication, Profile, and Reviews styling */
+.hide {
+  display: none !important;
+}
+
+.auth-card {
+  padding: 24px;
+  background: var(--panel);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(24px);
+  margin-bottom: 20px;
+}
+
+.auth-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  background: var(--panel-soft);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 4px;
+  margin-bottom: 20px;
+}
+
+.auth-tab-btn {
+  border: none;
+  background: transparent;
+  color: var(--hint);
+  padding: 8px;
+  border-radius: 8px;
+  font-weight: 800;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.24s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.auth-tab-btn.active {
+  background: var(--button);
+  color: var(--button-text);
+  box-shadow: 0 4px 12px rgba(139, 92, 246, 0.2);
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.auth-instructions {
+  margin-bottom: 14px;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.auth-input {
+  width: 100%;
+  padding: 12px 16px;
+  border: 1.5px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel-soft);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.95rem;
+  font-weight: 500;
+  outline: none;
+  transition: all 0.2s ease;
+}
+
+.auth-input:focus {
+  border-color: var(--brand);
+  background: var(--panel);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 15%, transparent);
+}
+
+.auth-submit-btn {
+  margin-top: 8px;
+}
+
+.auth-error {
+  background: color-mix(in srgb, var(--red) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--red) 25%, transparent);
+  color: var(--red);
+  padding: 12px 16px;
+  border-radius: 12px;
+  font-size: 0.85rem;
+  font-weight: 800;
+  line-height: 1.4;
+  animation: shake 0.4s ease;
+}
+
+.resend-container {
+  margin-top: 14px;
+  text-align: center;
+  font-size: 0.85rem;
+}
+
+.resend-btn {
+  border: none;
+  background: transparent;
+  color: var(--link);
+  font-weight: 800;
+  cursor: pointer;
+  padding: 4px 8px;
+}
+
+.resend-timer {
+  color: var(--hint);
+}
+
+.back-to-auth-btn {
+  display: block;
+  margin: 16px auto 0;
+  border: none;
+  background: transparent;
+  color: var(--hint);
+  font-size: 0.85rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+/* ── Forgot Password Flow ── */
+
+/* Small ghost link button under the password field */
+.forgot-password-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: -6px;
+}
+
+.forgot-password-btn {
+  border: none;
+  background: transparent;
+  color: var(--link);
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 2px 0;
+  opacity: 0.85;
+  transition: opacity 0.18s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.forgot-password-btn:active {
+  opacity: 0.55;
+}
+
+/* Step header: back arrow + title */
+.forgot-step-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.forgot-step-header .section-title {
+  margin: 0;
+  flex: 1;
+}
+
+.forgot-back-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  color: var(--brand);
+  cursor: pointer;
+  flex-shrink: 0;
+  padding: 0;
+  margin: 0;
+  transition: transform 0.14s ease, opacity 0.18s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.forgot-back-btn svg {
+  width: 22px;
+  height: 22px;
+  stroke: currentColor;
+}
+
+.forgot-back-btn:active {
+  transform: scale(0.92);
+  opacity: 0.72;
+}
+
+/* Success inline message */
+.auth-success {
+  background: color-mix(in srgb, var(--green, #22c55e) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--green, #22c55e) 25%, transparent);
+  color: var(--green, #16a34a);
+  padding: 12px 16px;
+  border-radius: 12px;
+  font-size: 0.85rem;
+  font-weight: 800;
+  line-height: 1.4;
+  animation: slideDown 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/* Floating success banner that auto-dismisses */
+.auth-reset-success {
+  margin-bottom: 12px;
+  animation: slideDown 0.32s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+
+
+/* Profile Card Styling */
+.profile-card {
+  padding: 24px;
+}
+
+.profile-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 24px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 18px;
+}
+
+.profile-avatar {
+  font-size: 2.2rem;
+  width: 56px;
+  height: 56px;
+  background: color-mix(in srgb, var(--brand) 12%, transparent);
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 12px rgba(139, 92, 246, 0.1);
+}
+
+.profile-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.profile-nickname-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.edit-nickname-btn {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 4px;
+  font-size: 0.95rem;
+  transition: transform 0.2s ease;
+}
+
+.edit-nickname-btn:active {
+  transform: scale(0.9);
+}
+
+.profile-email-badge {
+  font-size: 0.82rem;
+  color: var(--hint);
+  font-weight: 500;
+}
+
+.nickname-edit-row {
+  background: var(--panel-soft);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px;
+  margin-bottom: 20px;
+}
+
+.nickname-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.save-nickname-btn {
+  padding: 8px 16px;
+  font-size: 0.85rem;
+}
+
+.cancel-nickname-btn {
+  padding: 8px 16px;
+  font-size: 0.85rem;
+  background: transparent;
+  border: 1px solid var(--line-strong);
+  color: var(--text);
+}
+
+.profile-history {
+  margin-bottom: 24px;
+}
+
+.history-title {
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: var(--text);
+  margin-bottom: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 320px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  padding-right: 4px;
+}
+
+.history-item {
+  background: var(--panel-soft);
+  border: 1.5px dashed var(--line);
+  border-radius: 12px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: border-color 0.2s ease;
+}
+
+.history-item:hover {
+  border-color: var(--line-strong);
+}
+
+.history-item-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.history-event-title {
+  font-size: 0.9rem;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.history-stars {
+  font-size: 0.85rem;
+  color: #fbbf24;
+}
+
+.history-comment-content {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--hint);
+  font-style: italic;
+}
+
+.history-item-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 4px;
+}
+
+.history-date {
+  font-size: 0.72rem;
+  color: var(--hint);
+}
+
+.history-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.edit-history-btn,
+.delete-history-btn {
+  border: none;
+  background: transparent;
+  font-size: 0.76rem;
+  font-weight: 800;
+  cursor: pointer;
+  padding: 2px 6px;
+}
+
+.edit-history-btn {
+  color: var(--link);
+}
+
+.delete-history-btn {
+  color: var(--red);
+}
+
+.logout-btn {
+  width: 100%;
+  background: transparent;
+  border: 1px solid var(--red);
+  color: var(--red);
+  padding: 10px;
+  border-radius: 12px;
+  cursor: pointer;
+}
+
+.logout-btn:active {
+  background: color-mix(in srgb, var(--red) 10%, transparent);
+}
+
+/* Reviews Feed (Community Reviews) */
+.reviews-feed-panel {
+  margin-top: 14px;
+  padding: 18px;
+}
+
+.feed-review-card {
+  padding: 16px 0;
+  border-bottom: 1.5px dashed var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.feed-review-card:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.feed-review-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.feed-review-avatar {
+  font-size: 1.35rem;
+  background: var(--panel-soft);
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.feed-review-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.feed-review-nickname {
+  font-size: 0.88rem;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.feed-review-event-link {
+  font-size: 0.76rem;
+  color: var(--link);
+  font-weight: 800;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.feed-review-stars {
+  font-size: 0.85rem;
+  color: #fbbf24;
+}
+
+.feed-review-body {
+  margin: 0;
+  font-size: 0.92rem;
+  color: var(--hint);
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.feed-review-date {
+  font-size: 0.72rem;
+  color: var(--hint);
+}
+
+/* Interactive Star Rating Selector */
+.star-rating-selector {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  margin: 18px 0;
+}
+
+.star-btn {
+  font-size: 2.1rem;
+  color: var(--line-strong);
+  cursor: pointer;
+  transition: all 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.star-btn.active {
+  color: #fbbf24;
+  transform: scale(1.15);
+  text-shadow: 0 0 10px rgba(251, 191, 36, 0.4);
+}
+
+.star-btn:active {
+  transform: scale(0.9);
+}
+
+/* Event Reviews Section */
+.reviews-panel {
+  margin-top: 14px;
+}
+
+.reviews-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.reviews-header .section-title {
+  margin: 0;
+  font-size: 1.3rem;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+}
+
+.reviews-summary-block {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.reviews-summary-left {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: 90px;
+}
+
+.reviews-avg {
+  font-size: 3.4rem;
+  font-weight: 800;
+  line-height: 1;
+  color: var(--text);
+  letter-spacing: -0.05em;
+}
+
+.reviews-out-of {
+  font-size: 0.75rem;
+  font-weight: 800;
+  color: var(--hint);
+  margin-top: 4px;
+}
+
+.reviews-summary-right {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 12px;
+}
+
+.reviews-total-count {
+  font-size: 0.75rem;
+  color: var(--hint);
+  text-align: right;
+  white-space: nowrap;
+  font-weight: 600;
+  min-width: 65px;
+}
+
+.reviews-bars-container {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+}
+
+.rating-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.rating-stars-label {
+  font-size: 0.5rem;
+  color: var(--hint);
+  letter-spacing: 1px;
+  text-align: right;
+  width: 45px;
+  opacity: 0.8;
+}
+
+.rating-bar-track {
+  flex: 1;
+  height: 4px;
+  background: var(--line-strong);
+  border-radius: 2px;
+  overflow: hidden;
+  position: relative;
+}
+
+.rating-bar-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background: var(--hint);
+  border-radius: 2px;
+}
+
+[data-theme="dark"] .rating-bar-fill {
+  background: #cbd5e1;
+}
+
+.unauth-review-promo {
+  text-align: center;
+  background: var(--panel-soft);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 20px;
+  margin-bottom: 20px;
+}
+
+.verify-email-promo-btn {
+  margin-top: 10px;
+  width: 100%;
+}
+
+.review-form {
+  background: var(--panel-soft);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 16px;
+  margin-bottom: 24px;
+}
+
+.review-form-title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 800;
+  text-align: center;
+  color: var(--text);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.review-textarea {
+  min-height: 80px;
+  resize: none;
+}
+
+.review-form-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.submit-review-btn {
+  width: 100%;
+}
+
+.delete-review-btn {
+  width: 100%;
+  background: transparent;
+  border: 1.5px solid var(--red);
+  color: var(--red);
+  padding: 10px;
+  border-radius: 12px;
+  cursor: pointer;
+}
+
+.event-review-card {
+  padding: 16px 0;
+  border-bottom: 1.5px dashed var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.event-review-card:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.event-review-card.own-review-card {
+  background: color-mix(in srgb, var(--brand) 4%, transparent);
+  border: 1px solid color-mix(in srgb, var(--brand) 12%, transparent);
+  border-radius: 12px;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+
+.event-review-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.review-avatar {
+  font-size: 1.25rem;
+  background: var(--panel-soft);
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.review-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+}
+
+.review-nickname {
+  font-size: 0.88rem;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.review-date {
+  font-size: 0.72rem;
+  color: var(--hint);
+}
+
+.review-stars {
+  font-size: 0.85rem;
+  color: #fbbf24;
+}
+
+.review-body {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--hint);
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-4px); }
+  75% { transform: translateX(4px); }
+}
+
+/* Auth transition overrides to prevent navigation bar flash and isolate card changes */
+.auth-card {
+  view-transition-name: auth-card;
+}
+
+html.auth-transitioning::view-transition-old(root),
+html.auth-transitioning::view-transition-new(root) {
+  animation: none !important;
+}
+
+html.auth-transitioning .app-nav {
+  view-transition-name: none !important;
+}
+
+/* Eye visibility toggle for password fields */
+.input-wrap {
+  position: relative;
+  width: 100%;
+}
+.input-wrap.has-toggle input {
+  padding-right: 52px;
+}
+.toggle-pass {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+  color: var(--hint);
+  border-radius: 9px;
+  cursor: pointer;
+  line-height: 1;
+  transform: translateY(-50%);
+  transition: background .18s, color .18s;
+}
+.toggle-pass svg {
+  width: 20px;
+  height: 20px;
+  display: block;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform .18s ease;
+}
+.toggle-pass::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 20px;
+  height: 2px;
+  background: currentColor;
+  border-radius: 1px;
+  transform: translate(-50%, -50%) rotate(-45deg) scaleX(0);
+  opacity: 0;
+  transition: transform .2s ease, opacity .2s ease;
+}
+.toggle-pass:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--text);
+}
+[data-theme="dark"] .toggle-pass:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+}
+.toggle-pass.is-visible {
+  color: var(--brand);
+}
+.toggle-pass.is-visible::after {
+  transform: translate(-50%, -50%) rotate(-45deg) scaleX(1);
+  opacity: 1;
+}
+
+/* Click to Rate Unauth Panel (App Store Style) */
+.click-to-rate-unauth {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  padding: 14px 0;
+  margin-top: 18px;
+  margin-bottom: 24px;
+  cursor: pointer;
+  transition: opacity 0.2s ease;
+}
+
+.click-to-rate-unauth:active {
+  opacity: 0.7;
+}
+
+.click-to-rate-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+  font-size: 0.95rem;
+  font-weight: 550;
+  letter-spacing: -0.01em;
+}
+
+.unauth-stars {
+  display: flex;
+  gap: 6px;
+  margin-left: 2px;
+}
+
+.unauth-star-btn {
+  font-size: 1.5rem;
+  color: #007aff;
+  line-height: 1;
+  transition: transform 0.15s ease;
+}
+
+.click-to-rate-unauth:hover .unauth-star-btn {
+  transform: scale(1.08);
+}
+
+.unauth-write-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  color: #007aff;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+}
+
+.unauth-write-btn .write-icon {
+  width: 17px;
+  height: 17px;
+  stroke: currentColor;
+}
+
+/* Reviews Pen Trigger Button */
+.write-review-trigger-btn {
+  background: none;
+  border: none;
+  color: var(--brand);
+  cursor: pointer;
+  padding: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: background-color 0.2s, transform 0.1s;
+}
+
+.write-review-trigger-btn:hover {
+  background-color: color-mix(in srgb, var(--brand) 15%, transparent);
+}
+
+.write-review-trigger-btn:active {
+  transform: scale(0.92);
+}
+
+.write-review-trigger-btn svg {
+  width: 20px;
+  height: 20px;
+  stroke: currentColor;
+  fill: none;
+  display: block;
+}
+
+/* Review Modal Overlay (App Store Style) */
+.review-modal-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+.review-modal-backdrop.is-open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.review-modal-card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  width: 100%;
+  max-width: 380px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
+  transform: scale(0.92);
+  transition: transform 0.3s cubic-bezier(0.25, 1, 0.5, 1);
+  position: relative;
+  padding: 16px;
+}
+
+.review-modal-backdrop.is-open .review-modal-card {
+  transform: scale(1);
+}
+
+.review-modal-close-btn {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  background: var(--panel-soft);
+  border: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--hint);
+  font-size: 1.1rem;
+  font-weight: 700;
+  transition: background 0.15s, color 0.15s;
+  line-height: 1;
+  z-index: 10;
+}
+
+.review-modal-close-btn:hover {
+  background: var(--line);
+  color: var(--text);
+}
+
+/* Spacing and resets for Modal form */
+.review-modal-card .review-form {
+  border: none;
+  background: none;
+  padding: 0;
+  margin: 0;
+}
+
+/* Make auth bottom sheet wide, low in height, and not like an island */
+.sheet-backdrop.auth-sheet-backdrop {
+  justify-content: stretch;
+  padding: 0;
+}
+
+.bottom-sheet.auth-bottom-sheet {
+  position: relative;
+  width: 100vw;
+  max-width: 100vw;
+  margin: 0;
+  border-radius: 24px 24px 0 0;
+  border-bottom: none;
+  border-left: none;
+  border-right: none;
+  max-height: none;
+  overflow-y: visible;
+  box-sizing: border-box;
+  padding: 10px 16px calc(24px + env(safe-area-inset-bottom));
+}
+
+.bottom-sheet.auth-bottom-sheet .auth-card {
+  border: none;
+  background: none;
+  box-shadow: none;
+  backdrop-filter: none;
+  padding: 10px 0 0;
+  margin-bottom: 0;
+}
+
+

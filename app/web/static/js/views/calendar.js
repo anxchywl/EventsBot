@@ -1,7 +1,7 @@
 import { addFavorite, createReminder, removeFavorite } from "../api.js";
-import { coverStyle, escapeAttr, escapeHtml, nav } from "../components/events.js?v=20260527-no-event-filter-haptics";
-import { openReminderSheet } from "../components/sheets.js?v=20260527-no-event-filter-haptics";
-import { t } from "../i18n.js?v=20260527-no-event-filter-haptics";
+import { coverStyle, escapeAttr, escapeHtml, nav } from "../components/events.js?v=20260528-sanitize-spaces-v2";
+import { openReminderSheet } from "../components/sheets.js?v=20260528-sanitize-spaces-v2";
+import { t } from "../i18n.js?v=20260528-sanitize-spaces-v2";
 import { state } from "../state.js";
 import { haptic } from "../telegram.js";
 
@@ -19,7 +19,8 @@ export function isEventArchived(event) {
     const [h, m] = event.time.split(":").map(Number);
     const eventTime = new Date();
     eventTime.setHours(h, m, 0, 0);
-    return eventTime < now;
+    const eventEnd = new Date(eventTime.getTime() + 2 * 60 * 60 * 1000);
+    return eventEnd < now;
   }
   return false;
 }

@@ -1,5 +1,5 @@
-import { controls, coverStyle, escapeAttr, escapeHtml, eventRow, nav, status } from "../components/events.js?v=20260527-no-event-filter-haptics";
-import { t } from "../i18n.js?v=20260527-no-event-filter-haptics";
+import { controls, coverStyle, escapeAttr, escapeHtml, eventRow, nav, status } from "../components/events.js?v=20260528-sanitize-spaces-v2";
+import { t } from "../i18n.js?v=20260528-profile-translations";
 import { state } from "../state.js";
 
 export function formatGroupDate(dateStr, lang) {
@@ -169,7 +169,7 @@ function renderSearchField() {
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <path d="M10.8 18.1a7.3 7.3 0 1 1 0-14.6 7.3 7.3 0 0 1 0 14.6ZM16 16l4.3 4.3" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/>
       </svg>
-      <input type="search" inputmode="search" autocomplete="off" data-event-search-input placeholder="${escapeAttr(t("searchEvents"))}" value="${escapeAttr(state.eventSearch.query)}" />
+      <input type="search" inputmode="search" autocomplete="off" data-event-search-input maxlength="100" placeholder="${escapeAttr(t("searchEvents"))}" value="${escapeAttr(state.eventSearch.query)}" />
       <button type="button" data-action="event-search-close" aria-label="${escapeAttr(t("cancel"))}">×</button>
     </div>
   `;

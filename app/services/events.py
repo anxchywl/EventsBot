@@ -94,21 +94,12 @@ async def get_event_by_public_token(
 async def get_available_event_by_public_token(
     session: AsyncSession, public_token: str
 ) -> Event | None:
-    from datetime import datetime
-    from zoneinfo import ZoneInfo
-
-    from app.config import get_settings
-
     public_token = normalize_public_token(public_token)
-    settings = get_settings()
-    today = datetime.now(ZoneInfo(settings.app_timezone)).date()
-
     result = await session.execute(
         select(Event)
         .where(
             Event.public_token == public_token,
             Event.status == EventStatus.APPROVED.value,
-            Event.event_date >= today,
         )
         .options(selectinload(Event.category), selectinload(Event.creator))
     )

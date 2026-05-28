@@ -1,5 +1,5 @@
 import { escapeHtml } from "./events.js";
-import { formatReminderOffset, t } from "../i18n.js?v=20260527-no-event-filter-haptics";
+import { formatReminderOffset, t, translateError } from "../i18n.js?v=20260527-no-event-filter-haptics";
 
 const MAX_REMINDERS = 3;
 
@@ -324,7 +324,7 @@ async function handleSave(node, event, onSubmit) {
     // success: close sheet
     closeSheet();
   } catch (err) {
-    const msg = err?.message || t("invalidReminder");
+    const msg = translateError(err?.message) || t("invalidReminder");
     showError(node, msg);
     if (saveBtn) {
       saveBtn.disabled = false;

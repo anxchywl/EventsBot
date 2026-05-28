@@ -1,4 +1,4 @@
-import { boot } from "./js/router.js?v=20260528-calendar-restore";
+import { boot } from "./js/router.js?v=20260528-sanitize-spaces-v2";
 
 boot().catch((error) => {
   console.error(error);

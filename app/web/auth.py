@@ -8,11 +8,12 @@ import time
 from dataclasses import dataclass
 from urllib.parse import parse_qsl
 
-from fastapi import Header, HTTPException, status
+from fastapi import Header, HTTPException, status, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
+from app.db.session import get_session
 from app.models.user import User
 
 
@@ -163,3 +164,17 @@ def _b64(value: bytes) -> str:
 
 def _pad_b64(value: str) -> bytes:
     return (value + "=" * (-len(value) % 4)).encode()
+
+
+async def require_verified_user(
+    miniapp_user: MiniAppUser = Depends(require_miniapp_user),
+    session: AsyncSession = Depends(get_session),
+) -> User:
+    user = await upsert_miniapp_user(session, miniapp_user)
+    if not user.is_verified:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Nazarbayev University email verification required",
+        )
+    return user
+

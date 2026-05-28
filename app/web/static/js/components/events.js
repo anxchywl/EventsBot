@@ -1,10 +1,15 @@
 import { state } from "../state.js";
 import { categoryLabel, t } from "../i18n.js?v=20260527-no-event-filter-haptics";
 
-const fallbackCoverStyles = new Map();
+// Guarantee fallbackCoverStyles map is shared absolutely via window to avoid potential duplicate ES module instances.
+if (!window.fallbackCoverStyles) {
+  window.fallbackCoverStyles = new Map();
+}
 
 export function resetFallbackCoverStyles() {
-  fallbackCoverStyles.clear();
+  if (window.fallbackCoverStyles) {
+    window.fallbackCoverStyles.clear();
+  }
 }
 
 export function escapeHtml(value) {
@@ -23,13 +28,13 @@ export function escapeAttr(value) {
 function randomCoverVariables() {
   const dark = document.documentElement.dataset.theme === "dark";
   const h1 = Math.floor(Math.random() * 360);
-  const h2 = (h1 + 60 + Math.floor(Math.random() * 120)) % 360;
-  const h3 = (h2 + 60 + Math.floor(Math.random() * 120)) % 360;
-  const h4 = (h3 + 60 + Math.floor(Math.random() * 120)) % 360;
-  const sat = 88 + Math.floor(Math.random() * 13);  // 88–100% for both themes
-  const light = dark ? 58 + Math.floor(Math.random() * 18) : 60 + Math.floor(Math.random() * 16);
-  const glowLight = dark ? 72 + Math.floor(Math.random() * 16) : 80 + Math.floor(Math.random() * 12);
-  const accentLight = dark ? 62 + Math.floor(Math.random() * 16) : 66 + Math.floor(Math.random() * 14);
+  const h2 = (h1 + 90 + Math.floor(Math.random() * 90)) % 360;  // Spaced out by 90-180 deg for high contrast
+  const h3 = (h2 + 90 + Math.floor(Math.random() * 90)) % 360;
+  const h4 = (h3 + 90 + Math.floor(Math.random() * 90)) % 360;
+  const sat = 95 + Math.floor(Math.random() * 6);  // High saturation (95–100%) for maximum vibrancy
+  const light = dark ? 60 + Math.floor(Math.random() * 15) : 65 + Math.floor(Math.random() * 15);
+  const glowLight = dark ? 74 + Math.floor(Math.random() * 14) : 82 + Math.floor(Math.random() * 10);
+  const accentLight = dark ? 64 + Math.floor(Math.random() * 14) : 70 + Math.floor(Math.random() * 12);
   const angle = Math.floor(Math.random() * 360);
   const first = `hsl(${h1} ${sat}% ${light}%)`;
   const second = `hsl(${h2} ${sat}% ${light}%)`;
@@ -42,11 +47,11 @@ export function coverStyle(url, key = "") {
   if (url) {
     return `style="--cover-image: url('${escapeAttr(url)}')"`;
   }
-  const cacheKey = key || `cover-${fallbackCoverStyles.size}`;
-  if (!fallbackCoverStyles.has(cacheKey)) {
-    fallbackCoverStyles.set(cacheKey, randomCoverVariables());
+  const cacheKey = key || `cover-${window.fallbackCoverStyles.size}`;
+  if (!window.fallbackCoverStyles.has(cacheKey)) {
+    window.fallbackCoverStyles.set(cacheKey, randomCoverVariables());
   }
-  return `style="${fallbackCoverStyles.get(cacheKey)}"`;
+  return `style="${window.fallbackCoverStyles.get(cacheKey)}"`;
 }
 
 function eventTimestamp(event) {
@@ -67,23 +72,7 @@ export function controls() {
 }
 
 export function nav(active) {
-  const items = [
-    ["events", `<svg class="nav-icon" viewBox="0 0 24 24" width="20" height="20"><path d="M19 4H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V10h14v10zm0-12H5V6h14v2z" fill="currentColor"/></svg>`],
-    ["reminders", `<svg class="nav-icon" viewBox="0 0 24 24" width="20" height="20"><path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.89 2 2 2zm6-6v-5c0-3.07-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z" fill="currentColor"/></svg>`],
-  ];
-  return `
-    <nav class="app-nav" aria-label="Mini app navigation">
-      ${items
-        .map(
-          ([route, icon]) => `
-            <button class="nav-pill nav-circle ${active === route ? "active" : ""}" type="button" data-route="${route}">
-              ${icon}
-            </button>
-          `,
-        )
-        .join("")}
-    </nav>
-  `;
+  return "";
 }
 
 export function eventRow(event, options = {}) {
