@@ -38,7 +38,6 @@ export function renderMenu(events) {
           ${isCalendar ? renderCalendarInner(events) : ""}
         </div>
       </main>
-      ${nav("events")}
     </div>
   `;
 }

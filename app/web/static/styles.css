@@ -103,6 +103,10 @@ html.sheet-open body {
   overscroll-behavior: none !important;
 }
 
+::view-transition {
+  background-color: transparent !important;
+}
+
 ::view-transition-old(root),
 ::view-transition-new(root) {
   animation: none;
@@ -426,6 +430,62 @@ a {
   min-height: 178px;
 }
 
+/* Header Cover Left Action Button (e.g. Profile Button) */
+.cover .profile-trigger-btn {
+  position: absolute;
+  top: calc(16px + env(safe-area-inset-top));
+  left: 16px;
+  width: 40px;
+  height: 40px;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.16);
+  color: #ffffff;
+  backdrop-filter: blur(14px);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.2s ease, background 0.2s ease, border-color 0.2s ease;
+  z-index: 10;
+}
+
+.cover .profile-trigger-btn:active {
+  transform: scale(0.94);
+}
+
+/* Global Controls Profile Button */
+#global-controls .profile-trigger-btn {
+  width: 40px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1), width 0.25s cubic-bezier(0.4, 0, 0.2, 1), padding 0.25s cubic-bezier(0.4, 0, 0.2, 1), margin 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+#global-controls .profile-trigger-btn:active {
+  transform: scale(0.94);
+}
+
+/* Hide profile button on event page - remove it from layout entirely */
+html[data-current-route="event"] #global-controls .profile-trigger-btn {
+  opacity: 0;
+  pointer-events: none;
+  width: 0 !important;
+  height: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border: none !important;
+  flex-shrink: 0;
+}
+
+/* Push theme/lang buttons to the right on event page */
+html[data-current-route="event"] #global-controls {
+  justify-content: flex-end;
+  gap: 10px;
+}
+
 .no-enter .cover,
 .no-enter .content,
 .no-enter .event-row,
@@ -587,38 +647,18 @@ h1 {
 }
 
 .app-nav {
-  position: fixed !important;
-  left: 50% !important;
-  right: auto !important;
-  bottom: calc(12px + env(safe-area-inset-bottom)) !important;
-  z-index: 30;
-  width: min(280px, calc(100vw - 64px));
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 4px;
-  margin: 0;
-  padding: 5px;
-  overflow: hidden;
-  border: 1px solid var(--line-strong);
-  border-radius: 16px;
-  background: color-mix(in srgb, var(--panel) 96%, transparent);
-  box-shadow: 0 16px 36px rgba(34, 48, 84, 0.12);
-  backdrop-filter: blur(12px);
-  transform: translate(-50%, var(--keyboard-cover-offset, 0px));
-  will-change: transform, opacity;
-  transition:
-    transform 0.52s cubic-bezier(0.16, 1, 0.3, 1),
-    opacity 0.42s cubic-bezier(0.16, 1, 0.3, 1);
+  display: none !important;
 }
 
-/* Performance safeguard: disable expensive blur filters during active page and theme transitions
-   Exempt the toggle buttons so they don't instantly lose their frosted glass effect and flash transparent. */
-html.page-transitioning *:not(.theme-toggle):not(.lang-toggle):not(.favorite-toggle),
-html.page-transitioning *:not(.theme-toggle):not(.lang-toggle):not(.favorite-toggle)::before,
-html.page-transitioning *:not(.theme-toggle):not(.lang-toggle):not(.favorite-toggle)::after,
-html.theme-transitioning *:not(.theme-toggle):not(.lang-toggle):not(.favorite-toggle),
-html.theme-transitioning *:not(.theme-toggle):not(.lang-toggle):not(.favorite-toggle)::before,
-html.theme-transitioning *:not(.theme-toggle):not(.lang-toggle):not(.favorite-toggle)::after {
+/* Performance safeguard: disable expensive blur filters during active page and theme transitions.
+   Exempt: toggle buttons (they flash transparent without blur), the app-nav (it has its own
+   view-transition-name layer so the blur suppression is unnecessary and causes the gray flicker). */
+html.page-transitioning *:not(.theme-toggle):not(.lang-toggle):not(.favorite-toggle):not(.app-nav),
+html.page-transitioning *:not(.theme-toggle):not(.lang-toggle):not(.favorite-toggle):not(.app-nav)::before,
+html.page-transitioning *:not(.theme-toggle):not(.lang-toggle):not(.favorite-toggle):not(.app-nav)::after,
+html.theme-transitioning *:not(.theme-toggle):not(.lang-toggle):not(.favorite-toggle):not(.app-nav),
+html.theme-transitioning *:not(.theme-toggle):not(.lang-toggle):not(.favorite-toggle):not(.app-nav)::before,
+html.theme-transitioning *:not(.theme-toggle):not(.lang-toggle):not(.favorite-toggle):not(.app-nav)::after {
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
 }
@@ -2136,33 +2176,11 @@ html.auth-focusing .app-nav {
    (page-header / page-content) to prevent laggy position-jump animation caused
    by the Events h1 sitting lower than the Favourites/Reminders h1. */
 
-.app-nav {
-  view-transition-name: page-nav;
-}
-
-::view-transition-old(page-nav):not(:only-child),
-::view-transition-new(page-nav):not(:only-child) {
-  animation: none !important;
-  mix-blend-mode: normal !important;
-}
-
-::view-transition-old(page-nav):only-child {
-  animation: navSlideOut 0.28s cubic-bezier(0.16, 1, 0.3, 1) both !important;
-}
-
-::view-transition-new(page-nav):only-child {
-  animation: navSlideIn 0.36s cubic-bezier(0.16, 1, 0.3, 1) both !important;
-}
-
-@keyframes navSlideOut {
-  from { opacity: 1; transform: translateY(0); }
-  to { opacity: 0; transform: translateY(32px); }
-}
-
-@keyframes navSlideIn {
-  from { opacity: 0; transform: translateY(32px); }
-  to { opacity: 1; transform: translateY(0); }
-}
+/* The nav bar is intentionally part of the root view-transition snapshot.
+   A named layer (page-nav) caused a gray flicker: during tab switches both old and new
+   snapshots existed (not :only-child), so animation: none made the nav appear twice —
+   once as a static ghost snapshot (with backdrop-filter stripped) and once as real DOM.
+   Letting it ride with the root crossfade is invisible and completely flicker-free. */
 
 .cache-enter {
   animation: cacheRestoreFadeIn 0.18s cubic-bezier(0.22, 1, 0.36, 1) both;
@@ -2919,16 +2937,17 @@ html.auth-focusing .app-nav {
 
 /* Profile Card Styling */
 .profile-card {
-  padding: 24px;
+  padding: 14px 14px 12px;
 }
 
 .profile-header {
   display: flex;
   align-items: center;
-  gap: 16px;
-  margin-bottom: 24px;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 18px;
   border-bottom: 1px solid var(--line);
-  padding-bottom: 18px;
+  padding-bottom: 14px;
 }
 
 .profile-avatar {
@@ -2979,50 +2998,57 @@ html.auth-focusing .app-nav {
 }
 
 .nickname-edit-row {
-  background: var(--panel-soft);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 10px;
+}
+
+.nickname-edit-row .nickname-input {
+  width: min(220px, 100%);
+  min-width: 140px;
+  padding: 10px 12px;
+  border-radius: 999px;
   border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 14px;
-  margin-bottom: 20px;
+  background: var(--panel-soft);
 }
 
 .nickname-actions {
-  display: flex;
+  display: inline-flex;
   gap: 8px;
-  margin-top: 10px;
 }
 
-.save-nickname-btn {
-  padding: 8px 16px;
+.save-nickname-btn,
+.cancel-nickname-btn {
+  padding: 8px 12px;
   font-size: 0.85rem;
+  border-radius: 999px;
 }
 
 .cancel-nickname-btn {
-  padding: 8px 16px;
-  font-size: 0.85rem;
   background: transparent;
   border: 1px solid var(--line-strong);
   color: var(--text);
 }
 
 .profile-history {
-  margin-bottom: 24px;
+  margin-bottom: 12px;
 }
 
 .history-title {
-  font-size: 0.95rem;
-  font-weight: 800;
+  font-size: 0.9rem;
+  font-weight: 700;
   color: var(--text);
-  margin-bottom: 12px;
+  margin-bottom: 10px;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.06em;
 }
 
 .history-list {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  max-height: 320px;
+  gap: 8px;
+  max-height: 280px;
   overflow-y: auto;
   scrollbar-width: thin;
   padding-right: 4px;
@@ -3030,12 +3056,12 @@ html.auth-focusing .app-nav {
 
 .history-item {
   background: var(--panel-soft);
-  border: 1.5px dashed var(--line);
+  border: 1px dashed var(--line);
   border-radius: 12px;
-  padding: 14px;
+  padding: 12px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
   transition: border-color 0.2s ease;
 }
 
@@ -3103,18 +3129,30 @@ html.auth-focusing .app-nav {
   color: var(--red);
 }
 
-.logout-btn {
-  width: 100%;
+.logout-inline-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: transparent;
-  border: 1px solid var(--red);
+  border: none;
   color: var(--red);
-  padding: 10px;
+  padding: 6px;
   border-radius: 12px;
   cursor: pointer;
+  min-width: 36px;
+  min-height: 36px;
 }
 
-.logout-btn:active {
-  background: color-mix(in srgb, var(--red) 10%, transparent);
+.logout-inline-btn svg {
+  flex-shrink: 0;
+}
+
+.logout-inline-btn:active {
+  background: color-mix(in srgb, var(--red) 12%, transparent);
+}
+
+.logout-btn {
+  display: none !important;
 }
 
 /* Reviews Feed (Community Reviews) */
@@ -3619,6 +3657,7 @@ html.auth-transitioning .app-nav {
   justify-content: center;
   border-radius: 50%;
   transition: background-color 0.2s, transform 0.1s;
+  margin-top: 2px; /* Visually align with the heavy text baseline */
 }
 
 .write-review-trigger-btn:hover {
@@ -3716,6 +3755,7 @@ html.auth-transitioning .app-nav {
 /* Make auth bottom sheet wide, low in height, and not like an island */
 .sheet-backdrop.auth-sheet-backdrop {
   justify-content: stretch;
+  align-items: flex-end;
   padding: 0;
 }
 
@@ -3728,19 +3768,26 @@ html.auth-transitioning .app-nav {
   border-bottom: none;
   border-left: none;
   border-right: none;
-  max-height: none;
-  overflow-y: visible;
+  max-height: 100vh;
+  min-height: 36vh;
+  overflow-y: auto;
   box-sizing: border-box;
-  padding: 10px 16px calc(24px + env(safe-area-inset-bottom));
+  padding: 10px 0 calc(16px + env(safe-area-inset-bottom));
 }
 
-.bottom-sheet.auth-bottom-sheet .auth-card {
+.bottom-sheet.auth-bottom-sheet .auth-card,
+.bottom-sheet.auth-bottom-sheet .profile-card {
   border: none;
   background: none;
   box-shadow: none;
   backdrop-filter: none;
-  padding: 10px 0 0;
-  margin-bottom: 0;
+  padding: 18px 16px 20px;
+  margin: 0;
+  border-radius: 0;
+}
+
+.bottom-sheet.auth-bottom-sheet .auth-card {
+  padding-top: 0;
 }
 
 

@@ -3,38 +3,25 @@ import { t } from "../i18n.js?v=20260528-sanitize-spaces-v2";
 import { state } from "../state.js";
 
 export function renderRatingsTab(profileData = null, reviewsList = []) {
-  const isVerified = state.user && state.user.is_verified;
+  const feed = state.prefetchedRatings?.feed || reviewsList || [];
   
   return `
     <div class="screen" data-route="ratings">
       <header class="cover compact" ${coverStyle(null, "header-main")}>
+        <button class="profile-trigger-btn" id="ratings-profile-trigger" type="button" aria-label="Profile">
+          <svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+            <circle cx="12" cy="7" r="4"></circle>
+          </svg>
+        </button>
         <h1>${escapeHtml(t("profile"))}</h1>
       </header>
       <main class="content ratings-content">
-        <!-- Auth / Profile Section -->
-        <div id="auth-profile-container">
-          ${isVerified 
-            ? renderProfile(profileData) 
-            : `
-              <div class="panel profile-card skeleton-profile" style="cursor: pointer;" id="guest-profile-trigger">
-                <div class="profile-header">
-                  <div class="profile-meta">
-                    <h2 class="profile-nickname-title">
-                      <span>Guest User</span>
-                    </h2>
-                    <span class="profile-email-badge">Tap to Log In / Register</span>
-                  </div>
-                </div>
-                <div class="profile-history" style="margin-top: 12px; opacity: 0.5;">
-                  <h3 class="history-title">My Reviews (0)</h3>
-                  <div class="history-list">
-                    <p class="empty-history-text">Please log in to see your review history.</p>
-                  </div>
-                </div>
-              </div>
-            `
-          }
-        </div>
+        <section class="panel ratings-feed-panel">
+          <div class="reviews-feed-list" style="margin-top: 4px;">
+            ${renderGlobalReviewsFeed(feed)}
+          </div>
+        </section>
       </main>
       ${nav("ratings")}
     </div>
@@ -237,29 +224,22 @@ function renderProfile(profile) {
         <div class="profile-meta">
           <h2 class="profile-nickname-title">
             <span id="profile-nickname-display">${escapeHtml(profile.nickname)}</span>
-            <button class="edit-nickname-btn" id="edit-nickname-trigger" aria-label="${t("editNicknameTooltip")}">
-              <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-left: 2px;"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
-            </button>
           </h2>
           <span class="profile-email-badge">${escapeHtml(profile.email)}</span>
+          <div id="nickname-error-msg" class="auth-error ${state.nicknameErrorMsg ? "" : "hide"}">${escapeHtml(state.nicknameErrorMsg || "")}</div>
         </div>
-      </div>
-
-      <!-- Edit Nickname Row (Hidden by default) -->
-      <div id="nickname-edit-row" class="nickname-edit-row hide">
-        <div class="form-group">
-          <input class="auth-input nickname-input" type="text" id="nickname-input-field" maxlength="24" value="${escapeAttr(profile.nickname)}" />
-          <div class="nickname-actions">
-            <button class="action primary save-nickname-btn" id="save-nickname-btn">${t("save")}</button>
-            <button class="action cancel-nickname-btn" id="cancel-nickname-btn">${t("cancel")}</button>
-          </div>
-        </div>
-        <div id="nickname-error-msg" class="auth-error ${state.nicknameErrorMsg ? "" : "hide"}">${escapeHtml(state.nicknameErrorMsg || "")}</div>
+        <button class="logout-inline-btn" id="logout-btn" type="button" aria-label="${t("logoutBtn")}">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+            <path d="M16 17l5-5-5-5"></path>
+            <path d="M21 12H9"></path>
+          </svg>
+        </button>
       </div>
 
       <!-- History Section -->
       <div class="profile-history">
-        <h3 class="history-title">${t("myReviewsTitle").replace("{count}", profile.history.length)}</h3>
+        <h3 class="history-title">${t("myReviewsTitle")}</h3>
         <div class="history-list">
           ${profile.history.length === 0 
             ? `<p class="empty-history-text">${t("emptyHistoryText")}</p>`
@@ -273,7 +253,6 @@ function renderProfile(profile) {
                   <div class="history-item-footer">
                     <span class="history-date">${formatDate(item.created_at)}</span>
                     <div class="history-actions">
-                      <button class="edit-history-btn" data-edit-review-token="${escapeAttr(item.event_token)}" data-score="${item.score || ""}" data-content="${escapeAttr(item.content || "")}">${t("editBtn")}</button>
                       <button class="delete-history-btn" data-delete-review-token="${escapeAttr(item.event_token)}">${t("deleteBtn")}</button>
                     </div>
                   </div>
@@ -282,8 +261,6 @@ function renderProfile(profile) {
           }
         </div>
       </div>
-
-      <button class="action logout-btn" id="logout-btn" type="button">${t("logoutBtn")}</button>
     </div>
   `;
 }

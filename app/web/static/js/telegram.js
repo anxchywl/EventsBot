@@ -94,11 +94,27 @@ export function configureBackButton(visible, onClick) {
   if (!tg?.BackButton) {
     return;
   }
-  tg.BackButton.offClick?.(onClick);
+  try {
+    // Always try to remove previous handler first
+    if (tg.BackButton.offClick) {
+      tg.BackButton.offClick();
+    }
+  } catch (e) {
+    // Silently ignore errors when removing handler
+  }
+  
   if (visible) {
-    tg.BackButton.show();
-    tg.BackButton.onClick(onClick);
+    try {
+      tg.BackButton.show();
+      tg.BackButton.onClick(onClick);
+    } catch (e) {
+      console.error("Error configuring back button:", e);
+    }
   } else {
-    tg.BackButton.hide();
+    try {
+      tg.BackButton.hide();
+    } catch (e) {
+      // Silently ignore errors when hiding
+    }
   }
 }

@@ -538,6 +538,13 @@ async def logout(
     miniapp_user: MiniAppUser = Depends(require_miniapp_user),
     session: AsyncSession = Depends(get_session),
 ) -> ActionResponse:
+    stmt = select(User).where(User.telegram_id == miniapp_user.id)
+    result = await session.execute(stmt)
+    user = result.scalar_one_or_none()
+    if user and user.is_verified:
+        # Unlink by setting telegram_id to negative value (since it is NOT NULL and UNIQUE)
+        user.telegram_id = -user.telegram_id
+        await session.commit()
     return ActionResponse(ok=True, message="Successfully logged out.")
 
 

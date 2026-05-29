@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#111111" />
     <title>Events</title>
-    <link rel="stylesheet" href="/static/styles.css?v=20260528-sanitize-spaces-v2" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260529-one-tab-v2" />
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
   </head>
   <body>
@@ -15,6 +15,12 @@
         <svg class="moon" viewBox="0 0 24 24"><path d="M21 12.8A8.5 8.5 0 1 1 11.2 3 6.5 6.5 0 0 0 21 12.8z"></path></svg>
       </button>
       <button class="lang-toggle" type="button" data-action="lang">EN</button>
+      <button class="profile-trigger-btn" id="ratings-profile-trigger" type="button" aria-label="Profile" style="width: 40px; height: 40px; border: 1px solid rgba(255, 255, 255, 0.24); border-radius: 12px; background: rgba(255, 255, 255, 0.16); color: #ffffff; backdrop-filter: blur(14px); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; transition: transform 0.2s ease, background 0.2s ease, border-color 0.2s ease;">
+        <svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+          <circle cx="12" cy="7" r="4"></circle>
+        </svg>
+      </button>
     </div>
     <div id="app">
       <div class="screen">
@@ -29,17 +35,6 @@
         </main>
       </div>
     </div>
-    <nav class="app-nav" aria-label="Mini app navigation">
-      <button class="nav-pill nav-circle active" type="button" data-route="events">
-        <svg class="nav-icon" viewBox="0 0 24 24" width="20" height="20"><path d="M19 4H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V10h14v10zm0-12H5V6h14v2z" fill="currentColor"/></svg>
-      </button>
-      <button class="nav-pill nav-circle" type="button" data-route="ratings">
-        <svg class="nav-icon" viewBox="0 0 24 24" width="20" height="20"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21 12 17.27z" fill="currentColor"/></svg>
-      </button>
-      <button class="nav-pill nav-circle" type="button" data-route="reminders">
-        <svg class="nav-icon" viewBox="0 0 24 24" width="20" height="20"><path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.89 2 2 2zm6-6v-5c0-3.07-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z" fill="currentColor"/></svg>
-      </button>
-    </nav>
-    <script src="/static/app.js?v=20260528-sanitize-spaces-v2" type="module"></script>
+    <script src="/static/app.js?v=20260529-one-tab-v2" type="module"></script>
   </body>
 </html>
