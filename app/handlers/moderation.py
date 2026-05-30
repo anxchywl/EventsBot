@@ -31,7 +31,7 @@ def get_moderation_keyboard(event_id: int):
     builder.button(text="✅ Approve", callback_data=f"mod_approve_{event_id}")
     builder.button(text="❌ Reject", callback_data=f"mod_reject_{event_id}")
     builder.button(text="📝 Needs Changes", callback_data=f"mod_changes_{event_id}")
-    builder.adjust(2)
+    builder.adjust(1)
     return builder.as_markup()
 
 
@@ -193,26 +193,49 @@ async def process_rejection_reason(
         await state.clear()
         return
 
-    await session.commit()
-    await message.answer(
-        f"❌ Event #{event_id} has been rejected with reason: {reason}"
-    )
+    is_update = event.parent_event_id is not None
+    parent = None
+    if is_update:
+        parent = await get_event_by_id(session, event.parent_event_id)
 
-    # notify creator
-    try:
-        await message.bot.send_message(
-            event.creator.telegram_id,
-            f"❌ **Your event '{event.title}' has been rejected.**\n\n**Reason:** {reason}",
-            parse_mode="Markdown",
+    if is_update and parent:
+        # Delete the draft event row so only the parent event remains APPROVED
+        await session.delete(event)
+        await session.commit()
+        await message.answer(
+            f"❌ Update request for Event #{parent.id} has been rejected with reason: {reason}"
         )
-    except Exception:
-        pass
+
+        # notify creator
+        try:
+            await message.bot.send_message(
+                parent.creator.telegram_id,
+                f"❌ **The update request for your event '{parent.title}' has been rejected.**\n\n**Reason:** {reason}",
+                parse_mode="Markdown",
+            )
+        except Exception:
+            pass
+    else:
+        await session.commit()
+        await message.answer(
+            f"❌ Event #{event_id} has been rejected with reason: {reason}"
+        )
+
+        # notify creator
+        try:
+            await message.bot.send_message(
+                event.creator.telegram_id,
+                f"❌ **Your event '{event.title}' has been rejected.**\n\n**Reason:** {reason}",
+                parse_mode="Markdown",
+            )
+        except Exception:
+            pass
 
     # if the event had detail messages in chats, those chats need a dashboard refresh
     try:
         from app.services.dashboard_bus import get_bus, get_chat_ids_for_event
 
-        chat_ids = await get_chat_ids_for_event(session, event_id)
+        chat_ids = await get_chat_ids_for_event(session, parent.id if (is_update and parent) else event_id)
         if chat_ids:
             get_bus().schedule_refresh(chat_ids)
     except Exception:

@@ -1,7 +1,7 @@
 import { addFavorite, createReminder, removeFavorite } from "../api.js";
-import { coverStyle, escapeAttr, escapeHtml, nav } from "../components/events.js?v=20260528-sanitize-spaces-v2";
-import { openReminderSheet } from "../components/sheets.js?v=20260528-sanitize-spaces-v2";
-import { t } from "../i18n.js?v=20260528-sanitize-spaces-v2";
+import { coverStyle, escapeAttr, escapeHtml, nav } from "../components/events.js?v=20260529-flicker-fix-v10";
+import { openReminderSheet } from "../components/sheets.js?v=20260529-flicker-fix-v10";
+import { t } from "../i18n.js?v=20260529-flicker-fix-v10";
 import { state } from "../state.js";
 import { haptic } from "../telegram.js";
 
@@ -261,11 +261,21 @@ export function attachCalendarInteractions() {
     observer.disconnect();
   });
 
-  const currentMonthSection = scrollContainer.querySelector('.month-section[data-month-offset="0"]');
-  if (currentMonthSection) {
+  scrollContainer.addEventListener("scroll", () => {
+    state.calendarState.scrollTop = scrollContainer.scrollTop;
+  }, { passive: true, signal });
+
+  if (typeof state.calendarState.scrollTop === "number") {
     requestAnimationFrame(() => {
-      scrollContainer.scrollTop = currentMonthSection.offsetTop;
+      scrollContainer.scrollTop = state.calendarState.scrollTop;
     });
+  } else {
+    const currentMonthSection = scrollContainer.querySelector('.month-section[data-month-offset="0"]');
+    if (currentMonthSection) {
+      requestAnimationFrame(() => {
+        scrollContainer.scrollTop = currentMonthSection.offsetTop;
+      });
+    }
   }
 }
 

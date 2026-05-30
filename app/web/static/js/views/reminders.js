@@ -1,5 +1,5 @@
-import { controls, coverStyle, escapeAttr, escapeHtml, nav } from "../components/events.js?v=20260528-sanitize-spaces-v2";
-import { t } from "../i18n.js?v=20260528-sanitize-spaces-v2";
+import { controls, coverStyle, escapeAttr, escapeHtml, nav } from "../components/events.js?v=20260529-flicker-fix-v10";
+import { t } from "../i18n.js?v=20260529-flicker-fix-v10";
 
 function formatReminderLeadTime(minutes) {
   const days = Math.floor(minutes / 1440);

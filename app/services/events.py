@@ -252,3 +252,62 @@ async def update_event_status(
     await session.flush()
     # re-fetch with all relationships needed by publisher loaded
     return await get_event_by_id(session, event.id)
+
+
+# removes the parent pending event and all its draft siblings when a new draft is submitted
+async def cleanup_previous_drafts(
+    session: AsyncSession, parent_event_id: int, new_draft_id: int
+) -> None:
+    """
+    used when the *original* event is still pending (never approved).
+    1. detaches the new draft from its parent (makes it stand-alone)
+    2. deletes the original pending event and all its other draft children
+    so only the latest draft remains as the main event.
+    """
+    # detach the new draft from the parent so it becomes independent
+    new_draft = await session.get(Event, new_draft_id)
+    if new_draft:
+        new_draft.parent_event_id = None
+
+    # delete the parent event (cascade will delete any other drafts)
+    parent = await session.get(Event, parent_event_id)
+    if parent:
+        session.delete(parent)
+
+    await session.flush()
+
+
+# deletes every other pending draft that shares the same parent as the new draft
+async def replace_pending_drafts_for_parent(
+    session: AsyncSession, parent_event_id: int, new_draft_id: int
+) -> None:
+    """
+    ensures only one pending draft exists per parent event at any time.
+
+    called whenever a user re-submits an update while a previous draft is
+    still awaiting moderation.  all stale pending drafts (same parent_event_id,
+    status == 'pending') are deleted, except the newly-created one.
+    """
+    from sqlalchemy import and_
+
+    result = await session.execute(
+        select(Event).where(
+            and_(
+                Event.parent_event_id == parent_event_id,
+                Event.status == EventStatus.PENDING.value,
+                Event.id != new_draft_id,
+            )
+        )
+    )
+    stale_drafts = result.scalars().all()
+    for draft in stale_drafts:
+        await session.delete(draft)
+
+    if stale_drafts:
+        await session.flush()
+        logger.info(
+            "deleted %d stale pending draft(s) for parent event %d (kept draft %d)",
+            len(stale_drafts),
+            parent_event_id,
+            new_draft_id,
+        )

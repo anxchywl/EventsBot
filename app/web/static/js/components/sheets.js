@@ -1,5 +1,5 @@
 import { escapeHtml } from "./events.js";
-import { formatReminderOffset, t, translateError } from "../i18n.js?v=20260527-no-event-filter-haptics";
+import { formatReminderOffset, t, translateError } from "../i18n.js?v=20260529-flicker-fix-v10";
 
 const MAX_REMINDERS = 3;
 

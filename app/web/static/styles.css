@@ -1053,9 +1053,9 @@ html.auth-focusing .app-nav {
 }
 
 .event-row.ended {
-  opacity: 0.62;
+  opacity: 0.62 !important;
   border-style: dashed;
-  filter: saturate(0.78);
+  filter: saturate(0.78) !important;
 }
 
 .event-row.ended .event-row-cover {
@@ -1063,8 +1063,8 @@ html.auth-focusing .app-nav {
 }
 
 .event-row.archived {
-  opacity: 0.5;
-  filter: saturate(0.6);
+  opacity: 0.5 !important;
+  filter: saturate(0.6) !important;
 }
 
 .event-row.archived .event-row-cover {
@@ -1173,7 +1173,7 @@ html.auth-focusing .app-nav {
 }
 
 .favorite-toggle.active span {
-  color: #ffd76f;
+  color: #ffd76f !important;
   transform: scale(1.18) rotate(8deg);
 }
 

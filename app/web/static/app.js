@@ -1,4 +1,4 @@
-import { boot } from "./js/router.js?v=20260529-fixes-v7";
+import { boot } from "./js/router.js?v=20260529-flicker-fix-v10";
 
 
 boot().catch((error) => {

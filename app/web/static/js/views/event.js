@@ -1,5 +1,5 @@
-import { controls, coverStyle, escapeAttr, escapeHtml, eventRow, status } from "../components/events.js?v=20260528-sanitize-spaces-v2";
-import { formatEventDate, t } from "../i18n.js?v=20260528-sanitize-spaces-v2";
+import { controls, coverStyle, escapeAttr, escapeHtml, eventRow, status } from "../components/events.js?v=20260529-flicker-fix-v10";
+import { formatEventDate, t } from "../i18n.js?v=20260529-flicker-fix-v10";
 import { state } from "../state.js";
 
 function meta(label, value, copyable = false) {
@@ -20,10 +20,10 @@ export function renderEvent(event) {
 
   return `
     <div class="screen event-screen ${event.is_archived ? "archived" : ""}" data-route="event" data-token="${escapeHtml(event.token)}" data-palette="${escapeHtml(event.palette_key)}">
+      <button class="favorite-toggle ${event.is_favorite ? "active" : ""}" type="button" data-action="favorite" aria-label="Favorite">
+        <span>★</span>
+      </button>
       <header class="cover ${event.cover_url ? "has-cover" : ""}" ${coverStyle(event.cover_url, `event-detail-${event.token || event.title}`)}>
-        <button class="favorite-toggle ${event.is_favorite ? "active" : ""}" type="button" data-action="favorite" aria-label="Favorite">
-          <span>★</span>
-        </button>
         <h1>${escapeHtml(event.title)}</h1>
       </header>
       <main class="content">
@@ -235,10 +235,10 @@ export function renderEventUnavailable() {
 export function renderEventSkeleton(token) {
   return `
     <div class="screen event-screen skeleton-screen" data-route="event" data-token="${escapeHtml(token)}">
+      <button class="favorite-toggle" type="button" disabled aria-label="Favorite">
+        <span>★</span>
+      </button>
       <header class="cover has-cover" ${coverStyle(null, `event-detail-${token}`)}>
-        <button class="favorite-toggle" type="button" disabled aria-label="Favorite">
-          <span>★</span>
-        </button>
         <h1><div class="line skeleton wide title-skeleton" style="margin: 0; display: inline-block;"></div></h1>
       </header>
       <main class="content">

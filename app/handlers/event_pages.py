@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from aiogram import Bot, F, Router
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, Message, MenuButtonWebApp, WebAppInfo
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,8 +19,9 @@ from app.services.events import (
     get_available_event_by_public_token,
 )
 from app.services.reminders import schedule_reminder
-from app.services.telegram_links import build_event_deep_link
+from app.services.telegram_links import build_event_deep_link, build_miniapp_event_url
 from app.services.users import upsert_user_from_telegram
+from app.config import get_settings
 
 router = Router(name="event_pages")
 
@@ -40,6 +41,25 @@ async def send_event_page_from_token(
     if not event:
         await message.answer(UNAVAILABLE_TEXT)
         return
+
+    # Set chat menu button to custom event page Mini App url
+    settings = get_settings()
+    miniapp_url = build_miniapp_event_url(
+        miniapp_base_url=settings.miniapp_base_url,
+        public_token=event.public_token,
+    )
+    if miniapp_url:
+        try:
+            await bot.set_chat_menu_button(
+                chat_id=message.chat.id,
+                menu_button=MenuButtonWebApp(
+                    text="Open Event",
+                    web_app=WebAppInfo(url=miniapp_url)
+                )
+            )
+        except Exception as e:
+            import logging
+            logging.error(f"Failed to set custom chat menu button: {e}")
 
     await record_event_action(
         session,

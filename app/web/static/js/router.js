@@ -25,17 +25,17 @@ import {
   forgotPasswordVerify,
   forgotPasswordReset,
 } from "./api.js";
-import { loadingScreen, resetFallbackCoverStyles, startCountdowns } from "./components/events.js?v=20260528-sanitize-spaces-v2";
-import { closeFilterSheet, openFilterSheet } from "./components/filterSheet.js?v=20260528-sanitize-spaces-v2";
-import { closeSheet, openReminderSheet } from "./components/sheets.js?v=20260528-sanitize-spaces-v2";
-import { t, translateError } from "./i18n.js?v=20260528-sanitize-spaces-v2";
+import { loadingScreen, resetFallbackCoverStyles, startCountdowns } from "./components/events.js?v=20260529-flicker-fix-v10";
+import { closeFilterSheet, openFilterSheet } from "./components/filterSheet.js?v=20260529-flicker-fix-v10";
+import { closeSheet, openReminderSheet } from "./components/sheets.js?v=20260529-flicker-fix-v10";
+import { t, translateError } from "./i18n.js?v=20260529-flicker-fix-v10";
 import { currentTheme, nextLang, normalizeEventFilters, rememberScroll, restoreScroll, setEventFilters, setLang, setTheme, state, toggleTheme } from "./state.js";
 import { configureBackButton, haptic, initTelegram, openLink, openTelegramLink, startParam, tg } from "./telegram.js";
-import { renderEvent, renderEventUnavailable, renderEventSkeleton } from "./views/event.js?v=20260528-register-attendees";
-import { renderEventResults, renderFilterBar, renderMenu, renderPlaceholder } from "./views/menu.js?v=20260528-gold-glow";
-import { renderReminders } from "./views/reminders.js?v=20260528-gold-glow";
-import { renderCalendarInner, attachCalendarInteractions, refreshCalendarMonthPanels } from "./views/calendar.js?v=20260528-calendar-restore";
-import { renderAuthSection, renderRatingsTab, renderForgotPasswordCard } from "./views/ratings.js?v=20260529-fixes-v7";
+import { renderEvent, renderEventUnavailable, renderEventSkeleton } from "./views/event.js?v=20260529-flicker-fix-v10";
+import { renderEventResults, renderFilterBar, renderMenu, renderPlaceholder } from "./views/menu.js?v=20260529-flicker-fix-v10";
+import { renderReminders } from "./views/reminders.js?v=20260529-flicker-fix-v10";
+import { renderCalendarInner, attachCalendarInteractions, refreshCalendarMonthPanels } from "./views/calendar.js?v=20260529-flicker-fix-v10";
+import { renderAuthSection, renderRatingsTab, renderForgotPasswordCard } from "./views/ratings.js?v=20260529-flicker-fix-v10";
 
 
 const app = document.getElementById("app");
@@ -1582,7 +1582,27 @@ function initRatingsHandlers() {
         deleteReview(token)
           .then(async () => {
             haptic("success");
-            await navigate("ratings", { replaceHash: false, quiet: true });
+            if (state.cachedRatingsProfile && state.cachedRatingsProfile.history) {
+              state.cachedRatingsProfile.history = state.cachedRatingsProfile.history.filter(
+                (item) => item.event_token !== token
+              );
+              if (document.querySelector(".auth-sheet-backdrop")) {
+                updateAuthSectionDOM({ skipTransition: true });
+              }
+            } else {
+              state.cachedRatingsProfile = null;
+            }
+            if (state.user && state.user.is_verified) {
+              fetchProfile().then((p) => { 
+                state.cachedRatingsProfile = p; 
+                if (document.querySelector(".auth-sheet-backdrop")) {
+                  updateAuthSectionDOM({ skipTransition: true });
+                }
+              }).catch(() => null);
+            }
+            if (!document.querySelector(".auth-sheet-backdrop")) {
+              await navigate("ratings", { replaceHash: false, quiet: true });
+            }
           })
           .catch(() => {
             haptic("error");
@@ -2017,6 +2037,10 @@ function initEventReviewsHandlers() {
       haptic("success");
       const modal = app.querySelector("#review-submission-modal");
       if (modal) modal.classList.remove("is-open");
+      state.cachedRatingsProfile = null;
+      if (state.user && state.user.is_verified) {
+        fetchProfile().then((p) => { state.cachedRatingsProfile = p; }).catch(() => null);
+      }
       state.currentEvent = await fetchEvent(eventToken);
       app.innerHTML = renderEvent(state.currentEvent);
       initEventReviewsHandlers();
@@ -2041,6 +2065,10 @@ function initEventReviewsHandlers() {
         deleteReview(eventToken)
           .then(async () => {
             haptic("success");
+            state.cachedRatingsProfile = null;
+            if (state.user && state.user.is_verified) {
+              fetchProfile().then((p) => { state.cachedRatingsProfile = p; }).catch(() => null);
+            }
             state.currentEvent = await fetchEvent(eventToken);
             app.innerHTML = renderEvent(state.currentEvent);
             initEventReviewsHandlers();

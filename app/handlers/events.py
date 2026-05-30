@@ -42,7 +42,7 @@ async def process_remind_options(callback: CallbackQuery):
     builder.button(text="1 Day Before", callback_data=f"remind_set_day_{event_id}")
     builder.button(text="1 Hour Before", callback_data=f"remind_set_hour_{event_id}")
     builder.button(text="Cancel", callback_data="remind_cancel")
-    builder.adjust(2, 1)
+    builder.adjust(1)
 
     await callback.message.edit_reply_markup(reply_markup=builder.as_markup())
     await callback.answer()

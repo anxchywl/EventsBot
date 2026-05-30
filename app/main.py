@@ -4,6 +4,7 @@ import logging
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
+from aiogram.exceptions import TelegramConflictError
 
 from app.config import get_settings
 from app.db import async_session_maker
@@ -106,10 +107,10 @@ async def main() -> None:
     dispatcher.include_router(events_router)
     dispatcher.include_router(moderation_router)
     dispatcher.include_router(start_router)
-    dispatcher.include_router(user_events_router)
-    dispatcher.include_router(event_edit_router)
-    dispatcher.include_router(event_pages_router)
     dispatcher.include_router(admin_panel_router)
+    dispatcher.include_router(event_edit_router)
+    dispatcher.include_router(user_events_router)
+    dispatcher.include_router(event_pages_router)
     dispatcher.include_router(categories_router)
 
     reminder_task = None
@@ -125,6 +126,11 @@ async def main() -> None:
         )
 
         await dispatcher.start_polling(bot)
+    except TelegramConflictError as exc:
+        logging.getLogger(__name__).error(
+            "Telegram polling conflict detected: %s. Ensure only one bot instance is running.",
+            exc,
+        )
     finally:
         bus.stop()
         if reminder_task:

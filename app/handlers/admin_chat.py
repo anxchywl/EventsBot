@@ -140,6 +140,6 @@ async def can_manage_chat(message: Message, bot: Bot) -> bool:
 
     # deny all others and notify
     await message.answer(
-        "⚠️ Only chat admins or bot administrators can use this command."
+        "Only chat admins or bot administrators can use this command."
     )
     return False

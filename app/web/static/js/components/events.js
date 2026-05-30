@@ -1,5 +1,5 @@
 import { state } from "../state.js";
-import { categoryLabel, t } from "../i18n.js?v=20260527-no-event-filter-haptics";
+import { categoryLabel, t } from "../i18n.js?v=20260529-flicker-fix-v10";
 
 // Guarantee fallbackCoverStyles map is shared absolutely via window to avoid potential duplicate ES module instances.
 if (!window.fallbackCoverStyles) {
