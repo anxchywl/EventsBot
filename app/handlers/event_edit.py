@@ -1,16 +1,18 @@
 from aiogram import F, Router
 import html
+import re
 
 from aiogram.filters import StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
 from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from urllib.parse import urlparse
 
 from app.config import get_settings
+from app.handlers.message_cleanup import delete_messages_fast
 from app.models.enums import EventStatus, ModerationAction
 from app.models.event import Event
 from app.models.moderation import ModerationLog
@@ -18,6 +20,36 @@ from app.services.events import get_event_by_id, cleanup_previous_drafts, replac
 from app.services.users import upsert_user_from_telegram
 
 router = Router(name="event_edit")
+
+EDIT_DATE_PROMPT = "Event date (DD MM YYYY)"
+EDIT_TIME_PROMPT = "Start time (HH MM)"
+_EDIT_DATE_RE = re.compile(r"^(\d{2}) (\d{2}) (\d{4})$")
+_EDIT_TIME_RE = re.compile(r"^(\d{2}) (\d{2})$")
+
+
+def _parse_edit_date(value: str):
+    from datetime import datetime
+
+    match = _EDIT_DATE_RE.fullmatch(value.strip())
+    if not match:
+        return None
+    day, month, year = map(int, match.groups())
+    try:
+        return datetime(year, month, day).date()
+    except ValueError:
+        return None
+
+
+def _parse_edit_time(value: str):
+    from datetime import datetime
+
+    match = _EDIT_TIME_RE.fullmatch(value.strip())
+    if not match:
+        return None
+    hour, minute = map(int, match.groups())
+    if hour > 23 or minute > 59:
+        return None
+    return datetime(2000, 1, 1, hour, minute).time()
 
 
 # tracks states for editing an existing event
@@ -183,7 +215,13 @@ async def show_edit_menu(
 # routes the selected field to its edit state via callback or reply keyboard
 @router.callback_query(EventEdit.choosing_field, F.data.startswith("edit_field_"))
 async def process_edit_field_choice(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
-    await _process_edit_field_choice(callback.data.split("_")[2], callback.message, state, session)
+    await _process_edit_field_choice(
+        callback.data.split("_")[2],
+        callback.message,
+        state,
+        session,
+        replace_menu_message=True,
+    )
     await callback.answer()
 
 
@@ -230,7 +268,14 @@ async def invalid_choosing_field_edit(message: Message, state: FSMContext):
     await _record_temp_edit_message(state, sent)
 
 
-async def _process_edit_field_choice(field: str, message: Message, state: FSMContext, session: AsyncSession):
+async def _process_edit_field_choice(
+    field: str,
+    message: Message,
+    state: FSMContext,
+    session: AsyncSession,
+    *,
+    replace_menu_message: bool = False,
+):
     states_map = {
         "title": EventEdit.editing_title,
         "description": EventEdit.editing_description,
@@ -257,28 +302,43 @@ async def _process_edit_field_choice(field: str, message: Message, state: FSMCon
                 builder.button(text=cat.name)
             builder.button(text="Back to Event")
             builder.adjust(1)
-            
-            sent = await message.answer(
-                "Please choose a new category for the event:",
-                reply_markup=builder.as_markup(resize_keyboard=True),
-            )
-            await _record_edit_message(state, sent)
+
+            prompt = "Please choose a new category for the event:"
+            if replace_menu_message:
+                await delete_messages_fast(message.bot, message.chat.id, [message.message_id])
+                sent = await message.answer(
+                    prompt,
+                    reply_markup=builder.as_markup(resize_keyboard=True),
+                )
+                await _record_edit_message(state, sent)
+            else:
+                sent = await message.answer(
+                    prompt,
+                    reply_markup=builder.as_markup(resize_keyboard=True),
+                )
+                await _record_edit_message(state, sent)
             return
 
         prompt = f"Please send the new {field.replace('_', ' ')}:"
         if field == "date":
-            prompt = (
-                "Please send the new date in **DD.MM.YYYY** format or **DD MM YYYY** format (e.g., 31.12.2023):"
-            )
+            prompt = EDIT_DATE_PROMPT
         elif field == "time":
-            prompt = "Please send the new time in **HH:MM** format or **HH MM** format (e.g., 18:30):"
+            prompt = EDIT_TIME_PROMPT
         elif field == "registration_link":
             prompt = (
                 "Please send the new registration link in full URL form (https://...)."
             )
 
-        sent = await message.answer(prompt, parse_mode="Markdown")
-        await _record_edit_message(state, sent)
+        if replace_menu_message:
+            await message.edit_text(prompt, reply_markup=None, parse_mode="Markdown")
+            await _record_edit_message(state, message)
+        else:
+            sent = await message.answer(
+                prompt,
+                parse_mode="Markdown",
+                reply_markup=ReplyKeyboardRemove(),
+            )
+            await _record_edit_message(state, sent)
     else:
         sent = await message.answer("Not implemented yet.")
         await _record_edit_message(state, sent)
@@ -314,45 +374,39 @@ async def process_text_edit(message: Message, state: FSMContext):
 
     # validate date and time fields before saving them
     if field == "date":
-        raw_text = message.text.strip()
-        clean_text = raw_text.replace(" ", ".")
-        try:
-            val = datetime.strptime(clean_text, "%d.%m.%Y").date()
-            if val < now.date():
-                await _record_temp_edit_message(state, message)
-                sent = await message.answer("Date cannot be in the past.")
-                await _record_temp_edit_message(state, sent)
-                return
-            if val > now.date() + timedelta(days=365):
-                await _record_temp_edit_message(state, message)
-                sent = await message.answer("Date cannot be more than 1 year in the future.")
-                await _record_temp_edit_message(state, sent)
-                return
-            await state.update_data(event_date=val.isoformat())
-        except ValueError:
+        val = _parse_edit_date(message.text)
+        if val is None:
             await _record_temp_edit_message(state, message)
-            sent = await message.answer("Please use DD.MM.YYYY or DD MM YYYY format (e.g., 31.12.2023 or 31 12 2023).")
+            sent = await message.answer("Invalid date. Use DD MM YYYY, for example 22 11 2026.")
             await _record_temp_edit_message(state, sent)
             return
+        if val < now.date():
+            await _record_temp_edit_message(state, message)
+            sent = await message.answer("Date cannot be in the past. Use DD MM YYYY.")
+            await _record_temp_edit_message(state, sent)
+            return
+        if val > now.date() + timedelta(days=365):
+            await _record_temp_edit_message(state, message)
+            sent = await message.answer("Date cannot be more than 1 year in the future.")
+            await _record_temp_edit_message(state, sent)
+            return
+        await state.update_data(event_date=val.isoformat())
         field = "event_date"
     elif field == "time":
-        raw_text = message.text.strip()
-        clean_text = raw_text.replace(" ", ":")
-        try:
-            val = datetime.strptime(clean_text, "%H:%M").time()
-            data = await state.get_data()
-            event_date = datetime.strptime(data["event_date"], "%Y-%m-%d").date()
-            if event_date == now.date() and val < now.time():
-                await _record_temp_edit_message(state, message)
-                sent = await message.answer("Time cannot be in the past for today.")
-                await _record_temp_edit_message(state, sent)
-                return
-            await state.update_data(event_time=val.strftime("%H:%M"))
-        except ValueError:
+        val = _parse_edit_time(message.text)
+        if val is None:
             await _record_temp_edit_message(state, message)
-            sent = await message.answer("Please use HH:MM or HH MM format (e.g., 18:30 or 18 30).")
+            sent = await message.answer("Invalid time. Use HH MM, for example 18 30.")
             await _record_temp_edit_message(state, sent)
             return
+        data = await state.get_data()
+        event_date = datetime.strptime(data["event_date"], "%Y-%m-%d").date()
+        if event_date == now.date() and val < now.time():
+            await _record_temp_edit_message(state, message)
+            sent = await message.answer("Time cannot be in the past for today.")
+            await _record_temp_edit_message(state, sent)
+            return
+        await state.update_data(event_time=val.strftime("%H:%M"))
         field = "event_time"
 
     # validate plain text fields before saving them
@@ -543,11 +597,7 @@ async def _delete_temp_edit_messages(state: FSMContext, bot, chat_id: int) -> No
     temp_ids = data.get("edit_temp_message_ids") or []
     if not temp_ids:
         return
-    for message_id in temp_ids:
-        try:
-            await bot.delete_message(chat_id=chat_id, message_id=message_id)
-        except Exception:
-            pass
+    await delete_messages_fast(bot, chat_id, temp_ids)
     await state.update_data(edit_temp_message_ids=[])
 
 
@@ -556,11 +606,7 @@ async def _delete_edit_messages(state: FSMContext, bot, chat_id: int) -> None:
     message_ids = data.get("edit_bot_message_ids") or []
     if not message_ids:
         return
-    for message_id in message_ids:
-        try:
-            await bot.delete_message(chat_id=chat_id, message_id=message_id)
-        except Exception:
-            pass
+    await delete_messages_fast(bot, chat_id, message_ids)
     await state.update_data(edit_bot_message_ids=[])
 
 
@@ -595,32 +641,14 @@ async def _back_to_event_from_message(
         await message.answer("Event not found.")
         return
 
-    # Delete the user's "Back to Event" reply command message
-    try:
-        await message.delete()
-    except Exception:
-        pass
-
-    # 1. Delete the first sent event details card message
-    card_msg_id = data.get("manage_event_msg_id")
-    if card_msg_id:
-        try:
-            await message.bot.delete_message(chat_id=message.chat.id, message_id=card_msg_id)
-        except Exception:
-            pass
-
-    admin_card_msg_id = data.get("admin_panel_msg_id")
-    if admin_card_msg_id:
-        try:
-            await message.bot.delete_message(chat_id=message.chat.id, message_id=admin_card_msg_id)
-        except Exception:
-            pass
-
-    # 2. Delete the edit menus and intermediate prompts/inputs
-    await _delete_temp_edit_messages(state, message.bot, message.chat.id)
-    await _delete_edit_messages(state, message.bot, message.chat.id)
-    
     await state.set_state(None)
+    delete_ids = [
+        message.message_id,
+        data.get("manage_event_msg_id"),
+        data.get("admin_panel_msg_id"),
+        *(data.get("edit_temp_message_ids") or []),
+        *(data.get("edit_bot_message_ids") or []),
+    ]
     keys_to_remove = [
         "original_event_id", "category_id", "category_name", "title",
         "description", "event_date", "event_time", "location",
@@ -632,40 +660,17 @@ async def _back_to_event_from_message(
         data.pop(key, None)
     data["manage_event_id"] = event_id
     await state.set_data(data)
-    
-    # 3. Resend the event page fresh so that panels pop open
+
+    await delete_messages_fast(message.bot, message.chat.id, delete_ids, batch_size=20)
+
+    # Resend the event page fresh so that the event-management keyboard is restored.
     if data.get("is_admin_edit"):
         from app.handlers.admin_panel import _show_admin_manage_event
         await _show_admin_manage_event(message, session, state, event_id, is_callback=False)
     else:
         from app.handlers.user_events import send_manage_event_message
-        await send_manage_event_message(message, event, state=state)
+        await send_manage_event_message(message, event, state=state, cleanup_previous=False)
 
-
-
-async def notify_moderators(bot, draft: Event, original_event_id: int, user):
-    settings = get_settings()
-    if settings.moderator_chat_id:
-        from app.handlers.moderation import get_moderation_keyboard
-
-        text = (
-            f"Event Update Request #{draft.id}\n\n"
-            f"User: {user.first_name} (@{user.username or 'none'})\n"
-            f"Original Event: #{original_event_id}\n\n"
-            f"New Title: {draft.title}\n"
-            f"New Date: {draft.event_date} {draft.event_time}\n"
-            f"New Description:\n{draft.description[:200]}..."
-        )
-        try:
-            await bot.send_message(
-                chat_id=settings.moderator_chat_id,
-                text=text,
-                reply_markup=get_moderation_keyboard(draft.id),
-                parse_mode="Markdown",
-            )
-        except Exception as e:
-            import logging
-            logging.error(f"Failed to notify moderators: {e}")
 
 
 async def _perform_submit_edit(
@@ -760,7 +765,6 @@ async def _perform_submit_edit(
     await message.answer("Update submitted for moderation.")
     from app.handlers.start import send_main_menu
     await send_main_menu(message, session)
-    await notify_moderators(message.bot, draft, original_event_id, user)
 
 
 # submits an edit draft for moderation
@@ -863,6 +867,3 @@ async def submit_edit(
     await callback.answer()
     from app.handlers.start import send_main_menu
     await send_main_menu(callback.message, session)
-
-    # notify moderators
-    await notify_moderators(callback.bot, draft, original_event_id, user)

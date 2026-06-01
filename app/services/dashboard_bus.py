@@ -107,6 +107,10 @@ class DashboardBus:
         from app.models.chat import Chat
         from app.services.chats import delete_chat_by_id
         from app.services.dashboard import create_or_update_dashboard_message
+        from app.services.telegram_delivery import (
+            is_bot_removed_error,
+            pause_between_telegram_deliveries,
+        )
         from sqlalchemy import select
 
         for chat_id in chat_ids:
@@ -133,7 +137,7 @@ class DashboardBus:
                         await session.commit()
                     except Exception as exc:
                         await session.rollback()
-                        if isinstance(exc, TelegramForbiddenError):
+                        if isinstance(exc, TelegramForbiddenError) or is_bot_removed_error(exc):
                             await delete_chat_by_id(session, chat_id)
                             await session.commit()
                             logger.warning(
@@ -148,6 +152,7 @@ class DashboardBus:
                             telegram_chat_id,
                             exc,
                         )
+                    await pause_between_telegram_deliveries()
             except Exception as exc:
                 logger.exception(
                     "dashboard_bus refresh session error for chat %s: %s",
@@ -194,8 +199,15 @@ async def get_all_active_dashboard_chat_ids(session: "AsyncSession") -> set[int]
     returns internal db chat ids of all chats that have a dashboard message.
     used by the periodic sweep to keep every dashboard up to date.
     """
-    from app.models.chat import DashboardMessage
+    from app.models.chat import Chat
     from sqlalchemy import select
 
-    result = await session.execute(select(DashboardMessage.chat_id))
+    result = await session.execute(
+        select(Chat.id)
+        .where(
+            Chat.chat_type != "private",
+            Chat.is_active.is_(True),
+            Chat.categories_selected.is_(True),
+        )
+    )
     return set(result.scalars().all())

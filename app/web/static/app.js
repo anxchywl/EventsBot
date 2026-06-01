@@ -1,4 +1,4 @@
-import { boot } from "./js/router.js?v=20260529-flicker-fix-v10";
+import { boot } from "./js/router.js?v=20260601-event-card-align-v6";
 
 
 boot().catch((error) => {

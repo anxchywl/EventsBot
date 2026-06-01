@@ -42,10 +42,27 @@ class EventCardsTest(unittest.TestCase):
             include_date=False,
         )
 
-        self.assertIn("15:30", line)
+        self.assertIn("<i>15:30</i> -", line)
         self.assertIn("Hackathon", line)
         self.assertIn("https://t.me/events_bot/events?startapp=event_", line)
         self.assertNotIn("Description", line)
+
+    def test_dashboard_line_italicizes_date_and_time_when_included(self):
+        event = SimpleNamespace(
+            title="Hackathon",
+            event_date=date(2026, 12, 31),
+            event_time=time(18, 30),
+            location="Main Hall",
+            public_token="123e4567-e89b-12d3-a456-426614174000",
+        )
+
+        line = render_dashboard_event_line(
+            event,
+            bot_username="events_bot",
+            include_date=True,
+        )
+
+        self.assertIn("<i>Dec 31 18:30</i> -", line)
 
 
 if __name__ == "__main__":

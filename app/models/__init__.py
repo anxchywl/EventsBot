@@ -10,9 +10,12 @@ from app.models.rating import Rating
 from app.models.comment import Comment
 from app.models.code import EmailVerificationCode
 from app.models.password_reset import PasswordResetCode
+from app.models.audit import AuditLog, UserActivityLog
 
 # exports models for imports and migrations
 __all__ = (
+    "AuditLog",
+    "UserActivityLog",
     "Chat",
     "ChatCategorySetting",
     "Club",

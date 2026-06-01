@@ -40,6 +40,8 @@ class ReviewDetail(BaseModel):
     score: int | None = None
     created_at: str
     is_own: bool = False
+    can_delete: bool = False
+    user_id: int | None = None
 
 
 class EventDetail(BaseModel):
@@ -164,4 +166,6 @@ class ProfileResponse(BaseModel):
     email: str
     nickname: str
     is_verified: bool
+    is_blocked: bool = False
+    blocked_reason: str | None = None
     history: list[ProfileHistoryItem] = Field(default_factory=list)

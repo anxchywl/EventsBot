@@ -14,6 +14,7 @@ from app.services.reminders import (
     schedule_reminder_offset,
 )
 from app.web.auth import MiniAppUser, require_miniapp_user, upsert_miniapp_user
+from app.web.routers.events import event_cache
 from app.web.schemas import ActionResponse, ReminderGroup, ReminderItem, ReminderRequest
 from app.web.serializers import event_list_item
 
@@ -56,6 +57,7 @@ async def create_reminder(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
 
     await session.commit()
+    event_cache.clear()
     return ActionResponse(message="Reminder set.")
 
 
@@ -69,8 +71,10 @@ async def delete_reminder(
     event_id = await cancel_reminder(session, user, reminder_id)
     if event_id is None:
         await session.commit()
+        event_cache.clear()
         return ActionResponse(message="Reminder removed.")
     await session.commit()
+    event_cache.clear()
     return ActionResponse(message="Reminder removed.")
 
 

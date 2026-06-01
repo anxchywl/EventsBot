@@ -1,5 +1,5 @@
-import { controls, coverStyle, escapeAttr, escapeHtml, eventRow, nav, status } from "../components/events.js?v=20260529-flicker-fix-v10";
-import { t } from "../i18n.js?v=20260529-flicker-fix-v10";
+import { controls, coverStyle, escapeAttr, escapeHtml, eventRow, nav, status } from "../components/events.js?v=20260601-fallback-gradient-v7";
+import { t } from "../i18n.js?v=20260601-fallback-gradient-v7";
 import { state } from "../state.js";
 
 export function formatGroupDate(dateStr, lang) {

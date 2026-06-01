@@ -1,5 +1,5 @@
 import { escapeHtml } from "./events.js";
-import { formatReminderOffset, t, translateError } from "../i18n.js?v=20260529-flicker-fix-v10";
+import { formatReminderOffset, t, translateError } from "../i18n.js?v=20260601-fallback-gradient-v7";
 
 const MAX_REMINDERS = 3;
 

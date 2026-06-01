@@ -28,9 +28,9 @@ class ModerationState(StatesGroup):
 # builds moderation action buttons
 def get_moderation_keyboard(event_id: int):
     builder = InlineKeyboardBuilder()
-    builder.button(text="✅ Approve", callback_data=f"mod_approve_{event_id}")
-    builder.button(text="❌ Reject", callback_data=f"mod_reject_{event_id}")
-    builder.button(text="📝 Needs Changes", callback_data=f"mod_changes_{event_id}")
+    builder.button(text="Approve", callback_data=f"mod_approve_{event_id}")
+    builder.button(text="Reject", callback_data=f"mod_reject_{event_id}")
+    builder.button(text="Needs Changes", callback_data=f"mod_changes_{event_id}")
     builder.adjust(1)
     return builder.as_markup()
 
@@ -58,12 +58,14 @@ async def cmd_moderate(message: Message, session: AsyncSession):
         safe_location = html.escape(event.location)
         safe_desc = html.escape(event.description)
 
+        date_str = event.event_date.strftime("%d.%m.%Y")
+        time_str = event.event_time.strftime("%H:%M")
         text = (
             f"🔔 <b>Pending Event #{event.id}</b>\n\n"
             f"<b>Title:</b> {safe_title}\n"
             f"<b>User:</b> {safe_name} (@{safe_username})\n"
             f"<b>Category:</b> {event.category.name}\n"
-            f"<b>Date:</b> {event.event_date} at {event.event_time}\n"
+            f"<b>Date:</b> {date_str} at {time_str}\n"
             f"<b>Location:</b> {safe_location}\n\n"
             f"<b>Description:</b>\n{safe_desc}"
         )
@@ -153,13 +155,25 @@ async def process_approve(callback: CallbackQuery, session: AsyncSession, bot: B
     await callback.answer("Approved and published.")
 
 
+def _get_moderation_reason_keyboard():
+    from aiogram.utils.keyboard import ReplyKeyboardBuilder
+    builder = ReplyKeyboardBuilder()
+    builder.button(text="Back")
+    builder.button(text="Back to Menu")
+    builder.adjust(2)
+    return builder.as_markup(resize_keyboard=True)
+
+
 # asks for a rejection reason
 @router.callback_query(F.data.startswith("mod_reject_"))
 async def process_reject_button(callback: CallbackQuery, state: FSMContext):
     event_id = int(callback.data.split("_")[2])
     await state.update_data(mod_event_id=event_id)
     await state.set_state(ModerationState.waiting_for_rejection_reason)
-    await callback.message.answer("Please send the **reason for rejection**:")
+    await callback.message.answer(
+        "Please send the **reason for rejection**:",
+        reply_markup=_get_moderation_reason_keyboard(),
+    )
     await callback.answer()
 
 
@@ -169,8 +183,30 @@ async def process_changes_button(callback: CallbackQuery, state: FSMContext):
     event_id = int(callback.data.split("_")[2])
     await state.update_data(mod_event_id=event_id)
     await state.set_state(ModerationState.waiting_for_changes_reason)
-    await callback.message.answer("Please explain what **changes are needed**:")
+    await callback.message.answer(
+        "Please explain what **changes are needed**:",
+        reply_markup=_get_moderation_reason_keyboard(),
+    )
     await callback.answer()
+
+
+# handles back navigation from rejection reason prompt
+@router.message(ModerationState.waiting_for_rejection_reason, F.text.in_({"Back", "Back to Menu"}))
+async def handle_reject_back(message: Message, state: FSMContext, session: AsyncSession):
+    from aiogram.types import ReplyKeyboardRemove
+    data = await state.get_data()
+    event_id = data.get("mod_event_id")
+    if event_id:
+        event = await session.get(Event, event_id)
+        if event:
+            await state.clear()
+            await message.answer(
+                "Rejection cancelled.",
+                reply_markup=get_moderation_keyboard(event.id),
+            )
+            return
+    await state.clear()
+    await message.answer("Cancelled.")
 
 
 # records a rejection reason
@@ -242,6 +278,25 @@ async def process_rejection_reason(
         pass
 
     await state.clear()
+
+
+# handles back navigation from changes reason prompt
+@router.message(ModerationState.waiting_for_changes_reason, F.text.in_({"Back", "Back to Menu"}))
+async def handle_changes_back(message: Message, state: FSMContext, session: AsyncSession):
+    from aiogram.types import ReplyKeyboardRemove
+    data = await state.get_data()
+    event_id = data.get("mod_event_id")
+    if event_id:
+        event = await session.get(Event, event_id)
+        if event:
+            await state.clear()
+            await message.answer(
+                "Changes request cancelled.",
+                reply_markup=get_moderation_keyboard(event.id),
+            )
+            return
+    await state.clear()
+    await message.answer("Cancelled.")
 
 
 # records a changes-request reason

@@ -19,26 +19,149 @@ import {
   logout,
   submitReview,
   deleteReview,
+  adminDeleteReview,
   fetchReviews,
   request,
   forgotPasswordRequest,
   forgotPasswordVerify,
   forgotPasswordReset,
 } from "./api.js";
-import { loadingScreen, resetFallbackCoverStyles, startCountdowns } from "./components/events.js?v=20260529-flicker-fix-v10";
-import { closeFilterSheet, openFilterSheet } from "./components/filterSheet.js?v=20260529-flicker-fix-v10";
-import { closeSheet, openReminderSheet } from "./components/sheets.js?v=20260529-flicker-fix-v10";
-import { t, translateError } from "./i18n.js?v=20260529-flicker-fix-v10";
+import { loadingScreen, resetFallbackCoverStyles, startCountdowns } from "./components/events.js?v=20260601-fallback-gradient-v7";
+import { closeFilterSheet, openFilterSheet } from "./components/filterSheet.js?v=20260601-fallback-gradient-v7";
+import { fetchAdminStats, fetchAdminUsers, renderAdminPanel, renderAdminUsersList, blockUser, unblockUser } from "./views/admin.js?v=20260601-fallback-gradient-v7";
+import { closeSheet, openReminderSheet } from "./components/sheets.js?v=20260601-fallback-gradient-v7";
+import { t, translateError } from "./i18n.js?v=20260601-fallback-gradient-v7";
 import { currentTheme, nextLang, normalizeEventFilters, rememberScroll, restoreScroll, setEventFilters, setLang, setTheme, state, toggleTheme } from "./state.js";
 import { configureBackButton, haptic, initTelegram, openLink, openTelegramLink, startParam, tg } from "./telegram.js";
-import { renderEvent, renderEventUnavailable, renderEventSkeleton } from "./views/event.js?v=20260529-flicker-fix-v10";
-import { renderEventResults, renderFilterBar, renderMenu, renderPlaceholder } from "./views/menu.js?v=20260529-flicker-fix-v10";
-import { renderReminders } from "./views/reminders.js?v=20260529-flicker-fix-v10";
-import { renderCalendarInner, attachCalendarInteractions, refreshCalendarMonthPanels } from "./views/calendar.js?v=20260529-flicker-fix-v10";
-import { renderAuthSection, renderRatingsTab, renderForgotPasswordCard } from "./views/ratings.js?v=20260529-flicker-fix-v10";
+import { renderEvent, renderEventUnavailable, renderEventSkeleton } from "./views/event.js?v=20260601-fallback-gradient-v7";
+import { renderEventResults, renderFilterBar, renderMenu, renderPlaceholder } from "./views/menu.js?v=20260601-fallback-gradient-v7";
+import { renderReminders } from "./views/reminders.js?v=20260601-fallback-gradient-v7";
+import { renderCalendarInner, attachCalendarInteractions, refreshCalendarMonthPanels } from "./views/calendar.js?v=20260601-fallback-gradient-v7";
+import { renderAuthSection, renderRatingsTab, renderForgotPasswordCard } from "./views/ratings.js?v=20260601-fallback-gradient-v7";
 
 
 const app = document.getElementById("app");
+
+function closeAdminDialog() {
+  const existing = document.getElementById("admin-action-modal");
+  if (existing) {
+    existing.remove();
+  }
+  if (!document.querySelector(".sheet-backdrop:not(.admin-sheet-backdrop)")) {
+    document.documentElement.classList.remove("sheet-open");
+  }
+}
+
+function createAdminDialog({ title, description, textarea = false, placeholder = "", confirmText = "Confirm", cancelText = "Cancel" }) {
+  closeAdminDialog();
+  document.documentElement.classList.add("sheet-open");
+  return new Promise((resolve) => {
+    const backdrop = document.createElement("div");
+    backdrop.className = "sheet-backdrop auth-sheet-backdrop admin-sheet-backdrop open";
+    backdrop.id = "admin-action-modal";
+
+    const card = document.createElement("div");
+    card.className = "bottom-sheet auth-bottom-sheet";
+
+    const handle = document.createElement("div");
+    handle.className = "sheet-handle";
+    card.appendChild(handle);
+
+    const header = document.createElement("div");
+    header.className = "sheet-header";
+    const titleEl = document.createElement("h2");
+    titleEl.textContent = title;
+    header.appendChild(titleEl);
+    card.appendChild(header);
+
+    const descriptionEl = document.createElement("p");
+    descriptionEl.textContent = description;
+    descriptionEl.style.margin = "0 0 16px 0";
+    descriptionEl.style.padding = "0 16px";
+    descriptionEl.style.fontSize = "0.95rem";
+    descriptionEl.style.color = "var(--text-secondary)";
+    card.appendChild(descriptionEl);
+
+    let inputEl = null;
+    if (textarea) {
+      inputEl = document.createElement("textarea");
+      inputEl.className = "auth-input";
+      inputEl.placeholder = placeholder;
+      inputEl.style.width = "calc(100% - 32px)";
+      inputEl.style.marginLeft = "16px";
+      inputEl.style.marginRight = "16px";
+      inputEl.style.resize = "none";
+      inputEl.style.minHeight = "90px";
+      inputEl.style.margin = "0 16px 16px 16px";
+      inputEl.style.lineHeight = "1.4";
+      card.appendChild(inputEl);
+    }
+
+    const actions = document.createElement("div");
+    actions.style.display = "flex";
+    actions.style.gap = "12px";
+    actions.style.justifyContent = "flex-end";
+    actions.style.padding = "0 16px";
+    actions.style.marginTop = "20px";
+    actions.style.paddingBottom = "16px";
+
+    const cancelBtn = document.createElement("button");
+    cancelBtn.type = "button";
+    cancelBtn.className = "action";
+    cancelBtn.textContent = cancelText;
+    cancelBtn.onclick = () => {
+      closeAdminDialog();
+      resolve({ confirmed: false, value: null });
+    };
+
+    const confirmBtn = document.createElement("button");
+    confirmBtn.type = "button";
+    confirmBtn.className = "action primary";
+    confirmBtn.textContent = confirmText;
+    confirmBtn.onclick = () => {
+      closeAdminDialog();
+      resolve({ confirmed: true, value: textarea ? (inputEl?.value || "") : null });
+    };
+
+    actions.append(cancelBtn, confirmBtn);
+    card.appendChild(actions);
+
+    backdrop.onclick = (event) => {
+      if (event.target === backdrop) {
+        closeAdminDialog();
+        resolve({ confirmed: false, value: null });
+      }
+    };
+
+    backdrop.appendChild(card);
+    document.body.appendChild(backdrop);
+    if (inputEl) {
+      inputEl.focus();
+    }
+  });
+}
+
+async function refreshAdminStats() {
+  try {
+    state.adminStats = await fetchAdminStats();
+  } catch (error) {
+    console.error("Failed to refresh admin stats", error);
+    return;
+  }
+
+  const stats = state.adminStats || {};
+  const ids = [
+    ["admin-total-bot-users", stats.total_bot_users],
+    ["admin-total-miniapp-users", stats.total_miniapp_users],
+    ["admin-total-nu-accounts", stats.total_nu_accounts],
+    ["admin-total-blocked", stats.total_blocked],
+  ];
+  ids.forEach(([id, value]) => {
+    const el = app.querySelector(`#${id}`);
+    if (el) el.textContent = String(value ?? "0");
+  });
+}
+
 let backHandler = async () => {
   // Always navigate to events menu, bypassing early return checks
   if (state.route === "events" && state.token === "") {
@@ -140,6 +263,11 @@ function installKeyboardOverlayNav() {
 }
 
 function routeFromLocation() {
+  const searchParams = new URLSearchParams(window.location.search);
+  if (searchParams.get("route") === "admin") {
+    return { route: "admin", token: "" };
+  }
+
   const pathEvent = window.location.pathname.match(/^\/events\/([^/]+)/);
   if (pathEvent) {
     return { route: "event", token: decodeURIComponent(pathEvent[1]) };
@@ -166,6 +294,9 @@ function routeFromLocation() {
   }
   if (hashRoute === "calendar") {
     return { route: "calendar", token: "" };
+  }
+  if (hashRoute === "admin") {
+    return { route: "admin", token: "" };
   }
   const start = startParam() || new URLSearchParams(window.location.search).get("startapp") || "";
   if (start.startsWith("event_")) {
@@ -260,7 +391,7 @@ async function navigate(route, options = {}) {
       // Restore the events menu DOM from cache — synchronous, no network, no flicker.
       // Inject `no-enter` into the HTML string BEFORE parsing so CSS animations
       // (slideDown, slideUp, eventListRise, etc.) never fire on the restored nodes.
-      suppressNavScroll = true;
+      let suppressNavScroll = true;
       if (!app) {
         console.error("App element not found during cache restoration");
         throw new Error("App element not found");
@@ -277,7 +408,7 @@ async function navigate(route, options = {}) {
 
         restoreScroll(route);
         requestAnimationFrame(() => {
-          lastScrollY = window.scrollY;
+          let lastScrollY = window.scrollY;
           requestAnimationFrame(() => {
             lastScrollY = window.scrollY;
             suppressNavScroll = false;
@@ -440,8 +571,12 @@ async function navigate(route, options = {}) {
 }
 
 function getRouteIndex(route) {
-  const order = ["events", "calendar", "ratings", "reminders"];
+  const order = ["events", "calendar", "ratings", "reminders", "admin"];
   return order.indexOf(route);
+}
+
+function isTopLevelRoute(route) {
+  return ["events", "calendar", "ratings", "reminders", "admin"].includes(route);
 }
 
 async function renderRoute({ quiet = false, prefetched = false } = {}) {
@@ -476,6 +611,13 @@ async function renderRoute({ quiet = false, prefetched = false } = {}) {
       initEventReviewsHandlers();
       return;
     }
+    if (state.route === "admin") {
+      state.adminStats = await fetchAdminStats();
+      state.adminUsers = await fetchAdminUsers();
+      app.innerHTML = renderAdminPanel(state.adminStats, state.adminUsers);
+      applyQuietRender(quiet);
+      return;
+    }
     if (!useCache) {
       await ensureEventFilterOptions();
       const fetchFilters = state.route === "calendar" ? { ...state.eventFilters, relevance: "all" } : state.eventFilters;
@@ -506,6 +648,11 @@ function renderCurrent({ quiet = false } = {}) {
 
   if (state.route === "event") {
     renderEventPreservingFavorite();
+    applyQuietRender(quiet);
+    return;
+  }
+  if (state.route === "admin") {
+    app.innerHTML = renderAdminPanel(state.adminStats, state.adminUsers);
     applyQuietRender(quiet);
     return;
   }
@@ -868,6 +1015,9 @@ async function onClick(event) {
       parentNav.querySelectorAll("button[data-route]").forEach(btn => btn.classList.remove("active"));
       route.classList.add("active");
     }
+    if (route.dataset.route === "admin") {
+      closeAuthSheet();
+    }
     await navigate(route.dataset.route, { quiet: true });
     return;
   }
@@ -887,6 +1037,26 @@ function triggerControlAnimation(element, className) {
 }
 
 function onInput(event) {
+  const adminSearch = event.target.closest("#admin-user-search");
+  if (adminSearch) {
+    // Sanitize in real-time (max 100 length, no SQL/script chars, no extra spaces)
+    let val = adminSearch.value.slice(0, 100).replace(/[<>&"'/`\\;]/g, "");
+    val = val.replace(/^\s+/, "").replace(/\s{2,}/g, " ");
+    adminSearch.value = val;
+
+    window.clearTimeout(adminSearchTimer);
+    adminSearchTimer = window.setTimeout(async () => {
+      try {
+        state.adminUsers = await fetchAdminUsers(val.trim());
+        const list = app.querySelector("#admin-users-list");
+        if (list) list.innerHTML = renderAdminUsersList(state.adminUsers);
+      } catch (e) {
+        console.error("Admin search failed", e);
+      }
+    }, 300);
+    return;
+  }
+
   const searchInput = event.target.closest("[data-event-search-input]");
   if (!searchInput) {
     return;
@@ -899,7 +1069,7 @@ function onInput(event) {
   patchEventsList({ quiet: true });
 }
 
-function onFocusOut(event) {
+async function onFocusOut(event) {
   const searchInput = event.target.closest("[data-event-search-input]");
   if (searchInput) {
     const val = searchInput.value.trim();
@@ -909,9 +1079,93 @@ function onFocusOut(event) {
       patchEventsList({ quiet: true });
     }
   }
+
+  const adminSearch = event.target.closest("#admin-user-search");
+  if (adminSearch) {
+    const val = adminSearch.value.trim();
+    if (adminSearch.value !== val) {
+      adminSearch.value = val;
+      try {
+        state.adminUsers = await fetchAdminUsers(val);
+        const list = app.querySelector("#admin-users-list");
+        if (list) list.innerHTML = renderAdminUsersList(state.adminUsers);
+      } catch (e) {
+        console.error("Admin search focusout failed", e);
+      }
+    }
+  }
 }
 
 async function handleEventAction(action, element) {
+  if (action === "admin-block-user") {
+    const email = element.dataset.email;
+    const displayName = element.dataset.name || email;
+    if (!email) return;
+
+    element.disabled = true;
+    const dialog = await createAdminDialog({
+      title: "Block the user",
+      description: `Enter reason for blocking ${displayName}.`,
+      textarea: true,
+      placeholder: "Reason",
+      confirmText: t("block"),
+      cancelText: t("cancel"),
+    });
+    if (!dialog.confirmed) {
+      element.disabled = false;
+      return;
+    }
+
+    let reason = dialog.value || "";
+    reason = reason.slice(0, 100).replace(/[<>&"'/`\\;]/g, "");
+    reason = reason.replace(/^\s+/, "").replace(/\s{2,}/g, " ").replace(/\s+$/, "");
+    
+    try {
+      await blockUser(email, reason);
+      haptic("success");
+      state.adminUsers = await fetchAdminUsers();
+      const list = app.querySelector("#admin-users-list");
+      if (list) list.innerHTML = renderAdminUsersList(state.adminUsers);
+      await refreshAdminStats();
+    } catch (e) {
+      console.error(e);
+      element.disabled = false;
+      haptic("error");
+      alert("Failed to block user.");
+    }
+    return;
+  }
+  
+  if (action === "admin-unblock-user") {
+    const email = element.dataset.email;
+    const displayName = element.dataset.name || email;
+    if (!email) return;
+    const dialog = await createAdminDialog({
+      title: "Unblock the user",
+      description: `Are you sure you want to unblock ${displayName}?`,
+      textarea: false,
+      confirmText: t("unblock"),
+      cancelText: t("cancel"),
+    });
+    if (!dialog.confirmed) return;
+    
+    element.disabled = true;
+    try {
+      await unblockUser(email);
+      haptic("success");
+      state.adminUsers = await fetchAdminUsers();
+      const list = app.querySelector("#admin-users-list");
+      if (list) list.innerHTML = renderAdminUsersList(state.adminUsers);
+      await refreshAdminStats();
+    } catch (e) {
+      console.error(e);
+      element.disabled = false;
+      haptic("error");
+      alert("Failed to unblock user.");
+    }
+    return;
+  }
+
   const event = state.currentEvent;
   if (!event) return;
   if (action === "favorite") {
@@ -969,6 +1223,27 @@ async function handleEventAction(action, element) {
       })
       .catch(() => null);
   }
+  if (action === "admin-delete-review") {
+    const userId = element.dataset.userId;
+    if (!userId || !confirm("Are you sure you want to delete this review?")) return;
+    element.disabled = true;
+    try {
+      await request(`/api/admin/reviews/${event.id}/${userId}`, {
+        method: "DELETE"
+      });
+      
+      haptic("success");
+      // Refetch event to get updated reviews
+      state.currentEvent = await fetchEvent(event.token);
+      app.innerHTML = renderEvent(state.currentEvent);
+    } catch (e) {
+      console.error(e);
+      element.disabled = false;
+      haptic("error");
+      alert("Failed to delete review. Ensure you have admin/moderator privileges.");
+    }
+  }
+
 }
 
 function setEventAttendeeCount(token, count) {
@@ -1072,20 +1347,20 @@ function setEventRowFavoriteBadge(token, isFavorite) {
     if (row.dataset.eventToken !== token) {
       return;
     }
+    row.querySelector(".event-row-favorite-sticker")?.remove();
+    if (isFavorite) {
+      const sticker = document.createElement("span");
+      sticker.className = "event-row-favorite-sticker";
+      sticker.setAttribute("aria-label", t("favorites"));
+      sticker.setAttribute("role", "img");
+      sticker.innerHTML = "<span>★</span>";
+      row.querySelector(".event-row-cover")?.appendChild(sticker);
+    }
     const badges = row.querySelector(".row-badges");
     if (!badges) {
       return;
     }
-    const existing = badges.querySelector("[data-favorite-badge]");
-    if (isFavorite && !existing) {
-      const badge = document.createElement("em");
-      badge.dataset.favoriteBadge = "";
-      badge.textContent = "★";
-      badges.querySelector("em")?.after(badge);
-    }
-    if (!isFavorite) {
-      existing?.remove();
-    }
+    badges.querySelector("[data-favorite-badge]")?.remove();
   });
 }
 
@@ -1110,10 +1385,6 @@ function setFavoriteButtonLoading(loading) {
   }
   button.disabled = loading;
   button.classList.toggle("is-loading", loading);
-}
-
-function isTopLevelRoute(route) {
-  return route === "events" || route === "calendar";
 }
 
 function runCircularTransition(event, apply) {
@@ -1182,6 +1453,7 @@ window.addEventListener("keydown", (event) => {
 
 let resendInterval = null;
 let forgotResendInterval = null;
+let adminSearchTimer = null;
 
 function startResendCountdown() {
   window.clearInterval(resendInterval);
@@ -1615,6 +1887,44 @@ function initRatingsHandlers() {
           if (ok) doDelete();
         });
       } else if (confirm("Are you sure you want to delete this rating and comment?")) {
+        doDelete();
+      }
+    };
+  });
+
+  // Admin delete button for global feed
+  app.querySelectorAll("[data-admin-delete-review]").forEach((btn) => {
+    btn.onclick = async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      haptic("light");
+      const eventToken = btn.dataset.eventToken;
+      const targetUserId = btn.dataset.adminDeleteReview;
+      const doDelete = () => {
+        haptic("light");
+        btn.disabled = true;
+        adminDeleteReview(targetUserId, eventToken)
+          .then(async () => {
+            haptic("success");
+            // Refresh feed
+            state.prefetchedRatings = null;
+            if (document.querySelector(".auth-sheet-backdrop")) {
+              // if popup open, re-render auth section
+              updateAuthSectionDOM({ skipTransition: true });
+            }
+            await navigate("ratings", { replaceHash: false, quiet: true });
+          })
+          .catch(() => {
+            haptic("error");
+            btn.disabled = false;
+          });
+      };
+      
+      if (tg && tg.showConfirm) {
+        tg.showConfirm("Are you sure you want to delete this review?", (ok) => {
+          if (ok) doDelete();
+        });
+      } else if (confirm("Are you sure you want to delete this review?")) {
         doDelete();
       }
     };
@@ -2195,5 +2505,3 @@ export function closeAuthSheet() {
   });
   window.setTimeout(() => current.remove(), 220);
 }
-
-

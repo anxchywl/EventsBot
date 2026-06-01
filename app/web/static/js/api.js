@@ -36,12 +36,17 @@ export async function authenticate() {
   if (!data) {
     return null;
   }
-  const payload = await request("/api/auth/session", {
-    method: "POST",
-    body: JSON.stringify({ initData: data }),
-  });
-  setSession(payload.token, payload.user);
-  return payload;
+  try {
+    const payload = await request("/api/auth/session", {
+      method: "POST",
+      body: JSON.stringify({ initData: data }),
+    });
+    setSession(payload.token, payload.user);
+    return payload;
+  } catch (error) {
+    setSession("", null);
+    throw error;
+  }
 }
 
 export async function fetchEvents(filters = {}) {
@@ -181,7 +186,12 @@ export function deleteReview(token) {
   });
 }
 
+export function adminDeleteReview(userId, eventToken) {
+  return request(`/api/events/admin/${encodeURIComponent(eventToken)}/reviews/${encodeURIComponent(userId)}`, {
+    method: "DELETE",
+  });
+}
+
 export function fetchReviews(token) {
   return request(`/api/events/${encodeURIComponent(token)}/reviews`);
 }
-

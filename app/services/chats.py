@@ -3,6 +3,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.analytics import EventAnalytics
 from app.models.chat import Chat, ChatCategorySetting
 from app.models.event import EventCategory
 
@@ -19,7 +20,14 @@ async def get_chat_by_telegram_id(
 
 
 async def delete_chat_by_id(session: AsyncSession, chat_id: int) -> None:
-    await session.execute(delete(Chat).where(Chat.id == chat_id))
+    chat = await session.get(Chat, chat_id)
+    if chat is not None:
+        await session.execute(
+            delete(EventAnalytics).where(
+                EventAnalytics.chat_id == chat.telegram_chat_id,
+            )
+        )
+        await session.delete(chat)
 
 
 # creates or updates a telegram chat record

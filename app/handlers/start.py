@@ -6,6 +6,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
+from app.handlers.message_cleanup import delete_messages_fast
 from app.services.users import upsert_user_from_telegram
 
 router = Router(name="start")
@@ -16,24 +17,7 @@ router = Router(name="start")
 async def handle_back_to_menu(
     message: Message, session: AsyncSession, state: FSMContext
 ) -> None:
-    data = await state.get_data()
-
-    await _cleanup_menu_messages(message, state)
-
-    # delete all interactive user responses and bot prompts from this submission session
-    messages = data.get("session_messages", [])
-    for msg_id in reversed(messages):
-        try:
-            await message.bot.delete_message(message.chat.id, msg_id)
-        except Exception:
-            pass
-
-    # Delete the user's "Back to Menu" command message
-    try:
-        await message.delete()
-    except Exception:
-        pass
-
+    await _cleanup_menu_messages(message, state, extra_ids=[message.message_id])
     await state.clear()
     await send_main_menu(message, session)
 
@@ -135,84 +119,69 @@ async def process_start_menu(
             logging.error(f"Failed to set default chat menu button: {e}")
 
     # delete the old welcome message and any stateful menu messages first
-    await _cleanup_menu_messages(callback.message, state)
+    await _cleanup_menu_messages(callback.message, state, extra_ids=[callback.message.message_id])
     await state.clear()
-
-    try:
-        await callback.message.delete()
-    except Exception:
-        pass
 
     await send_main_menu(callback.message, session)
     await callback.answer()
 
 
-async def _cleanup_menu_messages(message: Message, state: FSMContext) -> None:
+async def _cleanup_menu_messages(
+    message: Message,
+    state: FSMContext,
+    *,
+    extra_ids: list[int | None] | None = None,
+) -> None:
     data = await state.get_data()
     user_id = message.from_user.id
+    ids_to_delete = []
 
     old_welcome_id = last_welcome_messages.get(user_id)
     if old_welcome_id and old_welcome_id != message.message_id:
-        try:
-            await message.bot.delete_message(chat_id=message.chat.id, message_id=old_welcome_id)
-        except Exception:
-            pass
+        ids_to_delete.append(old_welcome_id)
     last_welcome_messages.pop(user_id, None)
 
     my_events_cmd_msg_id = data.get("my_events_cmd_msg_id")
     my_events_choose_msg_id = data.get("my_events_choose_msg_id")
+    my_events_selection_msg_id = data.get("my_events_selection_msg_id")
+    manage_event_msg_id = data.get("manage_event_msg_id")
+    confirm_delete_msg_id = data.get("confirm_delete_msg_id")
+    delete_command_msg_id = data.get("delete_command_msg_id")
     if my_events_cmd_msg_id:
-        try:
-            await message.bot.delete_message(chat_id=message.chat.id, message_id=my_events_cmd_msg_id)
-        except Exception:
-            pass
+        ids_to_delete.append(my_events_cmd_msg_id)
     if my_events_choose_msg_id:
-        try:
-            await message.bot.delete_message(chat_id=message.chat.id, message_id=my_events_choose_msg_id)
-        except Exception:
-            pass
+        ids_to_delete.append(my_events_choose_msg_id)
+    if my_events_selection_msg_id:
+        ids_to_delete.append(my_events_selection_msg_id)
+    if manage_event_msg_id:
+        ids_to_delete.append(manage_event_msg_id)
+    if confirm_delete_msg_id:
+        ids_to_delete.append(confirm_delete_msg_id)
+    if delete_command_msg_id:
+        ids_to_delete.append(delete_command_msg_id)
 
     manage_temp_ids = data.get("manage_temp_msg_ids") or []
-    for msg_id in manage_temp_ids:
-        try:
-            await message.bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
-        except Exception:
-            pass
+    ids_to_delete.extend(manage_temp_ids)
 
     admin_panel_msg_id = data.get("admin_panel_msg_id")
     if admin_panel_msg_id:
-        try:
-            await message.bot.delete_message(chat_id=message.chat.id, message_id=admin_panel_msg_id)
-        except Exception:
-            pass
+        ids_to_delete.append(admin_panel_msg_id)
 
     admin_panel_user_msg_id = data.get("admin_panel_user_msg_id")
     if admin_panel_user_msg_id:
-        try:
-            await message.bot.delete_message(chat_id=message.chat.id, message_id=admin_panel_user_msg_id)
-        except Exception:
-            pass
+        ids_to_delete.append(admin_panel_user_msg_id)
 
     admin_msg_ids = data.get("admin_msg_ids") or []
-    for msg_id in admin_msg_ids:
-        try:
-            await message.bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
-        except Exception:
-            pass
+    ids_to_delete.extend(admin_msg_ids)
 
     admin_temp_msg_ids = data.get("admin_temp_msg_ids") or []
-    for msg_id in admin_temp_msg_ids:
-        try:
-            await message.bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
-        except Exception:
-            pass
+    ids_to_delete.extend(admin_temp_msg_ids)
 
     messages = data.get("session_messages", [])
-    for msg_id in reversed(messages):
-        try:
-            await message.bot.delete_message(message.chat.id, msg_id)
-        except Exception:
-            pass
+    ids_to_delete.extend(reversed(messages))
+    if extra_ids:
+        ids_to_delete.extend(extra_ids)
+    await delete_messages_fast(message.bot, message.chat.id, ids_to_delete)
 
 
 # builds the private main menu keyboard
@@ -226,4 +195,3 @@ def get_main_menu_keyboard(is_admin: bool = False):
 
     builder.adjust(1)
     return builder.as_markup(resize_keyboard=True)
-

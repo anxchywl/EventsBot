@@ -10,7 +10,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 import app.models  # noqa: F401
 from app.db.session import get_session
-from app.web.auth import create_session_token, upsert_miniapp_user, verify_init_data
+from app.web.auth import (
+    create_session_token,
+    effective_web_role,
+    upsert_miniapp_user,
+    verify_init_data,
+)
 from app.web.routers import (
     events_router,
     favorites_router,
@@ -19,6 +24,7 @@ from app.web.routers import (
     sharing_router,
     auth_router,
     ratings_router,
+    admin_router,
 )
 from app.web.schemas import AuthRequest, AuthResponse
 
@@ -35,6 +41,7 @@ web_app.include_router(sharing_router)
 web_app.include_router(media_router)
 web_app.include_router(auth_router)
 web_app.include_router(ratings_router)
+web_app.include_router(admin_router)
 
 
 @web_app.middleware("http")
@@ -139,6 +146,9 @@ async def create_session(
             "email": user.email,
             "nickname": user.nickname,
             "is_verified": user.is_verified,
+            "role": effective_web_role(user, miniapp_user.id),
+            "is_blocked": user.is_blocked,
+            "blocked_reason": user.blocked_reason,
         },
     )
 

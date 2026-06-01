@@ -164,6 +164,10 @@ export function authHeaders() {
   if (state.session) {
     headers["Authorization"] = `Bearer ${state.session}`;
   }
+  const telegramInitData = window.Telegram?.WebApp?.initData || "";
+  if (telegramInitData) {
+    headers["X-Telegram-Init-Data"] = telegramInitData;
+  }
   headers["X-Language"] = state.lang || "en";
   headers["X-Theme"] = (typeof currentTheme === "function" ? currentTheme() : (state.theme || "light"));
   return headers;

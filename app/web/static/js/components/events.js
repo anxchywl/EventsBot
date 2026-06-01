@@ -1,5 +1,5 @@
 import { state } from "../state.js";
-import { categoryLabel, t } from "../i18n.js?v=20260529-flicker-fix-v10";
+import { categoryLabel, t } from "../i18n.js?v=20260601-fallback-gradient-v7";
 
 // Guarantee fallbackCoverStyles map is shared absolutely via window to avoid potential duplicate ES module instances.
 if (!window.fallbackCoverStyles) {
@@ -19,6 +19,23 @@ export function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
+}
+
+export function formatDisplayName(nickname, email) {
+  let namePart = nickname || "";
+  if (!namePart && email) {
+    namePart = email.split("@")[0];
+  }
+  
+  if (namePart && namePart.includes(".")) {
+    const parts = namePart.split(".");
+    if (parts.length === 2) {
+      const first = parts[0].charAt(0).toUpperCase() + parts[0].slice(1).toLowerCase();
+      const last = parts[1].charAt(0).toUpperCase() + parts[1].slice(1).toLowerCase();
+      return `${first} ${last}`;
+    }
+  }
+  return nickname || "Unknown";
 }
 
 export function escapeAttr(value) {
@@ -84,19 +101,22 @@ export function eventRow(event, options = {}) {
     badgesOnSide = true,
     showFavoriteAction = false,
   } = options;
+  const categoryText = categoryLabel(event.category);
   return `
     <article class="event-row ${badgesOnSide ? "has-side-badges" : ""} ${showFavoriteAction ? "has-favorite-action" : ""} ${event.is_archived ? "archived" : event.is_ended ? "ended" : ""}" role="button" tabindex="0" data-event-token="${escapeAttr(event.token)}">
-      <div class="event-row-cover ${event.cover_url ? "has-image" : ""}" ${coverStyle(event.cover_url, `event-${event.token || event.title}`)}></div>
+      <div class="event-row-cover ${event.cover_url ? "has-image" : ""}" ${coverStyle(event.cover_url, `event-${event.token || event.title}`)}>
+        ${event.is_favorite ? `<span class="event-row-favorite-sticker" aria-label="${escapeAttr(t("favorites"))}" role="img">
+          <span>★</span>
+        </span>` : ""}
+      </div>
       <div class="event-row-body">
-        ${showCountdown ? `<span class="event-countdown" data-countdown-target="${escapeAttr(eventTimestamp(event))}"></span>` : ""}
         <strong>${escapeHtml(event.title)}</strong>
         ${showDateLocation ? `<span>${escapeHtml(event.organizer || "")}</span>` : ""}
         ${showDateLocation ? `<span>${escapeHtml(event.location || "")}</span>` : ""}
-      </div>
-      <div class="row-badges">
-        <em>${escapeHtml(categoryLabel(event.category))}</em>
-        ${showFavoriteBadge && event.is_favorite ? `<em data-favorite-badge>★</em>` : ""}
-        ${showReminderBadge && event.reminder_count ? `<em>${event.reminder_count}</em>` : ""}
+        <div class="event-row-top-meta">
+          <em>${escapeHtml(categoryText)}</em>
+          ${showCountdown ? `<span class="event-countdown" data-countdown-target="${escapeAttr(eventTimestamp(event))}"></span>` : ""}
+        </div>
       </div>
       ${showFavoriteAction ? `<button class="favorite-remove-button active" type="button" data-favorite-remove="${escapeAttr(event.token)}" aria-label="${t("remove")}"><span>★</span></button>` : ""}
     </article>

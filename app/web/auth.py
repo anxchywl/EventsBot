@@ -6,6 +6,7 @@ import hmac
 import json
 import time
 from dataclasses import dataclass
+from datetime import datetime
 from urllib.parse import parse_qsl
 
 from fastapi import Header, HTTPException, status, Depends
@@ -123,6 +124,24 @@ async def require_miniapp_user(
     return verify_session_token(authorization.removeprefix("Bearer ").strip())
 
 
+async def require_current_miniapp_user(
+    authorization: str | None = Header(default=None),
+    x_telegram_init_data: str | None = Header(
+        default=None,
+        alias="X-Telegram-Init-Data",
+    ),
+) -> MiniAppUser:
+    session_user = await require_miniapp_user(authorization)
+    if not x_telegram_init_data:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Missing Telegram initData")
+
+    current_user = verify_init_data(x_telegram_init_data)
+    if current_user.id != session_user.id:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Telegram account changed")
+
+    return session_user
+
+
 async def optional_miniapp_user(
     authorization: str | None = Header(default=None),
 ) -> MiniAppUser | None:
@@ -143,14 +162,28 @@ async def upsert_miniapp_user(session: AsyncSession, miniapp_user: MiniAppUser) 
         user = User(telegram_id=miniapp_user.id)
         session.add(user)
 
+    from app.config import get_settings
+    settings = get_settings()
+    if miniapp_user.id in settings.admin_ids:
+        user.role = "admin"
+
     user.username = miniapp_user.username
     user.first_name = miniapp_user.first_name
     user.last_name = miniapp_user.last_name
     user.language_code = miniapp_user.language_code
     user.is_bot = miniapp_user.is_bot
+    user.last_active_at = datetime.now()
 
     await session.flush()
     return user
+
+
+def effective_web_role(user: User, telegram_id: int) -> str:
+    if telegram_id in get_settings().admin_ids:
+        return "admin"
+    if user.role == "moderator":
+        return "moderator"
+    return "user"
 
 
 def _sign(value: bytes) -> bytes:
@@ -171,10 +204,65 @@ async def require_verified_user(
     session: AsyncSession = Depends(get_session),
 ) -> User:
     user = await upsert_miniapp_user(session, miniapp_user)
-    if not user.is_verified:
+    from app.config import get_settings
+    settings = get_settings()
+    is_admin = miniapp_user.id in settings.admin_ids
+    if user.is_blocked and not is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Your account has been blocked.",
+        )
+    if not user.is_verified and not is_admin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Nazarbayev University email verification required",
         )
+    # Update last active
+    user.last_active_at = datetime.now()
+    await session.commit()
     return user
 
+async def require_verified_user_allow_blocked(
+    miniapp_user: MiniAppUser = Depends(require_miniapp_user),
+    session: AsyncSession = Depends(get_session),
+) -> User:
+    user = await upsert_miniapp_user(session, miniapp_user)
+    from app.config import get_settings
+    settings = get_settings()
+    is_admin = miniapp_user.id in settings.admin_ids
+    if not user.is_verified and not is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Nazarbayev University email verification required",
+        )
+    # Update last active
+    user.last_active_at = datetime.now()
+    await session.commit()
+    return user
+
+async def require_admin_or_moderator(
+    miniapp_user: MiniAppUser = Depends(require_current_miniapp_user),
+    session: AsyncSession = Depends(get_session),
+) -> User:
+    user = await upsert_miniapp_user(session, miniapp_user)
+    role = effective_web_role(user, miniapp_user.id)
+    if role not in ("admin", "moderator"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Insufficient permissions. Admin or moderator role required.",
+        )
+    await session.commit()
+    return user
+
+async def require_admin(
+    miniapp_user: MiniAppUser = Depends(require_current_miniapp_user),
+    session: AsyncSession = Depends(get_session),
+) -> User:
+    user = await upsert_miniapp_user(session, miniapp_user)
+    if effective_web_role(user, miniapp_user.id) != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Insufficient permissions. Admin role required.",
+        )
+    await session.commit()
+    return user

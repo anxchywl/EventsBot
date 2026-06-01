@@ -115,9 +115,9 @@ def render_dashboard_event_line(
 
     if include_date:
         date_text = event.event_date.strftime("%b %d")
-        return f"- {date_text} {time_text} - {title_html}, {location}"
+        return f"<i>{date_text} {time_text}</i> - {title_html}, {location}"
 
-    return f"- {time_text} - {title_html}, {location}"
+    return f"<i>{time_text}</i> - {title_html}, {location}"
 
 
 def render_private_events_list(

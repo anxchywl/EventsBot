@@ -64,8 +64,90 @@ def get_category_settings_keyboard(categories: list, enabled_ids: set):
             callback_data=f"toggle_cat_{cat.id}",
         )
     builder.adjust(1)
-    builder.button(text="✅ Done", callback_data="categories_done")
+    builder.button(text="Done", callback_data="categories_done")
     return builder.as_markup()
+
+
+async def load_category_selection(
+    session: AsyncSession,
+    chat_id: int,
+) -> tuple[list[EventCategory], set[int]]:
+    cat_result = await session.execute(
+        select(EventCategory)
+        .where(EventCategory.is_active.is_(True))
+        .order_by(EventCategory.sort_order, EventCategory.name)
+    )
+    categories = list(cat_result.scalars().all())
+
+    set_result = await session.execute(
+        select(ChatCategorySetting.category_id).where(
+            ChatCategorySetting.chat_id == chat_id,
+            ChatCategorySetting.is_enabled.is_(True),
+        )
+    )
+    enabled_ids = set(set_result.scalars().all())
+    return categories, enabled_ids
+
+
+async def show_category_chooser_message(
+    bot: Bot,
+    chat_id: int,
+    message_id: int,
+    categories: list[EventCategory],
+    enabled_ids: set[int],
+) -> None:
+    await bot.edit_message_text(
+        chat_id=chat_id,
+        message_id=message_id,
+        text="Select which event categories you want to see in this chat.",
+        reply_markup=get_category_settings_keyboard(categories, enabled_ids),
+    )
+
+
+def enabled_ids_from_markup(callback: CallbackQuery) -> set[int]:
+    enabled_ids: set[int] = set()
+    if not callback.message or not callback.message.reply_markup:
+        return enabled_ids
+
+    for row in callback.message.reply_markup.inline_keyboard:
+        for button in row:
+            data = button.callback_data or ""
+            if not data.startswith("toggle_cat_"):
+                continue
+            try:
+                category_id = int(data.split("_")[2])
+            except (IndexError, ValueError):
+                continue
+            if button.text.startswith("✅"):
+                enabled_ids.add(category_id)
+    return enabled_ids
+
+
+async def save_category_selection(
+    session: AsyncSession,
+    chat_id: int,
+    enabled_ids: set[int],
+    categories: list[EventCategory],
+) -> None:
+    for category in categories:
+        is_enabled = category.id in enabled_ids
+        result = await session.execute(
+            select(ChatCategorySetting).where(
+                ChatCategorySetting.chat_id == chat_id,
+                ChatCategorySetting.category_id == category.id,
+            )
+        )
+        setting = result.scalar_one_or_none()
+        if setting:
+            setting.is_enabled = is_enabled
+        else:
+            session.add(
+                ChatCategorySetting(
+                    chat_id=chat_id,
+                    category_id=category.id,
+                    is_enabled=is_enabled,
+                )
+            )
 
 
 # enters category management via command
@@ -82,22 +164,7 @@ async def cmd_categories(
     chat = await register_chat(session, message.chat, user.id)
     await session.commit()
 
-    # load active categories from database
-    cat_result = await session.execute(
-        select(EventCategory)
-        .where(EventCategory.is_active.is_(True))
-        .order_by(EventCategory.sort_order, EventCategory.name)
-    )
-    categories = list(cat_result.scalars().all())
-
-    # load currently enabled categories
-    set_result = await session.execute(
-        select(ChatCategorySetting.category_id).where(
-            ChatCategorySetting.chat_id == chat.id,
-            ChatCategorySetting.is_enabled.is_(True),
-        )
-    )
-    enabled_ids = set(set_result.scalars().all())
+    categories, enabled_ids = await load_category_selection(session, chat.id)
 
     # store selection state and original command message in fsm
     await state.set_state(CategoryStates.editing)
@@ -110,11 +177,8 @@ async def cmd_categories(
 
     # prompt for category selection
     await message.answer(
-        "🏷 **Manage Categories**\n\n"
-        "Select which event categories you want to see in this chat. "
-        "Changes will be applied once you click **Done**.",
+        "Select which event categories you want to see in this chat.",
         reply_markup=get_category_settings_keyboard(categories, enabled_ids),
-        parse_mode="Markdown",
     )
 
 
@@ -136,35 +200,51 @@ async def process_categories_done(
 
     # update database records
     if chat_id:
-        for cat_info in all_categories:
-            cat_id = cat_info["id"]
-            is_enabled = cat_id in enabled_ids
+        from collections import namedtuple
 
-            result = await session.execute(
-                select(ChatCategorySetting).where(
-                    ChatCategorySetting.chat_id == chat_id,
-                    ChatCategorySetting.category_id == cat_id,
-                )
-            )
-            setting = result.scalar_one_or_none()
-            if setting:
-                setting.is_enabled = is_enabled
-            else:
-                session.add(
-                    ChatCategorySetting(
-                        chat_id=chat_id, category_id=cat_id, is_enabled=is_enabled
-                    )
-                )
+        CatProxy = namedtuple("CatProxy", ["id", "name"])
+        categories = [
+            CatProxy(id=c["id"], name=c["name"]) for c in all_categories
+        ]
+        await save_category_selection(session, chat_id, enabled_ids, categories)
 
         await session.commit()
 
-        # signal dashboard bus to refresh this chat
+        # cleanup the setup message if it exists, mark categories selected, and auto-create dashboard
+    if chat_id:
         try:
-            from app.services.dashboard_bus import get_bus
+            from app.models.chat import Chat
+            from app.services.dashboard import create_or_update_dashboard_message
 
-            get_bus().schedule_refresh({chat_id})
-        except Exception:
-            pass
+            chat = await session.get(Chat, chat_id)
+            if chat:
+                chat.categories_selected = True
+                
+                if chat.setup_message_id:
+                    try:
+                        await bot.delete_message(
+                            chat_id=callback.message.chat.id,
+                            message_id=chat.setup_message_id,
+                        )
+                    except Exception as e:
+                        logger.warning(f"failed to delete setup message: {e}")
+                    chat.setup_message_id = None
+                
+                await session.commit()
+
+                # Automatically create or update the dashboard immediately
+                await create_or_update_dashboard_message(session=session, bot=bot, chat=chat)
+                await session.commit()
+
+            # signal dashboard bus to refresh this chat just in case
+            try:
+                from app.services.dashboard_bus import get_bus
+                get_bus().schedule_refresh({chat_id})
+            except Exception:
+                pass
+
+        except Exception as e:
+            logger.warning(f"failed during post-categories setup: {e}")
 
     # cleanup both the bot message and the original command
     command_message_id = data.get("command_message_id")
@@ -183,22 +263,6 @@ async def process_categories_done(
                 )
         except Exception as e:
             logger.warning(f"failed to delete command message: {e}")
-
-    # cleanup the registration message from /register_chat if it exists
-    if chat_id:
-        try:
-            from app.models.chat import Chat
-
-            chat = await session.get(Chat, chat_id)
-            if chat and chat.registration_message_id:
-                await bot.delete_message(
-                    chat_id=callback.message.chat.id,
-                    message_id=chat.registration_message_id,
-                )
-                chat.registration_message_id = None
-                await session.commit()
-        except Exception as e:
-            logger.warning(f"failed to delete registration message: {e}")
 
     await state.clear()
     await callback.answer("Settings saved.")
@@ -233,6 +297,79 @@ async def process_toggle_category(callback: CallbackQuery, state: FSMContext, bo
     ]
 
     # refresh the message keyboard
+    try:
+        await callback.message.edit_reply_markup(
+            reply_markup=get_category_settings_keyboard(categories, enabled_ids)
+        )
+    except Exception:
+        pass
+
+    await callback.answer()
+
+
+@router.callback_query(F.data == "categories_done")
+async def process_categories_done_without_state(
+    callback: CallbackQuery, session: AsyncSession, bot: Bot
+):
+    if not await check_admin_permission(callback, bot):
+        await callback.answer("Unauthorized.", show_alert=True)
+        return
+
+    chat = await get_chat_by_telegram_id(session, callback.message.chat.id)
+    if not chat:
+        await callback.answer("Chat is not registered.", show_alert=True)
+        return
+
+    categories, _ = await load_category_selection(session, chat.id)
+    enabled_ids = enabled_ids_from_markup(callback)
+    await save_category_selection(session, chat.id, enabled_ids, categories)
+    chat.categories_selected = True
+    chat.setup_message_id = None
+
+    from app.models.chat import DashboardMessage
+
+    dashboard_message = await session.scalar(
+        select(DashboardMessage).where(DashboardMessage.chat_id == chat.id)
+    )
+    if dashboard_message:
+        dashboard_message.message_id = callback.message.message_id
+    else:
+        session.add(
+            DashboardMessage(
+                chat_id=chat.id,
+                message_id=callback.message.message_id,
+            )
+        )
+    await session.commit()
+
+    from app.services.dashboard import create_or_update_dashboard_message
+
+    await create_or_update_dashboard_message(session=session, bot=bot, chat=chat)
+    await session.commit()
+    await callback.answer("Settings saved.")
+
+
+@router.callback_query(F.data.startswith("toggle_cat_"))
+async def process_toggle_category_without_state(
+    callback: CallbackQuery, session: AsyncSession, bot: Bot
+):
+    if not await check_admin_permission(callback, bot):
+        await callback.answer("Unauthorized.", show_alert=True)
+        return
+
+    chat = await get_chat_by_telegram_id(session, callback.message.chat.id)
+    if not chat:
+        await callback.answer("Chat is not registered.", show_alert=True)
+        return
+
+    categories, _ = await load_category_selection(session, chat.id)
+    category_id = int(callback.data.split("_")[2])
+    enabled_ids = enabled_ids_from_markup(callback)
+    if category_id in enabled_ids:
+        enabled_ids.remove(category_id)
+    else:
+        enabled_ids.add(category_id)
+
     try:
         await callback.message.edit_reply_markup(
             reply_markup=get_category_settings_keyboard(categories, enabled_ids)

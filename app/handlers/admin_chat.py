@@ -3,12 +3,11 @@ from aiogram import Bot, F, Router
 from aiogram.enums import ChatMemberStatus, ChatType
 from aiogram.filters import Command
 from aiogram.types import ChatMemberUpdated, Message
-from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.models.chat import Chat
-from app.services.chats import get_chat_by_telegram_id, register_chat
+from app.services.chats import delete_chat_by_id, get_chat_by_telegram_id, register_chat
 from app.services.dashboard import create_or_update_dashboard_message
 from app.services.users import upsert_user_from_telegram
 
@@ -23,6 +22,9 @@ async def handle_register_chat(
     bot: Bot,
     session: AsyncSession,
 ) -> None:
+    if message.chat.type == ChatType.PRIVATE:
+        return
+
     # allow only chat/bot admins to register chats
     if not await can_manage_chat(message, bot):
         return
@@ -45,7 +47,8 @@ async def handle_register_chat(
         "• <i>This bot is <a href='https://github.com/anxchywl/events_bot'>open-source</a>.</i>",
         disable_web_page_preview=True,
     )
-    chat.registration_message_id = sent_msg.message_id
+    chat.setup_message_id = sent_msg.message_id
+    chat.registration_status = "setup_complete"
     await session.commit()
 
 
@@ -56,6 +59,9 @@ async def handle_dashboard(
     bot: Bot,
     session: AsyncSession,
 ) -> None:
+    if message.chat.type == ChatType.PRIVATE:
+        return
+
     # allow only chat/bot admins to manage dashboards
     if not await can_manage_chat(message, bot):
         return
@@ -101,14 +107,125 @@ async def handle_bot_removed(update: ChatMemberUpdated, session: AsyncSession) -
     if chat is None:
         return
 
-    # hard delete the chat row — cascades to category settings and dashboard message
-    await session.delete(chat)
+    # hard delete the chat row; ORM cascades remove dashboard, category settings,
+    # and published event message links for this chat.
+    await delete_chat_by_id(session, chat.id)
     await session.commit()
     logger.info(
         "bot removed from chat %s (%d) — chat data deleted",
         update.chat.title,
         update.chat.id,
     )
+
+
+# handles bot added to group or permissions changed
+@router.my_chat_member(
+    F.new_chat_member.status.in_(
+        {ChatMemberStatus.MEMBER, ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.RESTRICTED}
+    )
+)
+async def handle_bot_membership_update(
+    update: ChatMemberUpdated, bot: Bot, session: AsyncSession
+) -> None:
+    if update.chat.type not in {ChatType.GROUP, ChatType.SUPERGROUP}:
+        return
+
+    # Create user if needed
+    user = None
+    if update.from_user:
+        user = await upsert_user_from_telegram(session, update.from_user)
+
+    chat = await get_chat_by_telegram_id(session, update.chat.id)
+    if chat is None:
+        chat = await register_chat(
+            session=session,
+            telegram_chat=update.chat,
+            created_by_user_id=user.id if user else None,
+        )
+        chat.registration_status = "pending_permissions"
+
+    is_admin = update.new_chat_member.status == ChatMemberStatus.ADMINISTRATOR
+    req_del = getattr(update.new_chat_member, "can_delete_messages", False) if is_admin else False
+    req_pin = getattr(update.new_chat_member, "can_pin_messages", False) if is_admin else False
+    req_edit = is_admin
+
+    del_icon = "✅" if req_del else "❌"
+    edit_icon = "✅" if req_edit else "❌"
+    pin_icon = "✅" if req_pin else "❌"
+
+    permissions = {
+        "can_delete_messages": req_del,
+        "can_edit_messages": req_edit,
+        "can_pin_messages": req_pin,
+    }
+    chat.permissions_status = permissions
+
+    if req_del and req_edit and req_pin:
+        setup_status = "Bot is ready to work."
+    else:
+        setup_status = "Waiting for permissions..."
+
+    text = (
+        f"<b>SETUP</b>\n\n"
+        f"Please promote the bot to Admin and grant the required permissions.\n\n"
+        f"Permissions\n"
+        f"{del_icon} Delete Messages\n"
+        f"{edit_icon} Edit Messages\n"
+        f"{pin_icon} Pin Messages\n\n"
+        f"{setup_status}"
+    )
+
+    if chat.setup_message_id:
+        try:
+            await bot.edit_message_text(
+                chat_id=chat.telegram_chat_id,
+                message_id=chat.setup_message_id,
+                text=text,
+                parse_mode="HTML",
+            )
+        except Exception as e:
+            if "message is not modified" not in str(e).lower():
+                logger.warning(f"Failed to edit setup message: {e}")
+                # Send a new one if not found or other errors
+                sent_msg = await bot.send_message(
+                    chat_id=chat.telegram_chat_id,
+                    text=text,
+                    parse_mode="HTML",
+                )
+                chat.setup_message_id = sent_msg.message_id
+    else:
+        sent_msg = await bot.send_message(
+            chat_id=chat.telegram_chat_id,
+            text=text,
+            parse_mode="HTML",
+        )
+        chat.setup_message_id = sent_msg.message_id
+
+    await session.commit()
+
+    if req_del and req_edit and req_pin:
+        import asyncio
+        await asyncio.sleep(5)
+
+        try:
+            from app.handlers.categories import (
+                load_category_selection,
+                show_category_chooser_message,
+            )
+
+            categories, enabled_ids = await load_category_selection(session, chat.id)
+            await show_category_chooser_message(
+                bot=bot,
+                chat_id=chat.telegram_chat_id,
+                message_id=chat.setup_message_id,
+                categories=categories,
+                enabled_ids=enabled_ids,
+            )
+            chat.registration_status = "setup_complete"
+            await session.commit()
+        except Exception as e:
+            if "message is not modified" not in str(e).lower():
+                logger.warning(f"Failed to edit to category chooser: {e}")
 
 
 # checks whether the sender can manage the chat
@@ -138,8 +255,4 @@ async def can_manage_chat(message: Message, bot: Bot) -> bool:
         except Exception as e:
             logger.warning(f"failed to check chat admin status: {e}")
 
-    # deny all others and notify
-    await message.answer(
-        "Only chat admins or bot administrators can use this command."
-    )
     return False

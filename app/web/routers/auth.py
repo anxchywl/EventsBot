@@ -19,9 +19,20 @@ from app.models.favorite import Favorite
 from app.models.reminder import Reminder
 from app.models.rating import Rating
 from app.models.comment import Comment
+from app.models.event import Event
+from app.models.club import Club
+from app.models.analytics import EventAnalytics
+from app.models.moderation import ModerationLog
+from app.models.chat import Chat
 from app.services.email import send_verification_email, send_password_reset_email
 from app.services.security import hash_password, verify_password, validate_password_format, validate_nickname_format
-from app.web.auth import MiniAppUser, require_miniapp_user, upsert_miniapp_user, create_session_token
+from app.web.auth import (
+    MiniAppUser,
+    create_session_token,
+    effective_web_role,
+    require_miniapp_user,
+    upsert_miniapp_user,
+)
 from app.web.schemas import (
     UserRegisterRequest,
     UserVerifyRequest,
@@ -260,6 +271,9 @@ async def verify(
             "email": user.email,
             "nickname": user.nickname,
             "is_verified": user.is_verified,
+            "role": effective_web_role(user, miniapp_user.id),
+            "is_blocked": user.is_blocked,
+            "blocked_reason": user.blocked_reason,
         }
     )
 
@@ -409,8 +423,48 @@ async def login(
             .values(user_id=verified_user.id)
         )
 
+        # 5. Events: Merge created events and approvals
+        await session.execute(
+            update(Event)
+            .where(Event.creator_user_id == current_guest_user.id)
+            .values(creator_user_id=verified_user.id)
+        )
+        await session.execute(
+            update(Event)
+            .where(Event.approved_by_user_id == current_guest_user.id)
+            .values(approved_by_user_id=verified_user.id)
+        )
+
+        # 6. Clubs: Merge owned clubs
+        await session.execute(
+            update(Club)
+            .where(Club.owner_user_id == current_guest_user.id)
+            .values(owner_user_id=verified_user.id)
+        )
+
+        # 7. EventAnalytics: Merge interactions
+        await session.execute(
+            update(EventAnalytics)
+            .where(EventAnalytics.user_id == current_guest_user.id)
+            .values(user_id=verified_user.id)
+        )
+
+        # 8. ModerationLog: Merge logs
+        await session.execute(
+            update(ModerationLog)
+            .where(ModerationLog.moderator_user_id == current_guest_user.id)
+            .values(moderator_user_id=verified_user.id)
+        )
+
+        # 9. Chats: Merge created chats
+        await session.execute(
+            update(Chat)
+            .where(Chat.created_by_user_id == current_guest_user.id)
+            .values(created_by_user_id=verified_user.id)
+        )
+
         # Delete the guest user record A to make room for changing telegram_id
-        await session.execute(delete(User).where(User.id == current_guest_user.id))
+        await session.delete(current_guest_user)
         await session.flush()
 
         # Update verified user's telegram ID
@@ -435,6 +489,9 @@ async def login(
             "email": verified_user.email,
             "nickname": verified_user.nickname,
             "is_verified": verified_user.is_verified,
+            "role": effective_web_role(verified_user, miniapp_user.id),
+            "is_blocked": verified_user.is_blocked,
+            "blocked_reason": verified_user.blocked_reason,
         }
     )
 
@@ -462,6 +519,8 @@ async def get_profile(
     # Map ratings and comments by event_id for merging
     merged: dict[int, dict] = {}
     for r in user_loaded.ratings:
+        if not r.event or r.event.status != "approved":
+            continue
         merged[r.event_id] = {
             "event_token": r.event.public_token,
             "event_title": r.event.title,
@@ -472,6 +531,8 @@ async def get_profile(
             "created_at": r.created_at.isoformat(),
         }
     for c in user_loaded.comments:
+        if not c.event or c.event.status != "approved":
+            continue
         if c.event_id in merged:
             merged[c.event_id]["comment_id"] = c.id
             merged[c.event_id]["content"] = c.content
@@ -495,6 +556,8 @@ async def get_profile(
         email=user.email or "",
         nickname=user.nickname or "",
         is_verified=user.is_verified,
+        is_blocked=user.is_blocked,
+        blocked_reason=user.blocked_reason,
         history=history,
     )
 

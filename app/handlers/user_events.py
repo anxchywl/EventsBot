@@ -15,6 +15,7 @@ from app.services.users import upsert_user_from_telegram
 from app.services.telegram_links import build_event_deep_link
 from app.services.event_cards import format_event_card_text
 from app.handlers.start import get_main_menu_keyboard
+from app.handlers.message_cleanup import delete_messages_fast
 from app.config import get_settings
 
 router = Router()
@@ -45,6 +46,18 @@ async def show_my_events(
     is_callback = isinstance(event_obj, CallbackQuery)
     user_obj = event_obj.from_user
     msg_obj = event_obj.message if is_callback else event_obj
+    data = await state.get_data()
+    await delete_messages_fast(
+        msg_obj.bot,
+        msg_obj.chat.id,
+        [
+            data.get("manage_event_msg_id"),
+            data.get("my_events_selection_msg_id"),
+            data.get("my_events_choose_msg_id"),
+            data.get("confirm_delete_msg_id"),
+            data.get("delete_command_msg_id"),
+        ],
+    )
 
     user = await upsert_user_from_telegram(session, user_obj)
     events = await get_user_events(session, user.id)
@@ -124,11 +137,7 @@ async def show_my_events(
 async def _delete_manage_temp_messages(state: FSMContext, bot: Bot, chat_id: int):
     data = await state.get_data()
     temp_ids = data.get("manage_temp_msg_ids") or []
-    for msg_id in temp_ids:
-        try:
-            await bot.delete_message(chat_id=chat_id, message_id=msg_id)
-        except Exception:
-            pass
+    await delete_messages_fast(bot, chat_id, temp_ids)
     await state.update_data(manage_temp_msg_ids=[])
 
 
@@ -201,12 +210,7 @@ async def process_confirm_delete_text(
             data.get("confirm_delete_msg_id"),
             message.message_id
         ]
-        for msg_id in msg_ids:
-            if msg_id:
-                try:
-                    await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
-                except Exception:
-                    pass
+        await delete_messages_fast(bot, message.chat.id, msg_ids)
 
         await message.answer("Event deleted successfully.")
         is_admin = data.get("is_admin_edit")
@@ -242,12 +246,7 @@ async def process_cancel_delete_text(
             data.get("confirm_delete_msg_id"),
             message.message_id
         ]
-        for msg_id in msg_ids:
-            if msg_id:
-                try:
-                    await message.bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
-                except Exception:
-                    pass
+        await delete_messages_fast(message.bot, message.chat.id, msg_ids)
 
         await state.update_data(confirm_delete_event_id=None)
         
@@ -255,7 +254,7 @@ async def process_cancel_delete_text(
             from app.handlers.admin_panel import _show_admin_manage_event
             await _show_admin_manage_event(message, session, state, event_id, is_callback=False)
         else:
-            await send_manage_event_message(message, event, state=state)
+            await send_manage_event_message(message, event, state=state, cleanup_previous=False)
 
 
 @router.message(F.text == "Back to My Events", F.chat.type == "private")
@@ -278,29 +277,11 @@ async def process_back_to_my_events(
     logging.info(f"DEBUG BACK FULL DATA: {data}")
     logging.info(f"DEBUG BACK: msg_id={msg_id}, selection_msg_id={selection_msg_id}, choose_msg_id={choose_msg_id}")
 
-    if msg_id:
-        try:
-            await message.bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
-        except Exception as e:
-            logging.error(f"Error deleting event card msg: {e}")
-            
-    if selection_msg_id:
-        try:
-            await message.bot.delete_message(chat_id=message.chat.id, message_id=selection_msg_id)
-        except Exception as e:
-            logging.error(f"Error deleting selection msg: {e}")
-
-    if choose_msg_id:
-        try:
-            await message.bot.delete_message(chat_id=message.chat.id, message_id=choose_msg_id)
-        except Exception as e:
-            logging.error(f"Error deleting choose msg: {e}")
-
-    # 4. Also delete the user's "Back to My Events" command message
-    try:
-        await message.delete()
-    except Exception as e:
-        logging.error(f"Error deleting back to my events msg: {e}")
+    await delete_messages_fast(
+        message.bot,
+        message.chat.id,
+        [msg_id, selection_msg_id, choose_msg_id, message.message_id],
+    )
 
     await show_my_events(message, session, state=state, answer=False)
 
@@ -348,7 +329,25 @@ async def process_my_events_selection(
     await send_manage_event_message(message, event, state=state)
 
 
-async def send_manage_event_message(message: Message, event, state: FSMContext = None):
+async def send_manage_event_message(
+    message: Message,
+    event,
+    state: FSMContext = None,
+    *,
+    cleanup_previous: bool = True,
+):
+    if state and cleanup_previous:
+        data = await state.get_data()
+        await delete_messages_fast(
+            message.bot,
+            message.chat.id,
+            [
+                data.get("manage_event_msg_id"),
+                data.get("confirm_delete_msg_id"),
+                data.get("delete_command_msg_id"),
+            ],
+        )
+
     safe_title = html.escape(event.title)
     safe_location = html.escape(event.location)
     safe_cat = html.escape(event.category.name)

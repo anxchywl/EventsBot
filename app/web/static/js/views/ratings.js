@@ -1,5 +1,5 @@
-import { controls, coverStyle, escapeAttr, escapeHtml, nav } from "../components/events.js?v=20260529-flicker-fix-v10";
-import { t } from "../i18n.js?v=20260529-flicker-fix-v10";
+import { controls, coverStyle, escapeAttr, escapeHtml, nav, formatDisplayName } from "../components/events.js?v=20260601-fallback-gradient-v7";
+import { t } from "../i18n.js?v=20260601-fallback-gradient-v7";
 import { state } from "../state.js";
 
 export function renderRatingsTab(profileData = null, reviewsList = []) {
@@ -32,6 +32,15 @@ export function renderAuthSection(profileData = null) {
   const isVerified = state.user && state.user.is_verified;
   if (isVerified) return renderProfile(profileData);
   if (state.forgotStep) return renderForgotPasswordCard(state.forgotStep);
+  if (state.user?.role === "admin" || state.user?.role === "moderator") {
+    return `
+      <div class="panel auth-card">
+        <h2 class="section-title">${t("admin")}</h2>
+        <button class="action primary auth-submit-btn" type="button" data-route="admin">${t("admin")}</button>
+      </div>
+      ${renderAuthCard()}
+    `;
+  }
   return renderAuthCard();
 }
 
@@ -223,11 +232,18 @@ function renderProfile(profile) {
       <div class="profile-header">
         <div class="profile-meta">
           <h2 class="profile-nickname-title">
-            <span id="profile-nickname-display">${escapeHtml(profile.nickname)}</span>
+            <span id="profile-nickname-display">${escapeHtml(formatDisplayName(profile.nickname, profile.email))}</span>
           </h2>
           <span class="profile-email-badge">${escapeHtml(profile.email)}</span>
+          ${profile.is_blocked ? `<div style="margin-top: 10px; color: var(--red); font-size: 0.95rem;">Blocked${profile.blocked_reason ? ` (Reason: ${escapeHtml(profile.blocked_reason)})` : ""}</div>` : ""}
           <div id="nickname-error-msg" class="auth-error ${state.nicknameErrorMsg ? "" : "hide"}">${escapeHtml(state.nicknameErrorMsg || "")}</div>
         </div>
+        <div class="profile-actions">
+        ${(state.user?.role === 'admin' || state.user?.role === 'moderator') ? `
+        <button class="profile-admin-icon" id="admin-btn" type="button" data-route="admin" aria-label="${t("admin")}" title="${t("admin")}">
+          <span class="profile-admin-label">${t("admin")}</span>
+        </button>
+        ` : ''}
         <button class="logout-inline-btn" id="logout-btn" type="button" aria-label="${t("logoutBtn")}">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
@@ -235,7 +251,9 @@ function renderProfile(profile) {
             <path d="M21 12H9"></path>
           </svg>
         </button>
+        </div>
       </div>
+      
 
       <!-- History Section -->
       <div class="profile-history">
@@ -278,10 +296,17 @@ function renderGlobalReviewsFeed(reviews) {
     <article class="feed-review-card">
       <div class="feed-review-header">
         <div class="feed-review-meta">
-          <strong class="feed-review-nickname">${escapeHtml(review.nickname)}</strong>
+          <strong class="feed-review-nickname">${escapeHtml(formatDisplayName(review.nickname, review.email))}</strong>
           <span class="feed-review-event-link" data-event-token="${escapeAttr(review.event_token)}">${t("onWord")} ${escapeHtml(review.event_title)}</span>
         </div>
-        ${review.score ? `<span class="feed-review-stars">${"★".repeat(review.score)}</span>` : ""}
+        <div class="feed-review-actions">
+          ${review.score ? `<span class="feed-review-stars">${"★".repeat(review.score)}</span>` : ""}
+          ${state.user && state.user.role === 'admin' ? `
+            <button class="admin-delete-review-btn" data-event-token="${escapeAttr(review.event_token)}" data-admin-delete-review="${escapeAttr(review.user_id)}" title="${t("deleteBtn")}">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+            </button>
+          ` : ''}
+        </div>
       </div>
       ${review.content ? `<p class="feed-review-body">${escapeHtml(review.content)}</p>` : ""}
       <span class="feed-review-date">${formatDate(review.created_at)}</span>

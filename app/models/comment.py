@@ -9,6 +9,7 @@ from sqlalchemy import (
     ForeignKey,
     Identity,
     Index,
+    String,
     Text,
     func,
 )
@@ -45,5 +46,9 @@ class Comment(Base):
         nullable=False,
     )
 
-    user: Mapped[User] = relationship(back_populates="comments")
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    deleted_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    delete_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    user: Mapped[User] = relationship(back_populates="comments", foreign_keys=[user_id])
     event: Mapped[Event] = relationship(back_populates="comments")

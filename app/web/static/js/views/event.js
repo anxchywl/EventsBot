@@ -1,5 +1,5 @@
-import { controls, coverStyle, escapeAttr, escapeHtml, eventRow, status } from "../components/events.js?v=20260529-flicker-fix-v10";
-import { formatEventDate, t } from "../i18n.js?v=20260529-flicker-fix-v10";
+import { controls, coverStyle, escapeAttr, escapeHtml, eventRow, status, formatDisplayName } from "../components/events.js?v=20260601-fallback-gradient-v7";
+import { formatEventDate, t } from "../i18n.js?v=20260601-fallback-gradient-v7";
 import { state } from "../state.js";
 
 function meta(label, value, copyable = false) {
@@ -199,13 +199,14 @@ function renderEventReviewsList(event) {
   });
 
   return sortedReviews.map(r => `
-    <div class="event-review-card ${r.is_own ? "own-review-card" : ""}">
+    <div class="event-review-card" data-user-id="${r.user_id}">
       <div class="event-review-header">
         <div class="review-meta">
-          <strong class="review-nickname">${escapeHtml(r.nickname)}</strong>
+          <strong class="review-nickname">${escapeHtml(formatDisplayName(r.nickname))}</strong>
           <span class="review-date">${formatReviewDate(r.created_at)}</span>
         </div>
         ${r.score ? `<span class="review-stars">${"★".repeat(r.score)}${"☆".repeat(5 - r.score)}</span>` : ""}
+        ${r.can_delete ? `<button class="admin-review-delete-btn" data-action="admin-delete-review" data-user-id="${r.user_id}" aria-label="Delete Review">✕</button>` : ""}
       </div>
       ${r.content ? `<p class="review-body">${escapeHtml(r.content)}</p>` : ""}
     </div>

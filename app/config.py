@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from functools import lru_cache
 
 from pydantic import Field, SecretStr
@@ -25,6 +27,14 @@ class Settings(BaseSettings):
     )
     moderator_chat_id: int | None = Field(default=None, alias="MODERATOR_CHAT_ID")
     admin_ids: list[int] = Field(default_factory=list, alias="ADMIN_IDS")
+    telegram_delivery_delay_seconds: float = Field(
+        default=0.15,
+        alias="TELEGRAM_DELIVERY_DELAY_SECONDS",
+    )
+    telegram_delivery_max_retries: int = Field(
+        default=3,
+        alias="TELEGRAM_DELIVERY_MAX_RETRIES",
+    )
 
     # email settings
     email_host: str | None = Field(default="console", alias="EMAIL_HOST")

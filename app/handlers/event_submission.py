@@ -2,6 +2,7 @@ import logging
 from datetime import datetime
 from urllib.parse import urlparse
 import html
+import re
 
 from aiogram import Bot, F, Router
 from aiogram.filters import Command
@@ -19,9 +20,15 @@ from app.services.events import (
     get_category_by_id,
 )
 from app.services.users import upsert_user_from_telegram
+from app.handlers.message_cleanup import delete_messages_fast
 
 router = Router()
 logger = logging.getLogger(__name__)
+
+DATE_PROMPT = "Event date (DD MM YYYY)"
+TIME_PROMPT = "Start time (HH MM)"
+_DATE_RE = re.compile(r"^(\d{2}) (\d{2}) (\d{4})$")
+_TIME_RE = re.compile(r"^(\d{2}) (\d{2})$")
 
 
 # tracks states for the event submission form
@@ -52,11 +59,7 @@ async def finalize_previous_step(
     temp_ids = data.get("temp_message_ids", [])
 
     # delete all temporary messages from bottom to top
-    for t_id in reversed(temp_ids):
-        try:
-            await bot.delete_message(chat_id, t_id)
-        except Exception:
-            pass
+    await delete_messages_fast(bot, chat_id, reversed(temp_ids))
 
     await state.update_data(temp_message_ids=[])
 
@@ -121,6 +124,181 @@ async def track_messages(
     )
 
 
+async def push_nav_prompt(
+    state: FSMContext,
+    *,
+    state_name: str,
+    data_key: str | None,
+    prompt_id: int,
+) -> None:
+    data = await state.get_data()
+    stack = list(data.get("submission_nav_stack") or [])
+    stack.append(
+        {
+            "state": state_name,
+            "data_key": data_key,
+            "prompt_id": prompt_id,
+            "answer_id": None,
+        }
+    )
+    await state.update_data(submission_nav_stack=stack)
+
+
+async def record_nav_answer(state: FSMContext, answer_id: int) -> None:
+    data = await state.get_data()
+    stack = list(data.get("submission_nav_stack") or [])
+    if stack:
+        stack[-1]["answer_id"] = answer_id
+        await state.update_data(submission_nav_stack=stack)
+
+
+async def send_submission_prompt(
+    message: Message,
+    state: FSMContext,
+    step: str,
+    session: AsyncSession | None = None,
+) -> Message:
+    if step == "title":
+        msg = await message.answer(
+            "Let's create a new event! What is the **title** of the event?",
+            reply_markup=get_cancel_kb(),
+            parse_mode="Markdown",
+        )
+        await track_messages(state, msg.message_id, is_prompt=True)
+        await push_nav_prompt(
+            state,
+            state_name=EventSubmission.title.state,
+            data_key="title",
+            prompt_id=msg.message_id,
+        )
+        await state.set_state(EventSubmission.title)
+        return msg
+
+    if step == "description":
+        msg = await message.answer(
+            "Great! Now send me a **description** of the event.",
+            reply_markup=get_back_and_cancel_kb(),
+            parse_mode="Markdown",
+        )
+        await track_messages(state, msg.message_id, is_prompt=True)
+        await push_nav_prompt(
+            state,
+            state_name=EventSubmission.description.state,
+            data_key="description",
+            prompt_id=msg.message_id,
+        )
+        await state.set_state(EventSubmission.description)
+        return msg
+
+    if step == "date":
+        msg = await message.answer(
+            DATE_PROMPT,
+            reply_markup=get_back_and_cancel_kb(),
+        )
+        await track_messages(state, msg.message_id, is_prompt=True)
+        await push_nav_prompt(
+            state,
+            state_name=EventSubmission.date.state,
+            data_key="event_date",
+            prompt_id=msg.message_id,
+        )
+        await state.set_state(EventSubmission.date)
+        return msg
+
+    if step == "time":
+        msg = await message.answer(
+            TIME_PROMPT,
+            reply_markup=get_back_and_cancel_kb(),
+        )
+        await track_messages(state, msg.message_id, is_prompt=True)
+        await push_nav_prompt(
+            state,
+            state_name=EventSubmission.time.state,
+            data_key="event_time",
+            prompt_id=msg.message_id,
+        )
+        await state.set_state(EventSubmission.time)
+        return msg
+
+    if step == "location":
+        msg = await message.answer(
+            "Where will the event be held? Please provide the **location**.",
+            reply_markup=get_back_and_cancel_kb(),
+            parse_mode="Markdown",
+        )
+        await track_messages(state, msg.message_id, is_prompt=True)
+        await push_nav_prompt(
+            state,
+            state_name=EventSubmission.location.state,
+            data_key="location",
+            prompt_id=msg.message_id,
+        )
+        await state.set_state(EventSubmission.location)
+        return msg
+
+    if step == "category":
+        categories = await get_active_categories(session)
+        builder = ReplyKeyboardBuilder()
+        builder.button(text="Back")
+        for cat in categories:
+            builder.button(text=cat.name)
+        builder.button(text="Back to Menu")
+        builder.adjust(1)
+        msg = await message.answer(
+            "Please choose a **category** for your event:",
+            reply_markup=builder.as_markup(resize_keyboard=True),
+            parse_mode="Markdown",
+        )
+        await track_messages(state, msg.message_id, is_prompt=True)
+        await push_nav_prompt(
+            state,
+            state_name=EventSubmission.category.state,
+            data_key="category_id",
+            prompt_id=msg.message_id,
+        )
+        await state.set_state(EventSubmission.category)
+        return msg
+
+    if step == "organizer":
+        msg = await message.answer(
+            "Who is organizing the event? Send the **organizer or club name**.",
+            reply_markup=get_back_and_cancel_kb(),
+            parse_mode="Markdown",
+        )
+        await track_messages(state, msg.message_id, is_prompt=True)
+        await push_nav_prompt(
+            state,
+            state_name=EventSubmission.organizer.state,
+            data_key="organizer",
+            prompt_id=msg.message_id,
+        )
+        await state.set_state(EventSubmission.organizer)
+        return msg
+
+    raise ValueError(f"Unknown submission step: {step}")
+
+
+def parse_event_date_input(value: str):
+    match = _DATE_RE.fullmatch(value.strip())
+    if not match:
+        return None
+    day, month, year = map(int, match.groups())
+    try:
+        return datetime(year, month, day).date()
+    except ValueError:
+        return None
+
+
+def parse_event_time_input(value: str):
+    match = _TIME_RE.fullmatch(value.strip())
+    if not match:
+        return None
+    hour, minute = map(int, match.groups())
+    if hour > 23 or minute > 59:
+        return None
+    return datetime(2000, 1, 1, hour, minute).time()
+
+
 # builds the cancel keyboard for submission prompts
 def get_cancel_kb():
     builder = ReplyKeyboardBuilder()
@@ -170,17 +348,14 @@ async def process_menu_create(
     # reset form state before starting
     await state.clear()
     await state.update_data(
-        session_messages=[], prompt_ids=[], temp_message_ids=[], start_from_menu=True
+        session_messages=[],
+        prompt_ids=[],
+        temp_message_ids=[],
+        submission_nav_stack=[],
+        start_from_menu=True,
     )
 
-    text = "Let's create a new event! What is the **title** of the event?"
-
-    await callback.message.answer(
-        text, reply_markup=get_cancel_kb(), parse_mode="Markdown"
-    )
-
-    await track_messages(state, callback.message.message_id, is_prompt=True)
-    await state.set_state(EventSubmission.title)
+    await send_submission_prompt(callback.message, state, "title")
     await callback.answer()
 
 
@@ -198,16 +373,13 @@ async def cmd_submit_event(message: Message, state: FSMContext, session: AsyncSe
     # reset form state before starting
     await state.clear()
     await state.update_data(
-        session_messages=[message.message_id], prompt_ids=[], temp_message_ids=[], start_from_menu=True
+        session_messages=[message.message_id],
+        prompt_ids=[],
+        temp_message_ids=[],
+        submission_nav_stack=[],
+        start_from_menu=True,
     )
-
-    msg = await message.answer(
-        "Let's create a new event! What is the **title** of the event?",
-        reply_markup=get_cancel_kb(),
-        parse_mode="Markdown",
-    )
-    await track_messages(state, msg.message_id, is_prompt=True)
-    await state.set_state(EventSubmission.title)
+    await send_submission_prompt(message, state, "title")
 
 
 # saves the event title
@@ -228,16 +400,12 @@ async def process_title(message: Message, state: FSMContext, bot: Bot, session: 
     await finalize_previous_step(
         state, bot, message.chat.id, f"📝 **Title:** {message.text}"
     )
+    await record_nav_answer(state, message.message_id)
 
     # store the title and ask for description
     await state.update_data(title=message.text, last_step_user_message_id=message.message_id)
-    msg = await message.answer(
-        "Great! Now send me a **description** of the event.",
-        reply_markup=get_back_and_cancel_kb(),
-        parse_mode="Markdown",
-    )
-    await track_messages(state, message.message_id, msg.message_id, is_prompt=True)
-    await state.set_state(EventSubmission.description)
+    await track_messages(state, message.message_id)
+    await send_submission_prompt(message, state, "description")
 
 
 # saves the event description
@@ -261,16 +429,12 @@ async def process_description(message: Message, state: FSMContext, bot: Bot, ses
     await finalize_previous_step(
         state, bot, message.chat.id, "✓ **Description received.**"
     )
+    await record_nav_answer(state, message.message_id)
 
     # store the description and ask for date
     await state.update_data(description=message.text, last_step_user_message_id=message.message_id)
-    msg = await message.answer(
-        "When will the event take place? Please send the **date** in DD.MM.YYYY format or DD MM YYYY format (e.g., 31.12.2023 or 31 12 2023).",
-        reply_markup=get_back_and_cancel_kb(),
-        parse_mode="Markdown",
-    )
-    await track_messages(state, message.message_id, msg.message_id, is_prompt=True)
-    await state.set_state(EventSubmission.date)
+    await track_messages(state, message.message_id)
+    await send_submission_prompt(message, state, "date")
 
 
 # saves the event date
@@ -283,65 +447,41 @@ async def process_date(message: Message, state: FSMContext, bot: Bot, session: A
         await go_back_one_step(message, state, bot, session)
         return
 
-    # reject obviously invalid date input early
-    if len(message.text) > 10:
-        msg = await message.answer("Invalid date format. Please use DD.MM.YYYY or DD MM YYYY.")
+    event_date = parse_event_date_input(message.text)
+    if event_date is None:
+        msg = await message.answer("Invalid date. Use DD MM YYYY, for example 22 11 2026.")
         await track_messages(state, message.message_id, msg.message_id, is_temp=True)
         return
 
-    raw_text = message.text.strip()
-    clean_text = raw_text.replace(" ", ".")
-    try:
-        # parse the date using the expected local format
-        event_date = datetime.strptime(clean_text, "%d.%m.%Y").date()
+    from zoneinfo import ZoneInfo
+    from app.config import get_settings
 
-        from zoneinfo import ZoneInfo
-        from app.config import get_settings
+    settings = get_settings()
+    tz = ZoneInfo(settings.app_timezone)
+    today = datetime.now(tz).date()
 
-        settings = get_settings()
-        tz = ZoneInfo(settings.app_timezone)
-        today = datetime.now(tz).date()
-
-        # reject dates outside the allowed planning window
-        if event_date < today:
-            msg = await message.answer(
-                "Date cannot be in the past. Please enter a future date."
-            )
-            await track_messages(
-                state, message.message_id, msg.message_id, is_temp=True
-            )
-            return
-
-        from datetime import timedelta
-
-        if event_date > today + timedelta(days=365):
-            msg = await message.answer("Date cannot be more than 1 year in the future.")
-            await track_messages(
-                state, message.message_id, msg.message_id, is_temp=True
-            )
-            return
-
-        # save the accepted date
-        await finalize_previous_step(
-            state, bot, message.chat.id, f"📅 **Date:** {event_date.strftime('%d.%m.%Y')}"
-        )
-        await state.update_data(event_date=event_date, last_step_user_message_id=message.message_id)
-        await track_messages(state, message.message_id)
-    except ValueError:
-        msg = await message.answer(
-            "Invalid date format. Please use DD.MM.YYYY or DD MM YYYY (e.g., 31.12.2023 or 31 12 2023)."
-        )
+    # reject dates outside the allowed planning window
+    if event_date < today:
+        msg = await message.answer("Date cannot be in the past. Use DD MM YYYY.")
         await track_messages(state, message.message_id, msg.message_id, is_temp=True)
         return
+
+    from datetime import timedelta
+
+    if event_date > today + timedelta(days=365):
+        msg = await message.answer("Date cannot be more than 1 year in the future.")
+        await track_messages(state, message.message_id, msg.message_id, is_temp=True)
+        return
+
+    await finalize_previous_step(
+        state, bot, message.chat.id, f"📅 **Date:** {event_date.strftime('%d.%m.%Y')}"
+    )
+    await record_nav_answer(state, message.message_id)
+    await state.update_data(event_date=event_date, last_step_user_message_id=message.message_id)
+    await track_messages(state, message.message_id)
 
     # ask for the start time after date validation
-    msg = await message.answer(
-        "What time will it start? Please send the **time** in HH:MM or HH MM format (e.g., 18:30 or 18 30).",
-        reply_markup=get_back_and_cancel_kb(),
-        parse_mode="Markdown",
-    )
-    await track_messages(state, message.message_id, msg.message_id, is_prompt=True)
-    await state.set_state(EventSubmission.time)
+    await send_submission_prompt(message, state, "time")
 
 
 # saves the event time
@@ -354,57 +494,38 @@ async def process_time(message: Message, state: FSMContext, bot: Bot, session: A
         await go_back_one_step(message, state, bot, session)
         return
 
-    # reject obviously invalid time input early
-    if len(message.text) > 10:
-        msg = await message.answer("Invalid time format. Please use HH:MM or HH MM.")
+    event_time = parse_event_time_input(message.text)
+    if event_time is None:
+        msg = await message.answer("Invalid time. Use HH MM, for example 18 30.")
         await track_messages(state, message.message_id, msg.message_id, is_temp=True)
         return
 
-    raw_text = message.text.strip()
-    clean_text = raw_text.replace(" ", ":")
-    try:
-        # parse the time using the expected local format
-        event_time = datetime.strptime(clean_text, "%H:%M").time()
+    data = await state.get_data()
+    event_date = data.get("event_date")
 
-        data = await state.get_data()
-        event_date = data.get("event_date")
+    from zoneinfo import ZoneInfo
+    from app.config import get_settings
 
-        from zoneinfo import ZoneInfo
-        from app.config import get_settings
+    settings = get_settings()
+    tz = ZoneInfo(settings.app_timezone)
+    now = datetime.now(tz)
 
-        settings = get_settings()
-        tz = ZoneInfo(settings.app_timezone)
-        now = datetime.now(tz)
-
-        # reject times that already passed today
-        if event_date == now.date() and event_time < now.time():
-            msg = await message.answer("Time cannot be in the past for today's date.")
-            await track_messages(
-                state, message.message_id, msg.message_id, is_temp=True
-            )
-            return
-
-        # save the accepted time
-        await finalize_previous_step(
-            state, bot, message.chat.id, f"🕒 **Time:** {event_time.strftime('%H:%M')}"
-        )
-        await state.update_data(event_time=event_time, last_step_user_message_id=message.message_id)
-        await track_messages(state, message.message_id)
-    except ValueError:
-        msg = await message.answer(
-            "Invalid time format. Please use HH:MM or HH MM (e.g., 18:30 or 18 30)."
-        )
+    # reject times that already passed today
+    if event_date == now.date() and event_time < now.time():
+        msg = await message.answer("Time cannot be in the past for today's date.")
         await track_messages(state, message.message_id, msg.message_id, is_temp=True)
         return
+
+    # save the accepted time
+    await finalize_previous_step(
+        state, bot, message.chat.id, f"🕒 **Time:** {event_time.strftime('%H:%M')}"
+    )
+    await record_nav_answer(state, message.message_id)
+    await state.update_data(event_time=event_time, last_step_user_message_id=message.message_id)
+    await track_messages(state, message.message_id)
 
     # ask for the location after time validation
-    msg = await message.answer(
-        "Where will the event be held? Please provide the **location**.",
-        reply_markup=get_back_and_cancel_kb(),
-        parse_mode="Markdown",
-    )
-    await track_messages(state, message.message_id, msg.message_id, is_prompt=True)
-    await state.set_state(EventSubmission.location)
+    await send_submission_prompt(message, state, "location")
 
 
 # saves the event location
@@ -430,25 +551,11 @@ async def process_location(
     await finalize_previous_step(
         state, bot, message.chat.id, f"📍 **Location:** {message.text}"
     )
+    await record_nav_answer(state, message.message_id)
     # store location and show categories
     await state.update_data(location=message.text, last_step_user_message_id=message.message_id)
     await track_messages(state, message.message_id)
-
-    categories = await get_active_categories(session)
-    builder = ReplyKeyboardBuilder()
-    builder.button(text="Back")
-    for cat in categories:
-        builder.button(text=cat.name)
-    builder.button(text="Back to Menu")
-    builder.adjust(1)
-
-    msg = await message.answer(
-        "Please choose a **category** for your event:",
-        reply_markup=builder.as_markup(resize_keyboard=True),
-        parse_mode="Markdown",
-    )
-    await track_messages(state, message.message_id, msg.message_id, is_prompt=True)
-    await state.set_state(EventSubmission.category)
+    await send_submission_prompt(message, state, "category", session)
 
 
 # saves the selected category
@@ -474,16 +581,11 @@ async def process_category(
     await finalize_previous_step(
         state, bot, message.chat.id, f"📁 **Category:** {category.name}"
     )
+    await record_nav_answer(state, message.message_id)
 
     await state.update_data(category_id=category.id, category_name=category.name, last_step_user_message_id=message.message_id)
     await track_messages(state, message.message_id)
-    msg = await message.answer(
-        "Who is organizing the event? Send the **organizer or club name**.",
-        reply_markup=get_back_and_cancel_kb(),
-        parse_mode="Markdown",
-    )
-    await track_messages(state, message.message_id, msg.message_id, is_prompt=True)
-    await state.set_state(EventSubmission.organizer)
+    await send_submission_prompt(message, state, "organizer")
 
 
 # saves the organizer name
@@ -499,6 +601,7 @@ async def process_organizer(message: Message, state: FSMContext, bot: Bot, sessi
     await finalize_previous_step(
         state, bot, message.chat.id, f"🏢 **Organizer:** {message.text}"
     )
+    await record_nav_answer(state, message.message_id)
 
     await state.update_data(organizer=message.text, last_step_user_message_id=message.message_id)
     await track_messages(state, message.message_id)
@@ -511,6 +614,7 @@ async def process_poster(message: Message, state: FSMContext, bot: Bot):
     # use the highest resolution telegram photo
     file_id = message.photo[-1].file_id
     await state.update_data(poster_file_id=file_id, last_step_user_message_id=message.message_id)
+    await record_nav_answer(state, message.message_id)
     await track_messages(state, message.message_id)
     await finalize_previous_step(state, bot, message.chat.id, "🖼️ **Poster uploaded.**")
     await prompt_registration_link(message, state, bot)
@@ -520,6 +624,7 @@ async def process_poster(message: Message, state: FSMContext, bot: Bot):
 @router.message(EventSubmission.poster, F.text == "Skip poster")
 async def skip_poster(message: Message, state: FSMContext, bot: Bot, session: AsyncSession):
     await state.update_data(poster_file_id=None, last_step_user_message_id=message.message_id)
+    await record_nav_answer(state, message.message_id)
     await track_messages(state, message.message_id)
     await finalize_previous_step(
         state, bot, message.chat.id, "🖼️ **No poster (skipped).**"
@@ -536,6 +641,12 @@ async def prompt_poster(message_obj: Message, state: FSMContext, bot: Bot):
         parse_mode="Markdown",
     )
     await track_messages(state, msg.message_id, is_prompt=True)
+    await push_nav_prompt(
+        state,
+        state_name=EventSubmission.poster.state,
+        data_key="poster_file_id",
+        prompt_id=msg.message_id,
+    )
     await state.set_state(EventSubmission.poster)
 
 
@@ -553,28 +664,67 @@ async def prompt_registration_link(message_obj: Message, state: FSMContext, bot:
         parse_mode="Markdown",
     )
     await track_messages(state, msg.message_id, is_prompt=True)
+    await push_nav_prompt(
+        state,
+        state_name=EventSubmission.registration_link.state,
+        data_key="registration_url",
+        prompt_id=msg.message_id,
+    )
     await state.set_state(EventSubmission.registration_link)
 
 
 async def go_back_one_step(message: Message, state: FSMContext, bot: Bot, session: AsyncSession):
     data = await state.get_data()
-    current_prompt_id = data.get("current_prompt_id")
-    previous_prompt_id = data.get("previous_prompt_id")
-    last_step_user_message_id = data.get("last_step_user_message_id")
+    if data.get("submission_back_in_progress"):
+        try:
+            await bot.delete_message(message.chat.id, message.message_id)
+        except Exception:
+            pass
+        return
+    await state.update_data(submission_back_in_progress=True)
+    try:
+        await _go_back_one_step_locked(message, state, bot, session)
+    finally:
+        await state.update_data(submission_back_in_progress=False)
+
+
+async def _go_back_one_step_locked(message: Message, state: FSMContext, bot: Bot, session: AsyncSession):
+    data = await state.get_data()
+    stack = list(data.get("submission_nav_stack") or [])
     temp_ids = data.get("temp_message_ids", [])
     chat_id = message.chat.id
 
-    for msg_id in filter(None, [message.message_id, current_prompt_id, previous_prompt_id, last_step_user_message_id]):
-        try:
-            await bot.delete_message(chat_id, msg_id)
-        except Exception:
-            pass
+    await delete_messages_fast(bot, chat_id, reversed(temp_ids))
 
-    for t_id in reversed(temp_ids):
-        try:
-            await bot.delete_message(chat_id, t_id)
-        except Exception:
-            pass
+    if len(stack) < 2:
+        await delete_messages_fast(
+            bot,
+            chat_id,
+            [message.message_id, stack[-1].get("prompt_id") if stack else None],
+        )
+        await state.update_data(temp_message_ids=[])
+        return
+
+    current_entry = stack.pop()
+    previous_entry = stack.pop()
+
+    await delete_messages_fast(
+        bot,
+        chat_id,
+        [
+            message.message_id,
+            current_entry.get("prompt_id"),
+            previous_entry.get("answer_id"),
+            previous_entry.get("prompt_id"),
+        ],
+    )
+
+    previous_key = previous_entry.get("data_key")
+    if previous_key:
+        updates = {previous_key: None}
+        if previous_key == "category_id":
+            updates["category_name"] = None
+        await state.update_data(**updates)
 
     await state.update_data(
         current_prompt_id=None,
@@ -582,101 +732,28 @@ async def go_back_one_step(message: Message, state: FSMContext, bot: Bot, sessio
         prompt_ids=[],
         temp_message_ids=[],
         last_step_user_message_id=None,
+        submission_nav_stack=stack,
     )
 
-    current_state = await state.get_state()
-    if current_state == EventSubmission.confirm:
-        await state.update_data(registration_url=None)
-        await prompt_registration_link(message, state, bot)
+    previous_state = previous_entry.get("state")
+    step_by_state = {
+        EventSubmission.title.state: "title",
+        EventSubmission.description.state: "description",
+        EventSubmission.date.state: "date",
+        EventSubmission.time.state: "time",
+        EventSubmission.location.state: "location",
+        EventSubmission.category.state: "category",
+        EventSubmission.organizer.state: "organizer",
+    }
+    step = step_by_state.get(previous_state)
+    if step:
+        await send_submission_prompt(message, state, step, session)
         return
-
-    if current_state == EventSubmission.registration_link:
-        await state.update_data(poster_file_id=None)
+    if previous_state == EventSubmission.poster.state:
         await prompt_poster(message, state, bot)
         return
-
-    if current_state == EventSubmission.poster:
-        await state.update_data(organizer=None)
-        msg = await message.answer(
-            "Who is organizing the event? Send the **organizer or club name**.",
-            reply_markup=get_back_and_cancel_kb(),
-            parse_mode="Markdown",
-        )
-        await track_messages(state, msg.message_id, is_prompt=True)
-        await state.set_state(EventSubmission.organizer)
-        return
-
-    if current_state == EventSubmission.organizer:
-        await state.update_data(category_id=None, category_name=None)
-        categories = await get_active_categories(session)
-        builder = ReplyKeyboardBuilder()
-        builder.button(text="Back")
-        for cat in categories:
-            builder.button(text=cat.name)
-        builder.button(text="Back to Menu")
-        builder.adjust(1)
-        msg = await message.answer(
-            "Please choose a **category** for your event:",
-            reply_markup=builder.as_markup(resize_keyboard=True),
-            parse_mode="Markdown",
-        )
-        await track_messages(state, msg.message_id, is_prompt=True)
-        await state.set_state(EventSubmission.category)
-        return
-
-    if current_state == EventSubmission.category:
-        await state.update_data(location=None)
-        msg = await message.answer(
-            "Where will the event be held? Please provide the **location**.",
-            reply_markup=get_back_and_cancel_kb(),
-            parse_mode="Markdown",
-        )
-        await track_messages(state, msg.message_id, is_prompt=True)
-        await state.set_state(EventSubmission.location)
-        return
-
-    if current_state == EventSubmission.location:
-        await state.update_data(event_time=None)
-        msg = await message.answer(
-            "What time will it start? Please send the **time** in HH:MM or HH MM format (e.g., 18:30 or 18 30).",
-            reply_markup=get_back_and_cancel_kb(),
-            parse_mode="Markdown",
-        )
-        await track_messages(state, msg.message_id, is_prompt=True)
-        await state.set_state(EventSubmission.time)
-        return
-
-    if current_state == EventSubmission.time:
-        await state.update_data(event_date=None)
-        msg = await message.answer(
-            "When will the event take place? Please send the **date** in DD.MM.YYYY format or DD MM YYYY format (e.g., 31.12.2023 or 31 12 2023).",
-            reply_markup=get_back_and_cancel_kb(),
-            parse_mode="Markdown",
-        )
-        await track_messages(state, msg.message_id, is_prompt=True)
-        await state.set_state(EventSubmission.date)
-        return
-
-    if current_state == EventSubmission.date:
-        await state.update_data(description=None)
-        msg = await message.answer(
-            "Great! Now send me a **description** of the event.",
-            reply_markup=get_back_and_cancel_kb(),
-            parse_mode="Markdown",
-        )
-        await track_messages(state, msg.message_id, is_prompt=True)
-        await state.set_state(EventSubmission.description)
-        return
-
-    if current_state == EventSubmission.description:
-        await state.update_data(title=None)
-        msg = await message.answer(
-            "Let's create a new event! What is the **title** of the event?",
-            reply_markup=get_cancel_kb(),
-            parse_mode="Markdown",
-        )
-        await track_messages(state, msg.message_id, is_prompt=True)
-        await state.set_state(EventSubmission.title)
+    if previous_state == EventSubmission.registration_link.state:
+        await prompt_registration_link(message, state, bot)
         return
 
 
@@ -765,6 +842,7 @@ async def process_registration_link(message: Message, state: FSMContext, bot: Bo
         return
 
     await state.update_data(registration_url=message.text, last_step_user_message_id=message.message_id)
+    await record_nav_answer(state, message.message_id)
     await finalize_previous_step(
         state, bot, message.chat.id, f"🔗 **Link:** {message.text}"
     )
@@ -775,6 +853,7 @@ async def process_registration_link(message: Message, state: FSMContext, bot: Bo
 # skips the registration link
 async def skip_registration_link(message: Message, state: FSMContext, bot: Bot):
     await state.update_data(registration_url=None, last_step_user_message_id=message.message_id)
+    await record_nav_answer(state, message.message_id)
     await track_messages(state, message.message_id)
     await finalize_previous_step(
         state, bot, message.chat.id, "🔗 **No link (skipped).**"
@@ -822,6 +901,12 @@ async def show_event_preview(message_obj: Message, state: FSMContext, bot: Bot):
         )
 
     await track_messages(state, msg.message_id, is_prompt=True)
+    await push_nav_prompt(
+        state,
+        state_name=EventSubmission.confirm.state,
+        data_key=None,
+        prompt_id=msg.message_id,
+    )
     await state.set_state(EventSubmission.confirm)
 
 
@@ -846,36 +931,6 @@ async def confirm_submission(
         reply_markup=get_main_menu_keyboard(is_admin)
     )
 
-    # notify moderators when a moderator chat is configured
-    moderator_chat_id = getattr(settings, "moderator_chat_id", None)
-    if moderator_chat_id:
-        from app.handlers.moderation import get_moderation_keyboard
-
-        try:
-            text = (
-                f"🔔 **New Event Submitted**\n\n"
-                f"<b>Title:</b> {event.title}\n"
-                f"<b>Creator:</b> {user.first_name} (@{user.username})\n"
-                f"<b>ID:</b> {event.id}"
-            )
-            if event.poster_file_id:
-                await bot.send_photo(
-                    moderator_chat_id,
-                    event.poster_file_id,
-                    caption=text,
-                    reply_markup=get_moderation_keyboard(event.id),
-                    parse_mode="Markdown",
-                )
-            else:
-                await bot.send_message(
-                    moderator_chat_id,
-                    text,
-                    reply_markup=get_moderation_keyboard(event.id),
-                    parse_mode="Markdown",
-                )
-        except Exception:
-            pass
-
     await state.clear()
 
 
@@ -888,26 +943,15 @@ async def cancel_submission_message(
     messages = data.get("session_messages", [])
 
     # delete all interactive user responses and bot prompts from this submission session
-    for msg_id in reversed(messages):
-        try:
-            await message.bot.delete_message(message.chat.id, msg_id)
-        except Exception:
-            pass
-
-    # delete the user's triggering "Back to Menu" / "Cancel" text message
-    try:
-        await message.delete()
-    except Exception:
-        pass
+    delete_ids = [*reversed(messages), message.message_id]
 
     # delete the previous Welcome message to avoid duplicates
     from app.handlers.start import last_welcome_messages, send_main_menu
     welcome_msg_id = last_welcome_messages.get(message.from_user.id)
     if welcome_msg_id:
-        try:
-            await message.bot.delete_message(message.chat.id, welcome_msg_id)
-        except Exception:
-            pass
+        delete_ids.append(welcome_msg_id)
+
+    await delete_messages_fast(message.bot, message.chat.id, delete_ids)
 
     await state.clear()
     await send_main_menu(message, session)

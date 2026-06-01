@@ -145,10 +145,25 @@ async def get_pending_events(session: AsyncSession) -> Sequence[Event]:
     result = await session.execute(
         select(Event)
         .where(Event.status == EventStatus.PENDING.value)
-        .order_by(Event.created_at)
+        .order_by(Event.created_at, Event.id)
         .options(selectinload(Event.category), selectinload(Event.creator))
     )
-    return result.scalars().all()
+    pending = result.scalars().all()
+
+    latest_by_source: dict[int, Event] = {}
+    for event in pending:
+        source_id = event.parent_event_id or event.id
+        current = latest_by_source.get(source_id)
+        if current is None or (event.created_at, event.id) > (
+            current.created_at,
+            current.id,
+        ):
+            latest_by_source[source_id] = event
+
+    return sorted(
+        latest_by_source.values(),
+        key=lambda event: (event.created_at, event.id),
+    )
 
 
 # loads events created by a user

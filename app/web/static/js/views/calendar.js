@@ -1,7 +1,7 @@
 import { addFavorite, createReminder, removeFavorite } from "../api.js";
-import { coverStyle, escapeAttr, escapeHtml, nav } from "../components/events.js?v=20260529-flicker-fix-v10";
-import { openReminderSheet } from "../components/sheets.js?v=20260529-flicker-fix-v10";
-import { t } from "../i18n.js?v=20260529-flicker-fix-v10";
+import { coverStyle, escapeAttr, escapeHtml, nav } from "../components/events.js?v=20260601-fallback-gradient-v7";
+import { openReminderSheet } from "../components/sheets.js?v=20260601-fallback-gradient-v7";
+import { t } from "../i18n.js?v=20260601-fallback-gradient-v7";
 import { state } from "../state.js";
 import { haptic } from "../telegram.js";
 

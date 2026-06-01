@@ -12,6 +12,7 @@ from app.models.chat import Chat, ChatCategorySetting, DashboardMessage
 from app.models.event import Event, EventCategory
 from app.services.event_cards import render_dashboard_event_line
 from app.services.events import ensure_event_public_token
+from app.services.telegram_delivery import call_with_telegram_backoff
 
 
 from zoneinfo import ZoneInfo
@@ -25,12 +26,7 @@ def render_dashboard(
     upcoming_events: list[Event],
     bot_username: str | None = None,
 ) -> str:
-    # show enabled category names at the bottom
-    categories_text = ", ".join(category.name for category in enabled_categories)
-    if not categories_text:
-        categories_text = "No categories enabled yet"
-
-    lines = ["<b>Events</b>\n"]
+    lines = []
 
     if not upcoming_events:
         lines.append("No approved upcoming events.\n")
@@ -65,18 +61,6 @@ def render_dashboard(
                 lines.append(f"<b>{group_name}</b>")
                 lines.extend(events)
                 lines.append("")
-
-    lines.append("<b>Enabled categories</b>")
-    lines.append(f"{categories_text}\n")
-
-    lines.append("<b>Notes:</b>")
-    lines.append("• This message is updated automatically.")
-    lines.append(
-        '• Promote the bot to Admin (with "Delete Messages" right) so it can keep the chat clean.'
-    )
-    lines.append(
-        "• This bot is <a href='https://github.com/anxchywl/events_bot'>open-source</a>."
-    )
 
     return "\n".join(lines)
 
@@ -119,6 +103,9 @@ async def create_or_update_dashboard_message(
     from sqlalchemy.orm import selectinload
     from sqlalchemy import false
 
+    if chat.chat_type == "private":
+        raise ValueError("Dashboards are only sent to groups, supergroups, and channels.")
+
     enabled_categories = await get_enabled_categories(session, chat.id)
     enabled_cat_ids = [c.id for c in enabled_categories]
 
@@ -160,26 +147,20 @@ async def create_or_update_dashboard_message(
 
     # create the message once or edit the existing one
     if dashboard_message is None:
-        sent_message = await bot.send_message(
-            chat_id=chat.telegram_chat_id,
-            text=text,
-            parse_mode="HTML",
-            disable_web_page_preview=True,
+        sent_message = await call_with_telegram_backoff(
+            lambda: bot.send_message(
+                chat_id=chat.telegram_chat_id,
+                text=text,
+                parse_mode="HTML",
+                disable_web_page_preview=True,
+            ),
+            context=f"send dashboard to chat {chat.telegram_chat_id}",
         )
         dashboard_message = DashboardMessage(
             chat_id=chat.id,
             message_id=sent_message.message_id,
         )
         session.add(dashboard_message)
-        # pin the dashboard message silently so it stays visible
-        try:
-            await bot.pin_chat_message(
-                chat_id=chat.telegram_chat_id,
-                message_id=sent_message.message_id,
-                disable_notification=True,
-            )
-        except Exception:
-            pass
     else:
         await edit_or_recreate_dashboard_message(
             bot=bot,
@@ -188,10 +169,27 @@ async def create_or_update_dashboard_message(
             text=text,
         )
 
+    await pin_dashboard_message_silently(bot, chat, dashboard_message.message_id)
+
     dashboard_message.last_rendered_at = datetime.now(UTC)
     dashboard_message.last_render_hash = text_hash
     await session.flush()
     return dashboard_message
+
+
+async def pin_dashboard_message_silently(
+    bot: Bot,
+    chat: Chat,
+    message_id: int,
+) -> None:
+    try:
+        await bot.pin_chat_message(
+            chat_id=chat.telegram_chat_id,
+            message_id=message_id,
+            disable_notification=True,
+        )
+    except Exception:
+        pass
 
 
 # edits a dashboard message or recreates it when needed
@@ -202,12 +200,15 @@ async def edit_or_recreate_dashboard_message(
     text: str,
 ) -> None:
     try:
-        await bot.edit_message_text(
-            chat_id=chat.telegram_chat_id,
-            message_id=dashboard_message.message_id,
-            text=text,
-            parse_mode="HTML",
-            disable_web_page_preview=True,
+        await call_with_telegram_backoff(
+            lambda: bot.edit_message_text(
+                chat_id=chat.telegram_chat_id,
+                message_id=dashboard_message.message_id,
+                text=text,
+                parse_mode="HTML",
+                disable_web_page_preview=True,
+            ),
+            context=f"edit dashboard in chat {chat.telegram_chat_id}",
         )
     except TelegramBadRequest as error:
         # ignore no-op edits from telegram
@@ -218,11 +219,14 @@ async def edit_or_recreate_dashboard_message(
             "message to edit not found" in message
             or "message can't be edited" in message
         ):
-            sent_message = await bot.send_message(
-                chat_id=chat.telegram_chat_id,
-                text=text,
-                parse_mode="HTML",
-                disable_web_page_preview=True,
+            sent_message = await call_with_telegram_backoff(
+                lambda: bot.send_message(
+                    chat_id=chat.telegram_chat_id,
+                    text=text,
+                    parse_mode="HTML",
+                    disable_web_page_preview=True,
+                ),
+                context=f"recreate dashboard in chat {chat.telegram_chat_id}",
             )
             dashboard_message.message_id = sent_message.message_id
             return

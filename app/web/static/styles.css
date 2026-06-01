@@ -142,7 +142,9 @@ html.theme-transitioning *::after {
 html.theme-transitioning .favorite-toggle,
 html.theme-transitioning .favorite-toggle *,
 html.theme-transitioning .favorite-remove-button,
-html.theme-transitioning .favorite-remove-button * {
+html.theme-transitioning .favorite-remove-button *,
+html.theme-transitioning .event-row-favorite-sticker,
+html.theme-transitioning .event-row-favorite-sticker * {
   transition: none !important;
   animation: none !important;
 }
@@ -468,20 +470,15 @@ a {
   transform: scale(0.94);
 }
 
-/* Hide profile button on event page - remove it from layout entirely */
-html[data-current-route="event"] #global-controls .profile-trigger-btn {
-  opacity: 0;
-  pointer-events: none;
-  width: 0 !important;
-  height: 0 !important;
-  padding: 0 !important;
-  margin: 0 !important;
-  border: none !important;
-  flex-shrink: 0;
+/* Hide profile button on event and admin pages - remove it from layout entirely */
+html[data-current-route="event"] #global-controls .profile-trigger-btn,
+html[data-current-route="admin"] #global-controls .profile-trigger-btn {
+  display: none !important;
 }
 
-/* Push theme/lang buttons to the right on event page */
-html[data-current-route="event"] #global-controls {
+/* Push theme/lang buttons to the right on event and admin pages */
+html[data-current-route="event"] #global-controls,
+html[data-current-route="admin"] #global-controls {
   justify-content: flex-end;
   gap: 10px;
 }
@@ -919,13 +916,14 @@ html.auth-focusing .app-nav {
   position: relative;
   width: 100%;
   display: grid;
-  grid-template-columns: 70px minmax(0, 1fr);
-  align-items: stretch;
-  gap: 12px;
+  grid-template-columns: 88px minmax(0, 1fr);
+  align-items: center;
+  column-gap: 18px;
   text-align: left;
   cursor: pointer;
   margin-bottom: 10px;
-  padding: 14px;
+  min-height: 118px;
+  padding: 18px 20px;
   border: 1px solid var(--line-strong);
   font: inherit;
   transition:
@@ -942,17 +940,36 @@ html.auth-focusing .app-nav {
 
 .event-row strong {
   display: block;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
   color: var(--text);
-  font-size: 0.95rem;
+  font-size: 1rem;
   font-weight: 800;
   letter-spacing: -0.025em;
+  line-height: 1.18;
+}
+
+.event-row-top-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.event-row-top-meta em {
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--brand) 10%, transparent);
+  color: var(--link);
+  font-style: normal;
+  font-size: 0.68rem;
+  font-weight: 800;
+  line-height: 1.2;
 }
 
 .event-row .event-countdown {
   display: inline-flex;
   width: fit-content;
-  margin-bottom: 6px;
   padding: 3px 7px;
   border-radius: 999px;
   background: color-mix(in srgb, var(--brand) 10%, transparent);
@@ -969,17 +986,25 @@ html.auth-focusing .app-nav {
 .event-row span {
   display: block;
   color: var(--hint);
-  font-size: 0.78rem;
+  font-size: 0.8rem;
   font-weight: 600;
-  line-height: 1.45;
+  line-height: 1.38;
 }
 
 .event-row-cover {
-  grid-row: 1 / span 2;
+  position: relative;
   align-self: center;
-  width: 70px;
-  height: 70px;
+  width: 88px;
+  height: 88px;
   border-radius: 14px;
+}
+
+.event-row-cover::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  z-index: 1;
   background:
     radial-gradient(ellipse at 20% 14%, color-mix(in srgb, var(--fallback-c, #ffffff) 22%, transparent) 0%, transparent 66%),
     radial-gradient(ellipse at 82% 20%, color-mix(in srgb, var(--fallback-b, var(--brand-2)) 18%, transparent) 0%, transparent 64%),
@@ -987,69 +1012,54 @@ html.auth-focusing .app-nav {
     var(--panel-soft);
   background-size: cover;
   background-position: center;
+  transition: filter 0.2s ease;
 }
 
-.event-row-cover.has-image {
+.event-row-cover.has-image::before {
   background:
     linear-gradient(180deg, rgba(5, 8, 18, 0.08), rgba(5, 8, 18, 0.34)),
     var(--cover-image) center / cover no-repeat;
 }
 
+.event-row-favorite-sticker {
+  position: absolute;
+  top: -8px;
+  left: -8px;
+  z-index: 8;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  color: #ffd76f !important;
+  pointer-events: none;
+  transform: rotate(-9deg);
+}
+
+.event-row-favorite-sticker span {
+  display: block;
+  color: #ffd76f !important;
+  font-size: 1.52rem;
+  line-height: 1;
+  text-shadow: none;
+}
+
 .event-row-body {
   min-width: 0;
-}
-
-.row-badges {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 8px;
-}
-
-.event-row.has-side-badges .row-badges {
-  grid-column: 2;
-  justify-content: flex-start;
+  align-self: center;
 }
 
 .event-row:not(.has-side-badges) {
-  grid-template-columns: 70px minmax(0, 1fr);
+  grid-template-columns: 88px minmax(0, 1fr);
 }
 
 .event-row.has-favorite-action {
-  grid-template-columns: 70px minmax(0, 1fr) auto;
-}
-
-.event-row.has-favorite-action .event-row-cover {
-  grid-row: 1 / span 2;
-}
-
-.event-row.has-favorite-action .event-row-body {
-  align-self: end;
-}
-
-.event-row:not(.has-side-badges) .row-badges {
-  grid-column: 2;
-}
-
-.event-row.has-favorite-action .row-badges {
-  grid-column: 2;
-  align-self: start;
-  margin-top: 2px;
+  grid-template-columns: 88px minmax(0, 1fr) auto;
 }
 
 .event-row.has-favorite-action .favorite-remove-button {
   grid-column: 3;
-  grid-row: 1 / span 2;
-}
-
-.row-badges em {
-  padding: 4px 7px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--brand) 10%, transparent);
-  color: var(--link);
-  font-style: normal;
-  font-size: 0.68rem;
-  font-weight: 800;
+  grid-row: 1;
 }
 
 .event-row.ended {
@@ -1058,7 +1068,7 @@ html.auth-focusing .app-nav {
   filter: saturate(0.78) !important;
 }
 
-.event-row.ended .event-row-cover {
+.event-row.ended .event-row-cover::before {
   filter: grayscale(0.55);
 }
 
@@ -1067,7 +1077,7 @@ html.auth-focusing .app-nav {
   filter: saturate(0.6) !important;
 }
 
-.event-row.archived .event-row-cover {
+.event-row.archived .event-row-cover::before {
   filter: grayscale(0.8);
 }
 
@@ -2260,17 +2270,20 @@ html.auth-focusing .app-nav {
   .event-row.has-side-badges {
     grid-template-columns: 60px minmax(0, 1fr);
     column-gap: 16px;
+    min-height: 100px;
+    padding: 16px;
   }
 
   .event-row:not(.has-side-badges) {
     grid-template-columns: 60px minmax(0, 1fr);
     column-gap: 16px;
+    min-height: 100px;
+    padding: 16px;
   }
 
-  .event-row.has-side-badges .row-badges {
-    justify-content: flex-start;
-    max-width: none;
-    margin-top: 8px;
+  .event-row-cover {
+    width: 60px;
+    height: 60px;
   }
 
   .reminder-card {
@@ -3718,6 +3731,78 @@ html.auth-transitioning .app-nav {
   transform: scale(1);
 }
 
+/* Admin sheet uses the auth-sheet-backdrop and bottom-sheet styles */
+.sheet-backdrop.auth-sheet-backdrop.admin-sheet-backdrop {
+  justify-content: stretch;
+  align-items: flex-end;
+  padding: 0;
+}
+
+.bottom-sheet.auth-bottom-sheet #admin-action-modal {
+  max-width: none;
+}
+
+/* Admin dialog header padding and styling */
+#admin-action-modal .sheet-header {
+  padding: 18px 16px 0;
+}
+
+#admin-action-modal .sheet-header h2 {
+  margin: 0 0 8px;
+}
+
+/* Admin dialog content padding */
+#admin-action-modal > p,
+#admin-action-modal > textarea,
+#admin-action-modal > div:last-of-type {
+  padding: 0 16px;
+}
+
+#admin-action-modal > p {
+  margin-bottom: 16px;
+}
+
+#admin-action-modal textarea.auth-input {
+  resize: none;
+  margin-bottom: 16px;
+}
+
+/* Admin dialog action buttons - sign-out style */
+#admin-action-modal .action {
+  background: transparent;
+  border: none;
+  color: var(--text);
+  box-shadow: none;
+  font-size: 0.9rem;
+  font-weight: 600;
+  min-height: 44px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+#admin-action-modal .action:active {
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+  transform: none;
+}
+
+#admin-action-modal .action:disabled {
+  opacity: 0.5;
+  background: transparent;
+  box-shadow: none;
+}
+
+#admin-action-modal .action.primary {
+  border: none;
+  background: transparent;
+  color: var(--button);
+  box-shadow: none;
+}
+
+#admin-action-modal .action.primary:active {
+  background: color-mix(in srgb, var(--button) 12%, transparent);
+}
+
 .review-modal-close-btn {
   position: absolute;
   top: 14px;
@@ -3790,4 +3875,139 @@ html.auth-transitioning .app-nav {
   padding-top: 0;
 }
 
+/* Admin panel button styling (in the user list) */
+.admin-btn {
+  background: transparent;
+  border: none;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 6px 12px;
+  border-radius: 8px;
+  transition: background 0.2s ease, opacity 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
 
+.admin-btn-block {
+  color: var(--red);
+}
+
+.admin-btn-block:active {
+  background: color-mix(in srgb, var(--red) 12%, transparent);
+}
+
+.admin-btn-unblock {
+  color: var(--brand);
+}
+
+/* Minimalistic admin button in profile popup */
+.profile-admin-section {
+  display: flex;
+  justify-content: flex-end;
+}
+.profile-admin-btn {
+  background: transparent;
+  border: 1px solid rgba(0,0,0,0.06);
+  color: var(--brand);
+  padding: 8px 12px;
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: 0.95rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.06s ease;
+}
+.profile-admin-btn svg { width: 18px; height: 18px; stroke: currentColor; }
+.profile-admin-btn:hover { background: color-mix(in srgb, var(--accent) 8%, transparent); transform: translateY(-1px); }
+.profile-admin-btn:active { transform: translateY(0); }
+
+/* Compact admin icon used next to logout-inline-btn */
+.profile-admin-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  padding: 6px;
+  border-radius: 12px;
+  cursor: pointer;
+  min-width: 36px;
+  min-height: 36px;
+  margin-right: 8px;
+}
+.profile-admin-icon svg { width: 18px; height: 18px; }
+.profile-admin-label {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1;
+  display: inline-block;
+  transform: translateY(-1px);
+}
+
+.profile-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.admin-delete-review-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: var(--red);
+  padding: 6px;
+  border-radius: 8px;
+  cursor: pointer;
+  margin-left: 8px;
+  transition: background 0.15s ease;
+  min-width: 32px;
+  min-height: 32px;
+}
+.admin-delete-review-btn svg { width: 16px; height: 16px; stroke: currentColor; }
+.admin-delete-review-btn:hover { background: color-mix(in srgb, var(--red) 8%, transparent); }
+.admin-delete-review-btn:active { background: color-mix(in srgb, var(--red) 12%, transparent); }
+.admin-delete-review-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.profile-admin-icon:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.profile-admin-icon:active { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.admin-btn-unblock:active {
+  background: color-mix(in srgb, var(--brand) 12%, transparent);
+}
+
+/* Small delete review button on the right */
+.admin-review-delete-btn {
+  background: transparent;
+  border: none;
+  color: var(--red);
+  font-size: 14px;
+  font-weight: bold;
+  cursor: pointer;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s, transform 0.2s;
+  flex-shrink: 0;
+  margin-left: auto; /* Push to the right in flex row */
+}
+
+.admin-review-delete-btn:hover {
+  background: color-mix(in srgb, var(--red) 12%, transparent);
+}
+
+.admin-review-delete-btn:active {
+  transform: scale(0.9);
+}
+
+/* Margin spacing for review modal errors */
+#review-error-msg {
+  margin: 12px 0;
+}

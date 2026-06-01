@@ -5,6 +5,7 @@ from app.web.routers.reminders import router as reminders_router
 from app.web.routers.sharing import router as sharing_router
 from app.web.routers.auth import router as auth_router
 from app.web.routers.ratings import router as ratings_router
+from app.web.routers.admin import router as admin_router
 
 __all__ = (
     "events_router",
@@ -14,4 +15,5 @@ __all__ = (
     "sharing_router",
     "auth_router",
     "ratings_router",
+    "admin_router",
 )

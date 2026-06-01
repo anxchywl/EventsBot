@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from sqlalchemy import BigInteger, Boolean, Identity, Index, String, UniqueConstraint, text
+from sqlalchemy import BigInteger, Boolean, Identity, Index, String, UniqueConstraint, text, DateTime, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from datetime import datetime
 
 from app.db.base import Base, TimestampMixin
 
@@ -62,6 +63,14 @@ class User(TimestampMixin, Base):
     )
     nickname: Mapped[str | None] = mapped_column(String(24), nullable=True)
 
+    # Admin and moderation fields
+    role: Mapped[str] = mapped_column(String(32), default="user", server_default="'user'")
+    is_blocked: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    blocked_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    blocked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    blocked_by_admin_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    last_active_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
     # links users to owned and created records
     owned_clubs: Mapped[list[Club]] = relationship(back_populates="owner")
     created_events: Mapped[list[Event]] = relationship(
@@ -84,10 +93,12 @@ class User(TimestampMixin, Base):
     ratings: Mapped[list[Rating]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
+        foreign_keys="Rating.user_id",
     )
     comments: Mapped[list[Comment]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
+        foreign_keys="Comment.user_id",
     )
     verification_codes: Mapped[list[EmailVerificationCode]] = relationship(
         back_populates="user",

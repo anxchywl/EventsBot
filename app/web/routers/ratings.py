@@ -14,7 +14,15 @@ from app.models.event import Event
 from app.models.rating import Rating
 from app.models.comment import Comment
 from app.services.events import get_event_by_public_token
-from app.web.auth import require_verified_user, optional_miniapp_user, upsert_miniapp_user, MiniAppUser
+from app.web.auth import (
+    MiniAppUser,
+    effective_web_role,
+    optional_miniapp_user,
+    require_current_miniapp_user,
+    require_verified_user,
+    require_verified_user_allow_blocked,
+    upsert_miniapp_user,
+)
 from app.web.schemas import ReviewSubmitRequest, ActionResponse, ReviewDetail
 from app.services.security import validate_nickname_format
 
@@ -107,7 +115,7 @@ async def submit_review(
 @router.delete("/{public_token}/reviews", response_model=ActionResponse)
 async def delete_review(
     public_token: str,
-    user: User = Depends(require_verified_user),
+    user: User = Depends(require_verified_user_allow_blocked),
     session: AsyncSession = Depends(get_session),
 ) -> ActionResponse:
     event = await get_event_by_public_token(session, public_token)
@@ -144,12 +152,18 @@ async def list_reviews(
         current_db_user = await upsert_miniapp_user(session, miniapp_user)
 
     # Fetch ratings
-    stmt = select(Rating).where(Rating.event_id == event.id).options(selectinload(Rating.user))
+    stmt = select(Rating).where(Rating.event_id == event.id, Rating.deleted_at.is_(None)).options(selectinload(Rating.user))
     ratings = (await session.execute(stmt)).scalars().all()
 
     # Fetch comments
-    stmt = select(Comment).where(Comment.event_id == event.id).options(selectinload(Comment.user))
+    stmt = select(Comment).where(Comment.event_id == event.id, Comment.deleted_at.is_(None)).options(selectinload(Comment.user))
     comments = (await session.execute(stmt)).scalars().all()
+
+    can_delete_all = False
+    if current_db_user and miniapp_user:
+        current_role = effective_web_role(current_db_user, miniapp_user.id)
+        if current_role in ("admin", "moderator"):
+            can_delete_all = True
 
     # Merge ratings and comments by user_id
     user_map: dict[int, dict] = {}
@@ -165,7 +179,9 @@ async def list_reviews(
             "content": None,
             "score": r.score,
             "created_at": r.created_at.isoformat(),
-            "is_own": current_db_user is not None and r.user_id == current_db_user.id
+            "is_own": current_db_user is not None and r.user_id == current_db_user.id,
+            "can_delete": can_delete_all,
+            "user_id": r.user_id
         }
 
     # Process comments
@@ -183,7 +199,9 @@ async def list_reviews(
                 "content": c.content,
                 "score": None,
                 "created_at": c.created_at.isoformat(),
-                "is_own": current_db_user is not None and c.user_id == current_db_user.id
+                "is_own": current_db_user is not None and c.user_id == current_db_user.id,
+                "can_delete": can_delete_all,
+                "user_id": c.user_id
             }
 
     # Sort reviews so the current user's review is first, followed by newest
@@ -202,6 +220,9 @@ class FeedReviewDetail(BaseModel):
     content: str | None = None
     score: int | None = None
     created_at: str
+    user_id: int | None = None
+    comment_id: int | None = None
+    rating_id: int | None = None
 
 
 @router.get("/reviews/feed", response_model=list[FeedReviewDetail])
@@ -213,7 +234,7 @@ async def list_global_reviews_feed(
         select(Comment)
         .join(Comment.user)
         .join(Comment.event)
-        .where(User.is_verified == True, Event.status == "approved")
+        .where(User.is_verified == True, Event.status == "approved", Comment.deleted_at.is_(None))
         .order_by(Comment.created_at.desc())
         .options(selectinload(Comment.user), selectinload(Comment.event))
         .limit(20)
@@ -224,7 +245,7 @@ async def list_global_reviews_feed(
         select(Rating)
         .join(Rating.user)
         .join(Rating.event)
-        .where(User.is_verified == True, Event.status == "approved")
+        .where(User.is_verified == True, Event.status == "approved", Rating.deleted_at.is_(None))
         .order_by(Rating.created_at.desc())
         .options(selectinload(Rating.user), selectinload(Rating.event))
         .limit(20)
@@ -242,6 +263,9 @@ async def list_global_reviews_feed(
             "content": None,
             "score": r.score,
             "created_at": r.created_at.isoformat(),
+            "user_id": r.user_id,
+            "rating_id": r.id,
+            "comment_id": None,
         }
 
     for c in comments:
@@ -262,6 +286,9 @@ async def list_global_reviews_feed(
                 "content": c.content,
                 "score": None,
                 "created_at": c.created_at.isoformat(),
+                "user_id": c.user_id,
+                "comment_id": c.id,
+                "rating_id": None,
             }
 
     # Sort merged list by created_at desc, limit 20
@@ -269,3 +296,30 @@ async def list_global_reviews_feed(
     feed.sort(key=lambda x: x["created_at"], reverse=True)
     return [FeedReviewDetail(**val) for val in feed[:20]]
 
+
+@router.delete("/admin/{public_token}/reviews/{target_user_id}", response_model=ActionResponse)
+async def admin_delete_review(
+    public_token: str,
+    target_user_id: int,
+    miniapp_user: MiniAppUser = Depends(require_current_miniapp_user),
+    session: AsyncSession = Depends(get_session),
+) -> ActionResponse:
+    user = await upsert_miniapp_user(session, miniapp_user)
+    if effective_web_role(user, miniapp_user.id) not in ("admin", "moderator"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+
+    event = await get_event_by_public_token(session, public_token)
+    if not event:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
+
+    await session.execute(
+        delete(Rating).where(Rating.user_id == target_user_id, Rating.event_id == event.id)
+    )
+    await session.execute(
+        delete(Comment).where(Comment.user_id == target_user_id, Comment.event_id == event.id)
+    )
+
+    await session.commit()
+    from app.web.routers.events import event_cache
+    event_cache.clear()
+    return ActionResponse(ok=True, message="Review deleted by admin.")

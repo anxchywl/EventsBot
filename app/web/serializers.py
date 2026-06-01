@@ -195,12 +195,11 @@ async def get_reminder_counts(
     user: User | None,
     event_ids: list[int],
 ) -> dict[int, int]:
-    if not user or not event_ids:
+    if not event_ids:
         return {}
     result = await session.execute(
         select(Reminder.event_id, func.count(Reminder.id))
         .where(
-            Reminder.user_id == user.id,
             Reminder.event_id.in_(event_ids),
             Reminder.status == "scheduled",
         )

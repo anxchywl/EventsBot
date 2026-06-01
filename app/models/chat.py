@@ -13,6 +13,7 @@ from sqlalchemy import (
     Index,
     String,
     UniqueConstraint,
+    JSON,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -47,7 +48,14 @@ class Chat(TimestampMixin, Base):
     created_by_user_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"),
     )
-    registration_message_id: Mapped[int | None] = mapped_column(BigInteger)
+    setup_message_id: Mapped[int | None] = mapped_column(BigInteger)
+    registration_status: Mapped[str] = mapped_column(
+        String(32), default="pending_permissions", server_default="pending_permissions"
+    )
+    permissions_status: Mapped[dict | None] = mapped_column(JSON)
+    categories_selected: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false"
+    )
 
     # links chat to dashboard and category settings
     category_settings: Mapped[list[ChatCategorySetting]] = relationship(

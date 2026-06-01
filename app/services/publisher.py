@@ -7,8 +7,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.chat import Chat, ChatCategorySetting
 from app.models.event import Event, EventDetailMessage
+from app.services.chats import delete_chat_by_id
 from app.services.event_cards import build_event_page_keyboard, format_event_card_text
 from app.services.telegram_links import build_message_link
+from app.services.telegram_delivery import (
+    call_with_telegram_backoff,
+    is_bot_removed_error,
+    pause_between_telegram_deliveries,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +30,7 @@ async def publish_approved_event(session: AsyncSession, bot: Bot, event: Event) 
             ChatCategorySetting.category_id == event.category_id,
             ChatCategorySetting.is_enabled.is_(True),
             Chat.is_active.is_(True),
+            Chat.chat_type != "private",
         )
         .distinct()
     )
@@ -34,7 +41,7 @@ async def publish_approved_event(session: AsyncSession, bot: Bot, event: Event) 
     bot_user = await bot.get_me()
     affected_chat_ids: set[int] = set()
 
-    # create or refresh detail messages in each chat
+    # create or refresh detail messages in each chat with Telegram-safe pacing
     for chat in chats:
         # cache scalar values immediately — avoids lazy loads in error handlers
         chat_id = chat.id
@@ -54,23 +61,41 @@ async def publish_approved_event(session: AsyncSession, bot: Bot, event: Event) 
         if detail_msg:
             try:
                 if event.poster_file_id:
-                    await bot.edit_message_caption(
-                        chat_id=telegram_chat_id,
-                        message_id=detail_msg.message_id,
-                        caption=text,
-                        reply_markup=keyboard,
-                        parse_mode="HTML",
+                    await call_with_telegram_backoff(
+                        lambda: bot.edit_message_caption(
+                            chat_id=telegram_chat_id,
+                            message_id=detail_msg.message_id,
+                            caption=text,
+                            reply_markup=keyboard,
+                            parse_mode="HTML",
+                        ),
+                        context=f"edit event {event.id} caption in chat {telegram_chat_id}",
                     )
                 else:
-                    await bot.edit_message_text(
-                        chat_id=telegram_chat_id,
-                        message_id=detail_msg.message_id,
-                        text=text,
-                        reply_markup=keyboard,
-                        parse_mode="HTML",
+                    await call_with_telegram_backoff(
+                        lambda: bot.edit_message_text(
+                            chat_id=telegram_chat_id,
+                            message_id=detail_msg.message_id,
+                            text=text,
+                            reply_markup=keyboard,
+                            parse_mode="HTML",
+                        ),
+                        context=f"edit event {event.id} text in chat {telegram_chat_id}",
                     )
-            except Exception:
-                pass
+            except Exception as e:
+                if is_bot_removed_error(e):
+                    await delete_chat_by_id(session, chat_id)
+                    logger.warning(
+                        "removed chat %s after Telegram delivery failed: %s",
+                        telegram_chat_id,
+                        e,
+                    )
+                    continue
+                logger.warning(
+                    "failed to edit event detail in chat %s: %s",
+                    telegram_chat_id,
+                    e,
+                )
 
             detail_msg.message_link = build_message_link(
                 telegram_chat_id=telegram_chat_id,
@@ -82,19 +107,25 @@ async def publish_approved_event(session: AsyncSession, bot: Bot, event: Event) 
         else:
             try:
                 if event.poster_file_id:
-                    msg = await bot.send_photo(
-                        chat_id=telegram_chat_id,
-                        photo=event.poster_file_id,
-                        caption=text,
-                        reply_markup=keyboard,
-                        parse_mode="HTML",
+                    msg = await call_with_telegram_backoff(
+                        lambda: bot.send_photo(
+                            chat_id=telegram_chat_id,
+                            photo=event.poster_file_id,
+                            caption=text,
+                            reply_markup=keyboard,
+                            parse_mode="HTML",
+                        ),
+                        context=f"send event {event.id} photo to chat {telegram_chat_id}",
                     )
                 else:
-                    msg = await bot.send_message(
-                        chat_id=telegram_chat_id,
-                        text=text,
-                        reply_markup=keyboard,
-                        parse_mode="HTML",
+                    msg = await call_with_telegram_backoff(
+                        lambda: bot.send_message(
+                            chat_id=telegram_chat_id,
+                            text=text,
+                            reply_markup=keyboard,
+                            parse_mode="HTML",
+                        ),
+                        context=f"send event {event.id} text to chat {telegram_chat_id}",
                     )
 
                 session.add(
@@ -115,10 +146,20 @@ async def publish_approved_event(session: AsyncSession, bot: Bot, event: Event) 
                 # and would trigger a lazy async load, crashing the loop
 
             except Exception as e:
+                if is_bot_removed_error(e):
+                    await delete_chat_by_id(session, chat_id)
+                    logger.warning(
+                        "removed chat %s after Telegram delivery failed: %s",
+                        telegram_chat_id,
+                        e,
+                    )
+                    continue
+
                 logger.error(f"failed to send event detail to chat {chat_id}: {e}")
                 continue
 
         affected_chat_ids.add(chat_id)
+        await pause_between_telegram_deliveries()
 
     await session.flush()
 

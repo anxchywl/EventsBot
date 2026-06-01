@@ -1,5 +1,5 @@
 import { escapeAttr, escapeHtml } from "./events.js";
-import { categoryLabel, t } from "../i18n.js?v=20260529-flicker-fix-v10";
+import { categoryLabel, t } from "../i18n.js?v=20260601-fallback-gradient-v7";
 import { state } from "../state.js";
 
 const SORT_GROUPS = [
