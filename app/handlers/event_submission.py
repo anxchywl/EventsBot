@@ -19,6 +19,7 @@ from app.services.events import (
     get_active_categories,
     get_category_by_id,
 )
+from app.services.event_cards import escape_and_fit_description
 from app.services.users import upsert_user_from_telegram
 from app.handlers.message_cleanup import delete_messages_fast
 
@@ -369,6 +370,10 @@ async def cmd_submit_event(message: Message, state: FSMContext, session: AsyncSe
             "No categories available. Please contact an administrator."
         )
         return
+
+    from app.handlers.start import cleanup_main_menu_warnings
+
+    await cleanup_main_menu_warnings(message, state)
 
     # reset form state before starting
     await state.clear()
@@ -869,25 +874,32 @@ async def show_event_preview(message_obj: Message, state: FSMContext, bot: Bot):
     safe_title = html.escape(data["title"])
     safe_location = html.escape(data["location"])
     safe_organizer = html.escape(data["organizer"])
-    safe_desc = html.escape(data["description"])
+    safe_url = html.escape(data["registration_url"]) if data.get("registration_url") else None
 
-    preview_text = (
-        f"<b>Event Preview</b>\n\n"
-        f"<b>Title:</b> {safe_title}\n"
-        f"<b>Date:</b> {data['event_date'].strftime('%d.%m.%Y')} at {data['event_time'].strftime('%H:%M')}\n"
-        f"<b>Location:</b> {safe_location}\n"
-        f"<b>Category:</b> {data['category_name']}\n"
-        f"<b>Organizer:</b> {safe_organizer}\n\n"
-        f"<b>Description:</b>\n{safe_desc}\n\n"
+    def render_preview(safe_desc: str) -> str:
+        text = (
+            f"<b>Event Preview</b>\n\n"
+            f"<b>Title:</b> {safe_title}\n"
+            f"<b>Date:</b> {data['event_date'].strftime('%d.%m.%Y')} at {data['event_time'].strftime('%H:%M')}\n"
+            f"<b>Location:</b> {safe_location}\n"
+            f"<b>Category:</b> {data['category_name']}\n"
+            f"<b>Organizer:</b> {safe_organizer}\n\n"
+            f"<b>Description:</b>\n{safe_desc}\n\n"
+        )
+        if safe_url:
+            text += f"<b>Registration:</b> {safe_url}\n"
+        return text
+
+    safe_desc = (
+        escape_and_fit_description(data["description"], render_preview)
+        if data.get("poster_file_id")
+        else html.escape(data["description"])
     )
-    # add the registration link only when present
-    if data.get("registration_url"):
-        safe_url = html.escape(data["registration_url"])
-        preview_text += f"<b>Registration:</b> {safe_url}\n"
+    preview_text = render_preview(safe_desc)
 
     builder = get_confirm_kb()
 
-    # send the preview with poster when available
+    # Telegram photo captions are limited to 1024 chars; long previews need text.
     if data.get("poster_file_id"):
         msg = await message_obj.answer_photo(
             data["poster_file_id"],

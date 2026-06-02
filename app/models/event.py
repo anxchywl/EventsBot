@@ -58,7 +58,7 @@ class Event(TimestampMixin, Base):
     # enforce status values and common lookup indexes
     __table_args__ = (
         CheckConstraint(
-            "status IN ('pending', 'approved', 'rejected', 'needs_changes', 'cancelled')",
+            "status IN ('pending', 'approved', 'archived', 'rejected', 'needs_changes', 'cancelled')",
             name="status",
         ),
         Index(
@@ -110,6 +110,8 @@ class Event(TimestampMixin, Base):
         ForeignKey("users.id", ondelete="SET NULL"),
     )
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    restored_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     # event relationships

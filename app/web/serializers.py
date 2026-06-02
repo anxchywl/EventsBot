@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.event import Event
+from app.models.enums import EventStatus
 from app.models.analytics import EventAnalytics
 from app.models.user import User
 from app.models.reminder import Reminder
@@ -261,12 +262,7 @@ def is_event_ended(event: Event) -> bool:
 
 
 def is_event_archived(event: Event) -> bool:
-    try:
-        tz = ZoneInfo(event.timezone)
-    except Exception:
-        tz = UTC
-    event_dt = datetime.combine(event.event_date, event.event_time).replace(tzinfo=tz)
-    return event_dt + timedelta(hours=2) < datetime.now(tz)
+    return event.status == EventStatus.ARCHIVED.value
 
 
 def palette_key(token: str) -> str:

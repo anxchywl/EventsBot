@@ -1,4 +1,4 @@
-import { boot } from "./js/router.js?v=20260601-event-card-align-v6";
+import { boot } from "./js/router.js?v=20260602-white-screen-fix-v1";
 
 
 boot().catch((error) => {

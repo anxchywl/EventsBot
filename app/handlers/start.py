@@ -1,5 +1,6 @@
 from aiogram import Bot, F, Router
-from aiogram.filters import CommandObject, CommandStart
+from aiogram.filters import CommandObject, CommandStart, StateFilter
+from aiogram.filters import Filter
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message, MenuButtonWebApp, WebAppInfo
 from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
@@ -12,6 +13,12 @@ from app.services.users import upsert_user_from_telegram
 router = Router(name="start")
 
 
+class MainMenuActiveFilter(Filter):
+    async def __call__(self, message: Message, state: FSMContext) -> bool:
+        data = await state.get_data()
+        return data.get("main_menu_active") is True
+
+
 # handles global back to menu message
 @router.message(F.text == "Back to Menu", F.chat.type == "private")
 async def handle_back_to_menu(
@@ -19,7 +26,7 @@ async def handle_back_to_menu(
 ) -> None:
     await _cleanup_menu_messages(message, state, extra_ids=[message.message_id])
     await state.clear()
-    await send_main_menu(message, session)
+    await send_main_menu(message, session, state)
 
 
 # opens an event from dashboard deep links
@@ -35,7 +42,7 @@ async def handle_event_deep_link(
 
     payload = command.args or ""
     if not payload.startswith("event_"):
-        await send_main_menu(message, session)
+        await send_main_menu(message, session, state)
         return
 
     from app.handlers.event_pages import send_event_page_from_token
@@ -55,14 +62,16 @@ async def handle_start(
     message: Message, session: AsyncSession, state: FSMContext
 ) -> None:
     await state.clear()
-    await send_main_menu(message, session)
+    await send_main_menu(message, session, state)
 
 
 # tracks the last welcome message ID for each user so it can be cleanly replaced
 last_welcome_messages = {}
 
 
-async def send_main_menu(message: Message, session: AsyncSession) -> None:
+async def send_main_menu(
+    message: Message, session: AsyncSession, state: FSMContext | None = None
+) -> None:
     user = await upsert_user_from_telegram(session, message.from_user)
     settings = get_settings()
     is_admin = user.telegram_id in settings.admin_ids
@@ -83,13 +92,14 @@ async def send_main_menu(message: Message, session: AsyncSession) -> None:
 
     # send the main menu with admin controls when allowed
     msg = await message.answer(
-        "**Welcome to the Student Events Bot!**\n\n"
-        "I am here to help you stay updated with university life without the noise.\n\n"
-        "Use the menu below to explore events or manage your own submissions.",
+        "Welcome to NU Events Bot. I am here to help you stay updated with university life. "
+        "Use our Mini App and menu below to explore events or manage your own submissions.",
         reply_markup=get_main_menu_keyboard(is_admin),
         parse_mode="Markdown",
     )
     last_welcome_messages[user.telegram_id] = msg.message_id
+    if state is not None:
+        await state.update_data(main_menu_active=True, main_menu_warning_ids=[])
 
 
 # returns the user to the main menu
@@ -122,7 +132,7 @@ async def process_start_menu(
     await _cleanup_menu_messages(callback.message, state, extra_ids=[callback.message.message_id])
     await state.clear()
 
-    await send_main_menu(callback.message, session)
+    await send_main_menu(callback.message, session, state)
     await callback.answer()
 
 
@@ -179,9 +189,44 @@ async def _cleanup_menu_messages(
 
     messages = data.get("session_messages", [])
     ids_to_delete.extend(reversed(messages))
+    ids_to_delete.extend(data.get("main_menu_warning_ids") or [])
     if extra_ids:
         ids_to_delete.extend(extra_ids)
     await delete_messages_fast(message.bot, message.chat.id, ids_to_delete)
+
+
+async def cleanup_main_menu_warnings(message: Message, state: FSMContext) -> None:
+    data = await state.get_data()
+    warning_ids = data.get("main_menu_warning_ids") or []
+    if warning_ids:
+        await delete_messages_fast(message.bot, message.chat.id, warning_ids)
+    await state.update_data(main_menu_warning_ids=[], main_menu_active=False)
+
+
+@router.message(
+    StateFilter(None),
+    MainMenuActiveFilter(),
+    F.chat.type == "private",
+    F.text,
+    ~F.text.in_({"Create Event", "My Events", "Admin Panel", "⚙️ Admin Panel", "Back to Menu"}),
+)
+async def handle_main_menu_unknown_text(
+    message: Message, session: AsyncSession, state: FSMContext
+) -> None:
+    data = await state.get_data()
+    warning_ids = data.get("main_menu_warning_ids") or []
+    if warning_ids:
+        await delete_messages_fast(message.bot, message.chat.id, warning_ids)
+
+    user = await upsert_user_from_telegram(session, message.from_user)
+    settings = get_settings()
+    sent = await message.answer(
+        "Please choose an action from the buttons below.",
+        reply_markup=get_main_menu_keyboard(user.telegram_id in settings.admin_ids),
+    )
+    await state.update_data(
+        main_menu_warning_ids=[message.message_id, sent.message_id],
+    )
 
 
 # builds the private main menu keyboard

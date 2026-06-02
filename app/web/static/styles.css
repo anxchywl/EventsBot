@@ -3875,6 +3875,14 @@ html.auth-transitioning .app-nav {
   padding-top: 0;
 }
 
+.admin-auth-shortcut {
+  width: 100%;
+}
+
+.admin-auth-shortcut-btn {
+  width: 100%;
+}
+
 /* Admin panel button styling (in the user list) */
 .admin-btn {
   background: transparent;

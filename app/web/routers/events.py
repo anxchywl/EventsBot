@@ -21,6 +21,7 @@ from app.services.events import (
     ensure_event_public_token,
     get_event_by_public_token,
 )
+from app.services.event_sync import latest_completed_sync_version
 from app.services.telegram_links import build_telegram_miniapp_direct_link
 from app.web.auth import MiniAppUser, optional_miniapp_user, require_miniapp_user, upsert_miniapp_user
 from app.web.cache import TTLCache
@@ -136,6 +137,13 @@ async def event_filters(
             if name
         ],
     )
+
+
+@router.get("/sync-version")
+async def event_sync_version(
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    return await latest_completed_sync_version(session)
 
 
 @router.get("/{public_token}", response_model=EventDetail)

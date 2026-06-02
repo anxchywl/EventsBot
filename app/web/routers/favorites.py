@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.db.session import get_session
+from app.models.enums import EventStatus
 from app.services.analytics import record_event_action_by_ids
 from app.services.events import get_event_by_public_token
 from app.services.favorites import add_favorite, get_user_favorite_events, remove_favorite
@@ -40,7 +41,7 @@ async def favorite_event(
 ) -> FavoriteResponse:
     user = await upsert_miniapp_user(session, miniapp_user)
     event = await get_event_by_public_token(session, public_token)
-    if not event:
+    if not event or event.status != EventStatus.APPROVED.value:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Event no longer available")
 
     if await add_favorite(session, user, event):
@@ -64,7 +65,7 @@ async def unfavorite_event(
 ) -> FavoriteResponse:
     user = await upsert_miniapp_user(session, miniapp_user)
     event = await get_event_by_public_token(session, public_token)
-    if not event:
+    if not event or event.status != EventStatus.APPROVED.value:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Event no longer available")
 
     if await remove_favorite(session, user, event):

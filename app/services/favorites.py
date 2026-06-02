@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.event import Event
+from app.models.enums import EventStatus
 from app.models.favorite import Favorite
 from app.models.user import User
 
@@ -65,7 +66,10 @@ async def get_user_favorite_events(session: AsyncSession, user: User) -> Sequenc
     result = await session.execute(
         select(Event)
         .join(Favorite, Favorite.event_id == Event.id)
-        .where(Favorite.user_id == user.id)
+        .where(
+            Favorite.user_id == user.id,
+            Event.status == EventStatus.APPROVED.value,
+        )
         .order_by(Event.event_date, Event.event_time)
         .options(selectinload(Event.category))
     )

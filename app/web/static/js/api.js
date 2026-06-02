@@ -65,6 +65,10 @@ export function fetchEventFilters() {
   return request("/api/events/filters");
 }
 
+export function fetchEventSyncVersion() {
+  return request("/api/events/sync-version");
+}
+
 export async function fetchEvent(token) {
   return request(`/api/events/${encodeURIComponent(token)}`);
 }

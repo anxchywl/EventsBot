@@ -13,8 +13,8 @@ from app.services.events import (
 )
 from app.services.users import upsert_user_from_telegram
 from app.services.telegram_links import build_event_deep_link
-from app.services.event_cards import format_event_card_text
-from app.handlers.start import get_main_menu_keyboard
+from app.services.event_cards import escape_and_fit_description, format_event_card_text
+from app.handlers.start import cleanup_main_menu_warnings, get_main_menu_keyboard
 from app.handlers.message_cleanup import delete_messages_fast
 from app.config import get_settings
 
@@ -31,6 +31,7 @@ async def process_my_events(callback: CallbackQuery, session: AsyncSession, stat
 # opens the current user's events list via message
 @router.message(F.text == "My Events", F.chat.type == "private")
 async def process_my_events_message(message: Message, session: AsyncSession, state: FSMContext):
+    await cleanup_main_menu_warnings(message, state)
     await show_my_events(message, session, state=state, answer=False, cmd_msg_id=message.message_id)
 
 
@@ -72,19 +73,27 @@ async def show_my_events(
             "You haven't created any events yet.\n\n"
             "Use the menu below to create one or explore other options."
         )
+        sent = None
         if is_callback:
-            await msg_obj.edit_text(
+            sent = await msg_obj.edit_text(
                 text,
                 reply_markup=get_main_menu_keyboard(is_admin),
                 parse_mode="Markdown",
             )
         else:
-            await msg_obj.answer(
+            sent = await msg_obj.answer(
                 text,
                 reply_markup=get_main_menu_keyboard(is_admin),
                 parse_mode="Markdown",
             )
-        await state.update_data(my_events_mode=False, my_events_event_map=None)
+        current_data = await state.get_data()
+        final_cmd_msg_id = cmd_msg_id if cmd_msg_id is not None else current_data.get("my_events_cmd_msg_id")
+        await state.update_data(
+            my_events_mode=False,
+            my_events_event_map=None,
+            my_events_cmd_msg_id=final_cmd_msg_id,
+            my_events_choose_msg_id=sent.message_id if sent else None,
+        )
         if is_callback and answer:
             await event_obj.answer()
         return
@@ -351,17 +360,19 @@ async def send_manage_event_message(
     safe_title = html.escape(event.title)
     safe_location = html.escape(event.location)
     safe_cat = html.escape(event.category.name)
-    safe_desc = html.escape(event.description)
+    def render_text(safe_desc: str) -> str:
+        return (
+            f"<b>{safe_title}</b>\n\n"
+            f"Date: {event.event_date}\n"
+            f"Time: {event.event_time}\n"
+            f"Location: {safe_location}\n"
+            f"Category: {safe_cat}\n"
+            f"Status: {event.status.upper()}\n\n"
+            f"Description:\n{safe_desc}\n"
+        )
 
-    text = (
-        f"<b>{safe_title}</b>\n\n"
-        f"Date: {event.event_date}\n"
-        f"Time: {event.event_time}\n"
-        f"Location: {safe_location}\n"
-        f"Category: {safe_cat}\n"
-        f"Status: {event.status.upper()}\n\n"
-        f"Description:\n{safe_desc}\n"
-    )
+    safe_desc = escape_and_fit_description(event.description, render_text) if event.poster_file_id else html.escape(event.description)
+    text = render_text(safe_desc)
 
     builder = ReplyKeyboardBuilder()
     builder.button(text="Edit")

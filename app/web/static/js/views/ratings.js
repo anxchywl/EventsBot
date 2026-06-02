@@ -34,9 +34,8 @@ export function renderAuthSection(profileData = null) {
   if (state.forgotStep) return renderForgotPasswordCard(state.forgotStep);
   if (state.user?.role === "admin" || state.user?.role === "moderator") {
     return `
-      <div class="panel auth-card">
-        <h2 class="section-title">${t("admin")}</h2>
-        <button class="action primary auth-submit-btn" type="button" data-route="admin">${t("admin")}</button>
+      <div class="panel auth-card admin-auth-shortcut">
+        <button class="action primary auth-submit-btn admin-auth-shortcut-btn" type="button" data-route="admin">${t("admin")}</button>
       </div>
       ${renderAuthCard()}
     `;

@@ -178,51 +178,31 @@ async def get_user_events(session: AsyncSession, user_id: int) -> Sequence[Event
     return result.scalars().all()
 
 
-# deletes an event and related telegram messages, then signals dashboard refresh
+# deletes an event and enqueues centralized sync cleanup
 async def delete_event_completely(
     session: AsyncSession, bot: Bot, event_id: int
 ) -> bool:
-    """instantly delete an event and clean up all related data and telegram messages."""
-    # load event with detail messages and their associated chats preloaded
-    from sqlalchemy.orm import selectinload
-    from app.models.event import EventDetailMessage
-
-    event = await session.get(
-        Event,
-        event_id,
-        options=[
-            selectinload(Event.detail_messages).selectinload(EventDetailMessage.chat)
-        ],
+    """delete an event row after queuing system-wide sync cleanup."""
+    from app.services.event_sync import (
+        acquire_event_lock,
+        capture_event_snapshot,
+        enqueue_event_sync,
     )
+
+    await acquire_event_lock(session, event_id)
+    snapshot = await capture_event_snapshot(session, event_id)
+    event = await session.get(Event, event_id)
     if not event:
         return False
 
-    # collect chat ids for dashboard refresh
-    chat_ids = set()
-    for detail in event.detail_messages:
-        chat_ids.add(detail.chat_id)
-        if detail.chat:
-            try:
-                await bot.delete_message(
-                    chat_id=detail.chat.telegram_chat_id,
-                    message_id=detail.message_id,
-                )
-            except Exception as e:
-                logger.warning(
-                    f"failed to delete message {detail.message_id} in chat {detail.chat.id}: {e}"
-                )
-
     await session.delete(event)
     await session.flush()
-
-    # signal dashboard bus for a debounced refresh (non-blocking)
-    if chat_ids:
-        try:
-            from app.services.dashboard_bus import get_bus
-
-            get_bus().schedule_refresh(chat_ids)
-        except Exception:
-            pass
+    await enqueue_event_sync(
+        session,
+        event_id=event_id,
+        operation="deleted",
+        snapshot=snapshot,
+    )
 
     return True
 
@@ -239,6 +219,8 @@ async def update_event_status(
     if not event:
         return None
 
+    previous_status = event.status
+
     # set approval metadata when needed
     event.status = status.value
     if status == EventStatus.APPROVED:
@@ -246,11 +228,22 @@ async def update_event_status(
 
         event.approved_by_user_id = moderator.id
         event.approved_at = datetime.now(timezone.utc)
+        if previous_status == EventStatus.ARCHIVED.value:
+            event.restored_at = event.approved_at
+    elif status == EventStatus.ARCHIVED:
+        from datetime import datetime, timezone
+
+        event.archived_at = datetime.now(timezone.utc)
 
     event.moderation_note = comment
 
     action_map = {
-        EventStatus.APPROVED: ModerationAction.APPROVED,
+        EventStatus.APPROVED: (
+            ModerationAction.RESTORED
+            if previous_status == EventStatus.ARCHIVED.value
+            else ModerationAction.APPROVED
+        ),
+        EventStatus.ARCHIVED: ModerationAction.ARCHIVED,
         EventStatus.REJECTED: ModerationAction.REJECTED,
         EventStatus.NEEDS_CHANGES: ModerationAction.NEEDS_CHANGES,
         EventStatus.CANCELLED: ModerationAction.CANCELLED,
@@ -265,7 +258,7 @@ async def update_event_status(
     session.add(log)
 
     await session.flush()
-    # re-fetch with all relationships needed by publisher loaded
+    # re-fetch with relationships needed by callers loaded
     return await get_event_by_id(session, event.id)
 
 

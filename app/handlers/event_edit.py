@@ -17,6 +17,11 @@ from app.models.enums import EventStatus, ModerationAction
 from app.models.event import Event
 from app.models.moderation import ModerationLog
 from app.services.events import get_event_by_id, cleanup_previous_drafts, replace_pending_drafts_for_parent
+from app.services.event_sync import (
+    acquire_event_lock,
+    capture_event_snapshot,
+    enqueue_event_sync,
+)
 from app.services.users import upsert_user_from_telegram
 
 router = Router(name="event_edit")
@@ -687,6 +692,8 @@ async def _perform_submit_edit(
     event_time = datetime.strptime(data["event_time"], "%H:%M").time()
 
     if data.get("is_admin_edit"):
+        await acquire_event_lock(session, original_event_id)
+        snapshot = await capture_event_snapshot(session, original_event_id)
         original_event = await get_event_by_id(session, original_event_id)
         if not original_event:
             await message.answer("Event not found.")
@@ -703,7 +710,21 @@ async def _perform_submit_edit(
             original_event.poster_file_id = data.get("poster_file_id")
         if "registration_url" in data:
             original_event.registration_url = data.get("registration_url")
-        
+
+        session.add(
+            ModerationLog(
+                event_id=original_event.id,
+                moderator_user_id=user.id,
+                action=ModerationAction.EDITED.value,
+                comment="Admin edited event",
+            )
+        )
+        await enqueue_event_sync(
+            session,
+            event_id=original_event.id,
+            operation="edited",
+            snapshot=snapshot,
+        )
         await session.commit()
         await state.set_state(None)
         
@@ -785,6 +806,8 @@ async def submit_edit(
     event_time = datetime.strptime(data["event_time"], "%H:%M").time()
 
     if data.get("is_admin_edit"):
+        await acquire_event_lock(session, original_event_id)
+        snapshot = await capture_event_snapshot(session, original_event_id)
         original_event = await get_event_by_id(session, original_event_id)
         if not original_event:
             await callback.answer("Event not found.", show_alert=True)
@@ -801,7 +824,21 @@ async def submit_edit(
             original_event.poster_file_id = data.get("poster_file_id")
         if "registration_url" in data:
             original_event.registration_url = data.get("registration_url")
-        
+
+        session.add(
+            ModerationLog(
+                event_id=original_event.id,
+                moderator_user_id=user.id,
+                action=ModerationAction.EDITED.value,
+                comment="Admin edited event",
+            )
+        )
+        await enqueue_event_sync(
+            session,
+            event_id=original_event.id,
+            operation="edited",
+            snapshot=snapshot,
+        )
         await session.commit()
         await state.set_state(None)
         

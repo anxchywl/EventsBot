@@ -11,8 +11,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.models.enums import EventStatus
+from app.services.event_cards import escape_and_fit_description
 from app.services.events import get_event_by_id, get_pending_events, update_event_status
-from app.services.publisher import publish_approved_event
+from app.services.event_sync import (
+    acquire_event_lock,
+    capture_event_snapshot,
+    enqueue_event_sync,
+)
 from app.services.users import upsert_user_from_telegram
 
 logger = logging.getLogger(__name__)
@@ -56,19 +61,22 @@ async def cmd_moderate(message: Message, session: AsyncSession):
         safe_name = html.escape(event.creator.first_name)
         safe_username = html.escape(event.creator.username or "none")
         safe_location = html.escape(event.location)
-        safe_desc = html.escape(event.description)
-
         date_str = event.event_date.strftime("%d.%m.%Y")
         time_str = event.event_time.strftime("%H:%M")
-        text = (
-            f"🔔 <b>Pending Event #{event.id}</b>\n\n"
-            f"<b>Title:</b> {safe_title}\n"
-            f"<b>User:</b> {safe_name} (@{safe_username})\n"
-            f"<b>Category:</b> {event.category.name}\n"
-            f"<b>Date:</b> {date_str} at {time_str}\n"
-            f"<b>Location:</b> {safe_location}\n\n"
-            f"<b>Description:</b>\n{safe_desc}"
-        )
+
+        def render_text(safe_desc: str) -> str:
+            return (
+                f"🔔 <b>Pending Event #{event.id}</b>\n\n"
+                f"<b>Title:</b> {safe_title}\n"
+                f"<b>User:</b> {safe_name} (@{safe_username})\n"
+                f"<b>Category:</b> {event.category.name}\n"
+                f"<b>Date:</b> {date_str} at {time_str}\n"
+                f"<b>Location:</b> {safe_location}\n\n"
+                f"<b>Description:</b>\n{safe_desc}"
+            )
+
+        safe_desc = escape_and_fit_description(event.description, render_text) if event.poster_file_id else html.escape(event.description)
+        text = render_text(safe_desc)
 
         if event.poster_file_id:
             await message.answer_photo(
@@ -90,6 +98,15 @@ async def cmd_moderate(message: Message, session: AsyncSession):
 async def process_approve(callback: CallbackQuery, session: AsyncSession, bot: Bot):
     event_id = int(callback.data.split("_")[2])
     moderator = await upsert_user_from_telegram(session, callback.from_user)
+
+    existing = await get_event_by_id(session, event_id)
+    if not existing:
+        await callback.answer("Event not found.", show_alert=True)
+        return
+
+    target_event_id = existing.parent_event_id or existing.id
+    await acquire_event_lock(session, target_event_id)
+    snapshot = await capture_event_snapshot(session, target_event_id)
 
     event = await update_event_status(
         session, event_id, EventStatus.APPROVED, moderator
@@ -122,6 +139,13 @@ async def process_approve(callback: CallbackQuery, session: AsyncSession, bot: B
             # delete the draft event
             await session.delete(event)
 
+    await enqueue_event_sync(
+        session,
+        event_id=target_event.id,
+        operation="approved",
+        snapshot=snapshot,
+    )
+
     # commit the status change first — publishing errors must not roll this back
     await session.commit()
 
@@ -142,17 +166,7 @@ async def process_approve(callback: CallbackQuery, session: AsyncSession, bot: B
     except Exception:
         pass
 
-    # cache before the try block — if session breaks, we still need the id for logging
-    target_event_id = target_event.id
-
-    # publish to all enabled chats and update their dashboards
-    try:
-        await publish_approved_event(session, bot, target_event)
-        await session.commit()
-    except Exception as e:
-        logger.error(f"publish failed for event {target_event_id}: {e}", exc_info=True)
-
-    await callback.answer("Approved and published.")
+    await callback.answer("Approved. Sync queued.")
 
 
 def _get_moderation_reason_keyboard():
@@ -220,6 +234,8 @@ async def process_rejection_reason(
 
     # mark the event as rejected with the moderator comment
     moderator = await upsert_user_from_telegram(session, message.from_user)
+    await acquire_event_lock(session, event_id)
+    snapshot = await capture_event_snapshot(session, event_id)
     event = await update_event_status(
         session, event_id, EventStatus.REJECTED, moderator, comment=reason
     )
@@ -237,6 +253,12 @@ async def process_rejection_reason(
     if is_update and parent:
         # Delete the draft event row so only the parent event remains APPROVED
         await session.delete(event)
+        await enqueue_event_sync(
+            session,
+            event_id=event_id,
+            operation="rejected",
+            snapshot=snapshot,
+        )
         await session.commit()
         await message.answer(
             f"❌ Update request for Event #{parent.id} has been rejected with reason: {reason}"
@@ -252,6 +274,12 @@ async def process_rejection_reason(
         except Exception:
             pass
     else:
+        await enqueue_event_sync(
+            session,
+            event_id=event_id,
+            operation="rejected",
+            snapshot=snapshot,
+        )
         await session.commit()
         await message.answer(
             f"❌ Event #{event_id} has been rejected with reason: {reason}"
@@ -266,16 +294,6 @@ async def process_rejection_reason(
             )
         except Exception:
             pass
-
-    # if the event had detail messages in chats, those chats need a dashboard refresh
-    try:
-        from app.services.dashboard_bus import get_bus, get_chat_ids_for_event
-
-        chat_ids = await get_chat_ids_for_event(session, parent.id if (is_update and parent) else event_id)
-        if chat_ids:
-            get_bus().schedule_refresh(chat_ids)
-    except Exception:
-        pass
 
     await state.clear()
 
@@ -310,6 +328,8 @@ async def process_changes_reason(
 
     # mark the event as needing changes with the moderator comment
     moderator = await upsert_user_from_telegram(session, message.from_user)
+    await acquire_event_lock(session, event_id)
+    snapshot = await capture_event_snapshot(session, event_id)
     event = await update_event_status(
         session, event_id, EventStatus.NEEDS_CHANGES, moderator, comment=reason
     )
@@ -319,6 +339,12 @@ async def process_changes_reason(
         await state.clear()
         return
 
+    await enqueue_event_sync(
+        session,
+        event_id=event_id,
+        operation="needs_changes",
+        snapshot=snapshot,
+    )
     await session.commit()
     await message.answer(
         f"📝 Event #{event_id} marked as 'Needs Changes' with reason: {reason}"
@@ -331,16 +357,6 @@ async def process_changes_reason(
             f"📝 **Your event '{event.title}' requires changes.**\n\n**Moderator's note:** {reason}",
             parse_mode="Markdown",
         )
-    except Exception:
-        pass
-
-    # signal dashboard refresh for any chats where this event was published
-    try:
-        from app.services.dashboard_bus import get_bus, get_chat_ids_for_event
-
-        chat_ids = await get_chat_ids_for_event(session, event_id)
-        if chat_ids:
-            get_bus().schedule_refresh(chat_ids)
     except Exception:
         pass
 

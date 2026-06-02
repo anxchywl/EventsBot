@@ -85,7 +85,7 @@ async def send_event_page_message(
     *,
     bot_username: str | None,
 ) -> None:
-    text = format_event_card_text(event)
+    text = format_event_card_text(event, caption_safe=bool(event.poster_file_id))
     keyboard = build_event_page_keyboard(
         event,
         bot_username=bot_username,

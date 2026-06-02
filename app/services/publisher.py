@@ -175,11 +175,16 @@ async def publish_approved_event(session: AsyncSession, bot: Bot, event: Event) 
 
 # formats the event detail message body
 def format_event_detail_text(event: Event) -> str:
-    return format_event_card_text(event)
+    return format_event_card_text(event, caption_safe=bool(event.poster_file_id))
 
 
 # builds actions shown below event details
 def get_event_detail_keyboard(
     event: Event, *, bot_username: str | None = None
 ) -> InlineKeyboardMarkup:
-    return build_event_page_keyboard(event, bot_username=bot_username)
+    return build_event_page_keyboard(
+        event,
+        bot_username=bot_username,
+        use_web_app=False,
+        open_event_only=True,
+    )

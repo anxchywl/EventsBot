@@ -5,6 +5,7 @@ import {
   deleteReminder,
   fetchEvent,
   fetchEventFilters,
+  fetchEventSyncVersion,
   fetchEvents,
   fetchReminders,
   registerEvent,
@@ -26,18 +27,18 @@ import {
   forgotPasswordVerify,
   forgotPasswordReset,
 } from "./api.js";
-import { loadingScreen, resetFallbackCoverStyles, startCountdowns } from "./components/events.js?v=20260601-fallback-gradient-v7";
-import { closeFilterSheet, openFilterSheet } from "./components/filterSheet.js?v=20260601-fallback-gradient-v7";
-import { fetchAdminStats, fetchAdminUsers, renderAdminPanel, renderAdminUsersList, blockUser, unblockUser } from "./views/admin.js?v=20260601-fallback-gradient-v7";
-import { closeSheet, openReminderSheet } from "./components/sheets.js?v=20260601-fallback-gradient-v7";
-import { t, translateError } from "./i18n.js?v=20260601-fallback-gradient-v7";
+import { loadingScreen, resetFallbackCoverStyles, startCountdowns } from "./components/events.js?v=20260602-white-screen-fix-v1";
+import { closeFilterSheet, openFilterSheet } from "./components/filterSheet.js?v=20260602-white-screen-fix-v1";
+import { fetchAdminStats, fetchAdminUsers, renderAdminPanel, renderAdminUsersList, blockUser, unblockUser } from "./views/admin.js?v=20260602-white-screen-fix-v1";
+import { closeSheet, openReminderSheet } from "./components/sheets.js?v=20260602-white-screen-fix-v1";
+import { t, translateError } from "./i18n.js?v=20260602-white-screen-fix-v1";
 import { currentTheme, nextLang, normalizeEventFilters, rememberScroll, restoreScroll, setEventFilters, setLang, setTheme, state, toggleTheme } from "./state.js";
 import { configureBackButton, haptic, initTelegram, openLink, openTelegramLink, startParam, tg } from "./telegram.js";
-import { renderEvent, renderEventUnavailable, renderEventSkeleton } from "./views/event.js?v=20260601-fallback-gradient-v7";
-import { renderEventResults, renderFilterBar, renderMenu, renderPlaceholder } from "./views/menu.js?v=20260601-fallback-gradient-v7";
-import { renderReminders } from "./views/reminders.js?v=20260601-fallback-gradient-v7";
-import { renderCalendarInner, attachCalendarInteractions, refreshCalendarMonthPanels } from "./views/calendar.js?v=20260601-fallback-gradient-v7";
-import { renderAuthSection, renderRatingsTab, renderForgotPasswordCard } from "./views/ratings.js?v=20260601-fallback-gradient-v7";
+import { renderEvent, renderEventUnavailable, renderEventSkeleton } from "./views/event.js?v=20260602-white-screen-fix-v1";
+import { renderEventResults, renderFilterBar, renderMenu, renderPlaceholder } from "./views/menu.js?v=20260602-white-screen-fix-v1";
+import { renderReminders } from "./views/reminders.js?v=20260602-white-screen-fix-v1";
+import { renderCalendarInner, attachCalendarInteractions, refreshCalendarMonthPanels } from "./views/calendar.js?v=20260602-white-screen-fix-v1";
+import { renderAuthSection, renderRatingsTab, renderForgotPasswordCard } from "./views/ratings.js?v=20260602-white-screen-fix-v1";
 
 
 const app = document.getElementById("app");
@@ -180,6 +181,8 @@ let backHandler = async () => {
   }
 };
 let eventFetchTimer = null;
+let eventSyncPollTimer = null;
+let lastEventSyncVersion = null;
 let searchCloseTimer = null;
 const favoriteRequests = new Set();
 let pendingEventsRefreshAfterFavorite = false;
@@ -232,6 +235,54 @@ export async function boot() {
   });
   installKeyboardOverlayNav();
   loadFromLocation();
+  startEventSyncPolling();
+}
+
+function startEventSyncPolling() {
+  window.clearInterval(eventSyncPollTimer);
+  eventSyncPollTimer = window.setInterval(checkEventSyncVersion, 5000);
+  checkEventSyncVersion().catch(() => null);
+}
+
+async function checkEventSyncVersion() {
+  const payload = await fetchEventSyncVersion();
+  const version = Number(payload?.version || 0);
+  if (lastEventSyncVersion === null) {
+    lastEventSyncVersion = version;
+    return;
+  }
+  if (!version || version === lastEventSyncVersion) {
+    return;
+  }
+  lastEventSyncVersion = version;
+  await refreshAfterExternalEventSync();
+}
+
+async function refreshAfterExternalEventSync() {
+  cachedMenuHTML = null;
+  state.eventFilterOptionsLoaded = false;
+  await ensureEventFilterOptions().catch(() => null);
+
+  if (state.route === "event" && state.token) {
+    try {
+      state.currentEvent = await fetchEvent(state.token);
+      app.innerHTML = renderEvent(state.currentEvent);
+      applyQuietRender(true);
+      initEventReviewsHandlers();
+    } catch (error) {
+      if (error.status === 404) {
+        state.currentEvent = null;
+        app.innerHTML = renderEventUnavailable();
+        applyQuietRender(true);
+        await navigate("events", { direction: "back", quiet: true });
+      }
+    }
+    return;
+  }
+
+  if (state.route === "events" || state.route === "calendar") {
+    await refreshEventsList({ animate: false });
+  }
 }
 
 function installKeyboardOverlayNav() {

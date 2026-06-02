@@ -44,6 +44,20 @@ web_app.include_router(ratings_router)
 web_app.include_router(admin_router)
 
 
+@web_app.on_event("startup")
+async def start_sync_cache_listener() -> None:
+    from app.web.sync_listener import start_event_cache_invalidation_listener
+
+    web_app.state.event_cache_listener_task = start_event_cache_invalidation_listener()
+
+
+@web_app.on_event("shutdown")
+async def stop_sync_cache_listener() -> None:
+    task = getattr(web_app.state, "event_cache_listener_task", None)
+    if task:
+        task.cancel()
+
+
 @web_app.middleware("http")
 async def rate_limit(request: Request, call_next):
     if request.url.path.startswith("/api/"):
@@ -126,6 +140,11 @@ async def rate_limit(request: Request, call_next):
 @web_app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@web_app.get("/favicon.ico", include_in_schema=False)
+async def favicon() -> FileResponse:
+    return FileResponse(STATIC_DIR / "images" / "default-banner.jpg")
 
 
 @web_app.post("/api/auth/session", response_model=AuthResponse)

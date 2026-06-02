@@ -2,6 +2,7 @@ from app.models.analytics import EventAnalytics
 from app.models.chat import Chat, ChatCategorySetting, DashboardMessage
 from app.models.club import Club
 from app.models.event import Event, EventCategory, EventDetailMessage
+from app.models.event_sync import EventSyncJob
 from app.models.favorite import Favorite
 from app.models.moderation import ModerationLog
 from app.models.reminder import Reminder
@@ -27,6 +28,7 @@ __all__ = (
     "EventAnalytics",
     "EventCategory",
     "EventDetailMessage",
+    "EventSyncJob",
     "Favorite",
     "ModerationLog",
     "Rating",

@@ -95,9 +95,12 @@ async def main() -> None:
 
     # initialize the dashboard bus before routers so handlers can call get_bus()
     from app.services.dashboard_bus import init_bus
+    from app.services.event_sync import EventSyncWorker, listen_for_event_sync_notifications
 
     bus = init_bus(bot=bot, session_factory=async_session_maker)
     bus.start()
+    sync_worker = EventSyncWorker(bot=bot, session_factory=async_session_maker)
+    sync_worker.start()
 
     dispatcher = Dispatcher()
     # attach middleware and feature routers
@@ -115,6 +118,7 @@ async def main() -> None:
 
     reminder_task = None
     sweep_task = None
+    sync_listener_task = None
     try:
         await bot.delete_webhook(drop_pending_updates=True)
         logging.getLogger(__name__).info("bot polling started")
@@ -123,6 +127,13 @@ async def main() -> None:
         reminder_task = asyncio.create_task(process_reminders(bot), name="reminders")
         sweep_task = asyncio.create_task(
             periodic_dashboard_sweep(), name="dashboard_sweep"
+        )
+        sync_listener_task = asyncio.create_task(
+            listen_for_event_sync_notifications(
+                settings.database_url,
+                lambda _payload: sync_worker.wakeup(),
+            ),
+            name="event_sync_listener",
         )
 
         await dispatcher.start_polling(bot)
@@ -133,10 +144,13 @@ async def main() -> None:
         )
     finally:
         bus.stop()
+        sync_worker.stop()
         if reminder_task:
             reminder_task.cancel()
         if sweep_task:
             sweep_task.cancel()
+        if sync_listener_task:
+            sync_listener_task.cancel()
         await bot.session.close()
 
 

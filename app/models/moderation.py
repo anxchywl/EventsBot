@@ -30,7 +30,7 @@ class ModerationLog(Base):
     # enforce action values and event history lookup
     __table_args__ = (
         CheckConstraint(
-            "action IN ('submitted', 'approved', 'rejected', 'edited', 'needs_changes', 'cancelled')",
+            "action IN ('submitted', 'approved', 'archived', 'restored', 'rejected', 'edited', 'needs_changes', 'cancelled')",
             name="action",
         ),
         Index("ix_moderation_logs_event_created", "event_id", "created_at"),

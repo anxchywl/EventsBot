@@ -5,6 +5,7 @@ from enum import Enum
 class EventStatus(str, Enum):
     PENDING = "pending"
     APPROVED = "approved"
+    ARCHIVED = "archived"
     REJECTED = "rejected"
     NEEDS_CHANGES = "needs_changes"
     CANCELLED = "cancelled"
@@ -28,6 +29,8 @@ class ReminderStatus(str, Enum):
 class ModerationAction(str, Enum):
     SUBMITTED = "submitted"
     APPROVED = "approved"
+    ARCHIVED = "archived"
+    RESTORED = "restored"
     REJECTED = "rejected"
     EDITED = "edited"
     NEEDS_CHANGES = "needs_changes"

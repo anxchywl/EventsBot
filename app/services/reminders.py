@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models.enums import ReminderStatus, ReminderType
+from app.models.enums import EventStatus, ReminderStatus, ReminderType
 from app.models.event import Event
 from app.models.favorite import Favorite
 from app.models.reminder import Reminder
@@ -36,7 +36,10 @@ async def get_user_favorites(session: AsyncSession, user: User) -> Sequence[Even
     stmt = (
         select(Event)
         .join(Favorite, Favorite.event_id == Event.id)
-        .where(Favorite.user_id == user.id)
+        .where(
+            Favorite.user_id == user.id,
+            Event.status == EventStatus.APPROVED.value,
+        )
         .order_by(Event.event_date, Event.event_time)
         .options(selectinload(Event.detail_messages))
     )
@@ -190,6 +193,8 @@ async def get_user_scheduled_reminders(
             Reminder.user_id == user.id,
             Reminder.status == ReminderStatus.SCHEDULED.value,
         )
+        .join(Reminder.event)
+        .where(Event.status == EventStatus.APPROVED.value)
         .order_by(Reminder.remind_at)
         .options(selectinload(Reminder.event).selectinload(Event.category))
     )
@@ -205,6 +210,8 @@ async def get_due_reminders(session: AsyncSession) -> Sequence[Reminder]:
             Reminder.status == ReminderStatus.SCHEDULED.value,
             Reminder.remind_at <= now,
         )
+        .join(Reminder.event)
+        .where(Event.status == EventStatus.APPROVED.value)
         .options(selectinload(Reminder.user), selectinload(Reminder.event))
     )
     result = await session.execute(stmt)

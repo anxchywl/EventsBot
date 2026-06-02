@@ -1,5 +1,8 @@
 import html
 import asyncio
+from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
+
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove, WebAppInfo
@@ -13,7 +16,12 @@ from app.handlers.moderation import ModerationState
 from app.models.enums import EventStatus
 from app.models.event import Event
 from app.services.events import get_event_by_id, get_pending_events, update_event_status
-from app.services.publisher import publish_approved_event
+from app.services.event_cards import escape_and_fit_description
+from app.services.event_sync import (
+    acquire_event_lock,
+    capture_event_snapshot,
+    enqueue_event_sync,
+)
 from app.services.users import upsert_user_from_telegram
 from app.handlers.message_cleanup import delete_messages_fast
 
@@ -26,7 +34,11 @@ def _get_admin_panel_keyboard(settings):
     builder.button(text="Active Events")
     builder.button(text="Back to Menu")
     builder.adjust(1)
-    return builder.as_markup(resize_keyboard=True)
+    return builder.as_markup(
+        resize_keyboard=True,
+        is_persistent=True,
+        input_field_placeholder="Choose an admin action",
+    )
 
 
 def _get_web_admin_inline_keyboard(settings):
@@ -48,6 +60,17 @@ def _get_admin_moderation_keyboard():
     builder.button(text="Back to Queue")
     builder.adjust(2)
     return builder.as_markup(resize_keyboard=True)
+
+
+def _is_event_archived(event: Event) -> bool:
+    if event.status == EventStatus.ARCHIVED.value:
+        return True
+    try:
+        tz = ZoneInfo(event.timezone)
+    except Exception:
+        tz = UTC
+    event_dt = datetime.combine(event.event_date, event.event_time).replace(tzinfo=tz)
+    return event_dt + timedelta(hours=2) < datetime.now(tz)
 
 
 async def _record_admin_panel_message(state: FSMContext, message: Message) -> None:
@@ -72,22 +95,47 @@ async def _record_admin_panel_user_message(state: FSMContext, message: Message) 
     )
 
 
-async def _cleanup_admin_panel_messages(state: FSMContext, bot, chat_id: int) -> None:
+async def _record_admin_navigation_message(state: FSMContext, message: Message) -> None:
+    data = await state.get_data()
+    msg_ids = list(data.get("admin_msg_ids") or [])
+    if message.message_id not in msg_ids:
+        msg_ids.append(message.message_id)
+    await state.update_data(admin_msg_ids=msg_ids)
+
+
+async def _cleanup_admin_panel_messages(
+    state: FSMContext,
+    bot,
+    chat_id: int,
+    *,
+    preserve_user_message: bool = False,
+) -> None:
     data = await state.get_data()
     msg_ids = data.get("admin_msg_ids") or []
     
     legacy_msg_id = data.get("admin_panel_msg_id")
+    user_msg_id = data.get("admin_panel_user_msg_id")
     
     all_ids = set(msg_ids)
     if legacy_msg_id:
         all_ids.add(legacy_msg_id)
+    if preserve_user_message and user_msg_id:
+        all_ids.discard(user_msg_id)
         
     await delete_messages_fast(bot, chat_id, all_ids)
             
-    await state.update_data(
-        admin_panel_msg_id=None,
-        admin_msg_ids=[]
-    )
+    if preserve_user_message and user_msg_id:
+        await state.update_data(
+            admin_panel_msg_id=None,
+            admin_panel_user_msg_id=user_msg_id,
+            admin_msg_ids=[user_msg_id],
+        )
+    else:
+        await state.update_data(
+            admin_panel_msg_id=None,
+            admin_panel_user_msg_id=None,
+            admin_msg_ids=[],
+        )
 
 
 async def _detach_admin_panel_messages(state: FSMContext) -> set[int]:
@@ -98,6 +146,7 @@ async def _detach_admin_panel_messages(state: FSMContext) -> set[int]:
         msg_ids.add(legacy_msg_id)
     await state.update_data(
         admin_panel_msg_id=None,
+        admin_panel_user_msg_id=None,
         admin_msg_ids=[],
     )
     return msg_ids
@@ -132,6 +181,28 @@ def _delete_messages_background(bot, chat_id: int, message_ids) -> None:
     asyncio.create_task(delete_messages_fast(bot, chat_id, ids))
 
 
+async def _answer_photo_or_text(
+    message: Message,
+    *,
+    photo_file_id: str | None,
+    text: str,
+    reply_markup,
+):
+    if not photo_file_id:
+        return await message.answer(
+            text,
+            reply_markup=reply_markup,
+            parse_mode="HTML",
+        )
+
+    return await message.answer_photo(
+        photo_file_id,
+        caption=text,
+        parse_mode="HTML",
+        reply_markup=reply_markup,
+    )
+
+
 async def _send_web_admin_panel_link(
     message: Message,
     state: FSMContext,
@@ -155,6 +226,9 @@ async def process_admin_panel(callback: CallbackQuery, session: AsyncSession, st
 # opens the admin panel via message
 @router.message(F.text.in_(["Admin Panel", "⚙️ Admin Panel"]), F.chat.type == "private")
 async def process_admin_panel_message(message: Message, session: AsyncSession, state: FSMContext):
+    from app.handlers.start import cleanup_main_menu_warnings
+
+    await cleanup_main_menu_warnings(message, state)
     await _cleanup_admin_temp_messages(state, message.bot, message.chat.id)
     await show_admin_panel(message, session, state, is_callback=False)
 
@@ -167,7 +241,14 @@ async def process_admin_panel_back_message(message: Message, session: AsyncSessi
         await message.delete()
     except Exception:
         pass
-    await show_admin_panel(message, session, state, is_callback=False)
+    await show_admin_panel(
+        message,
+        session,
+        state,
+        is_callback=False,
+        record_user_message=False,
+        preserve_user_message=True,
+    )
 
 
 # returns to the admin panel by callback
@@ -182,6 +263,9 @@ async def show_admin_panel(
     session: AsyncSession,
     state: FSMContext,
     is_callback: bool,
+    *,
+    record_user_message: bool = True,
+    preserve_user_message: bool = False,
 ):
     is_callback = isinstance(event_obj, CallbackQuery)
     user_obj = event_obj.from_user
@@ -207,19 +291,29 @@ async def show_admin_panel(
             await msg_obj.delete()
         except Exception:
             pass
+        await _send_web_admin_panel_link(msg_obj, state, settings)
         sent = await msg_obj.answer(text, reply_markup=keyboard, parse_mode="HTML")
         await _record_admin_panel_message(state, sent)
-        await _send_web_admin_panel_link(msg_obj, state, settings)
         await event_obj.answer()
     else:
-        await _cleanup_admin_panel_messages(state, msg_obj.bot, msg_obj.chat.id)
-        if msg_obj.text not in {"Admin Panel", "⚙️ Admin Panel"}:
+        await _cleanup_admin_panel_messages(
+            state,
+            msg_obj.bot,
+            msg_obj.chat.id,
+            preserve_user_message=preserve_user_message,
+        )
+        if record_user_message:
             await _record_admin_panel_user_message(state, msg_obj)
+        await _send_web_admin_panel_link(msg_obj, state, settings)
         sent = await msg_obj.answer(text, reply_markup=keyboard, parse_mode="HTML")
         await _record_admin_panel_message(state, sent)
-        await _send_web_admin_panel_link(msg_obj, state, settings)
 
-    await state.update_data(admin_panel_mode=True)
+    await state.update_data(
+        admin_panel_mode=True,
+        admin_mod_queue_mode=False,
+        admin_active_events_mode=False,
+        admin_mod_current_event_id=None,
+    )
 
 
 # lists pending events for moderation
@@ -256,7 +350,7 @@ async def show_admin_mod_queue(
         if is_callback or is_back_navigation:
             delete_ids.add(message_obj.message_id)
         else:
-            await _record_admin_panel_user_message(state, message_obj)
+            await _record_admin_navigation_message(state, message_obj)
 
         builder = ReplyKeyboardBuilder()
         builder.button(text="Back")
@@ -308,7 +402,7 @@ async def show_admin_mod_queue(
         delete_ids.add(message_obj.message_id)
     else:
         delete_ids |= await _detach_admin_temp_messages(state)
-        await _record_admin_panel_user_message(state, message_obj)
+        await _record_admin_navigation_message(state, message_obj)
 
     sent = await message_obj.answer(text, reply_markup=reply_markup, parse_mode="Markdown")
     if is_callback and event_obj is not None:
@@ -451,28 +545,31 @@ async def _show_admin_mod_event(
     safe_title = html.escape(event.title)
     safe_location = html.escape(event.location or "")
     safe_cat = html.escape(event.category.name if event.category else "")
-    safe_desc = html.escape(event.description or "")
     safe_creator = html.escape(f"{event.creator.first_name} (@{event.creator.username})")
-    safe_status = html.escape(event.status.upper())
-    date_str = event.event_date.strftime("%d.%m.%Y")
-    time_str = event.event_time.strftime("%H:%M")
+    safe_registration = html.escape(event.registration_url or "")
 
-    text = (
-        f"<b>{safe_title}</b>\n\n"
-        f"User: {safe_creator}\n"
-        f"Date: {date_str}\n"
-        f"Time: {time_str}\n"
-        f"Location: {safe_location}\n"
-        f"Category: {safe_cat}\n"
-        f"Status: {safe_status}\n\n"
-        f"Description:\n{safe_desc}\n"
+    def render_text(safe_desc: str) -> str:
+        return _render_admin_moderation_event_text(
+            event,
+            safe_title=safe_title,
+            safe_creator=safe_creator,
+            safe_location=safe_location,
+            safe_cat=safe_cat,
+            safe_desc=safe_desc,
+            safe_registration=safe_registration,
+        )
+
+    safe_desc = (
+        escape_and_fit_description(event.description or "", render_text)
+        if event.poster_file_id
+        else html.escape(event.description or "")
     )
+    text = render_text(safe_desc)
 
     reply_markup = _get_admin_moderation_keyboard()
 
-    old_panel_ids = await _detach_admin_panel_messages(state)
     old_temp_ids = await _detach_admin_temp_messages(state)
-    delete_ids = old_panel_ids | old_temp_ids
+    delete_ids = set(old_temp_ids)
 
     if not is_callback:
         delete_ids.add(message_obj.message_id)
@@ -502,6 +599,53 @@ async def _show_admin_mod_event(
     _delete_messages_background(message_obj.bot, message_obj.chat.id, delete_ids)
 
 
+def _render_admin_manage_event_text(
+    event: Event,
+    *,
+    safe_title: str,
+    safe_creator: str,
+    safe_location: str,
+    safe_cat: str,
+    safe_desc: str,
+) -> str:
+    return (
+        f"<b>{safe_title}</b>\n\n"
+        f"Creator: {safe_creator}\n"
+        f"Date: {event.event_date}\n"
+        f"Time: {event.event_time}\n"
+        f"Location: {safe_location}\n"
+        f"Category: {safe_cat}\n"
+        f"Status: {event.status.upper()}\n\n"
+        f"Description:\n{safe_desc}\n"
+    )
+
+
+def _render_admin_moderation_event_text(
+    event: Event,
+    *,
+    safe_title: str,
+    safe_creator: str,
+    safe_location: str,
+    safe_cat: str,
+    safe_desc: str,
+    safe_registration: str,
+) -> str:
+    safe_status = html.escape(event.status.upper())
+    date_str = event.event_date.strftime("%d.%m.%Y")
+    time_str = event.event_time.strftime("%H:%M")
+    return (
+        f"<b>{safe_title}</b>\n\n"
+        f"User: {safe_creator}\n"
+        f"Date: {date_str}\n"
+        f"Time: {time_str}\n"
+        f"Location: {safe_location}\n"
+        f"Category: {safe_cat}\n"
+        f"Status: {safe_status}\n"
+        f"Registration: {safe_registration or 'None'}\n\n"
+        f"Description:\n{safe_desc}\n"
+    )
+
+
 async def _admin_approve_event(
     message: Message,
     session: AsyncSession,
@@ -509,6 +653,18 @@ async def _admin_approve_event(
     event_id: int,
 ) -> None:
     moderator = await upsert_user_from_telegram(session, message.from_user)
+    existing = await get_event_by_id(session, event_id)
+    if not existing:
+        await message.answer(
+            "Event not found.",
+            reply_markup=ReplyKeyboardRemove(),
+        )
+        return
+
+    target_event_id = existing.parent_event_id or existing.id
+    await acquire_event_lock(session, target_event_id)
+    snapshot = await capture_event_snapshot(session, target_event_id)
+
     event = await update_event_status(
         session, event_id, EventStatus.APPROVED, moderator
     )
@@ -537,6 +693,12 @@ async def _admin_approve_event(
             target_event = parent
             await session.delete(event)
 
+    await enqueue_event_sync(
+        session,
+        event_id=target_event.id,
+        operation="approved",
+        snapshot=snapshot,
+    )
     await session.commit()
     target_event = await get_event_by_id(session, target_event.id)
 
@@ -548,19 +710,9 @@ async def _admin_approve_event(
     except Exception:
         pass
 
-    try:
-        await publish_approved_event(session, message.bot, target_event)
-        await session.commit()
-    except Exception as e:
-        import logging
-
-        logging.getLogger(__name__).error(
-            f"publish failed for event {target_event.id}: {e}", exc_info=True
-        )
-
     await state.update_data(admin_mod_current_event_id=None)
     await message.answer(
-        f"Event #{target_event.id} approved.",
+        f"Event #{target_event.id} approved. Sync queued.",
         reply_markup=ReplyKeyboardRemove(),
     )
     await show_admin_mod_queue(message, session, state, is_callback=False)
@@ -587,9 +739,9 @@ async def show_admin_active_events(
 ):
     result = await session.execute(
         select(Event)
-        .where(Event.status == EventStatus.APPROVED.value)
+        .where(Event.status.in_([EventStatus.APPROVED.value, EventStatus.ARCHIVED.value]))
         .where(Event.parent_event_id.is_(None))
-        .order_by(Event.event_date.desc())
+        .order_by(Event.event_date.asc(), Event.event_time.asc(), Event.id.asc())
     )
     active = result.scalars().all()
 
@@ -612,7 +764,10 @@ async def show_admin_active_events(
         title = event.title
         if len(title) > 50:
             title = title[:50] + "…"
-        label = f"{title} ({date_str} {time_str})"
+        if _is_event_archived(event):
+            label = f"{title} (archived)"
+        else:
+            label = f"{title} ({date_str} {time_str})"
         if label in event_map:
             label = f"{label} ({event.id})"
         event_map[label] = event.id
@@ -668,6 +823,43 @@ async def process_admin_manage_event_message(message: Message, session: AsyncSes
     await _show_admin_manage_event(message, session, state, event_id, is_callback=False)
 
 
+@router.message(F.text.in_({"Archive", "Restore"}), F.chat.type == "private")
+async def process_admin_archive_restore_event(
+    message: Message,
+    session: AsyncSession,
+    state: FSMContext,
+) -> None:
+    data = await state.get_data()
+    event_id = data.get("manage_event_id")
+    if not event_id or not data.get("is_admin_edit"):
+        return
+
+    moderator = await upsert_user_from_telegram(session, message.from_user)
+    status = EventStatus.ARCHIVED if message.text == "Archive" else EventStatus.APPROVED
+    operation = "archived" if status == EventStatus.ARCHIVED else "restored"
+
+    await acquire_event_lock(session, event_id)
+    snapshot = await capture_event_snapshot(session, event_id)
+    event = await update_event_status(session, event_id, status, moderator)
+    if not event:
+        await message.answer("Event not found.")
+        return
+
+    await enqueue_event_sync(
+        session,
+        event_id=event.id,
+        operation=operation,
+        snapshot=snapshot,
+    )
+    await session.commit()
+
+    await message.answer(
+        f"Event #{event.id} {'archived' if operation == 'archived' else 'restored'}. Sync queued.",
+        reply_markup=ReplyKeyboardRemove(),
+    )
+    await _show_admin_manage_event(message, session, state, event.id, is_callback=False)
+
+
 async def _show_admin_manage_event(
     message_obj: Message,
     session: AsyncSession,
@@ -692,23 +884,25 @@ async def _show_admin_manage_event(
     safe_title = html.escape(event.title)
     safe_location = html.escape(event.location or "")
     safe_cat = html.escape(event.category.name if event.category else "")
-    safe_desc = html.escape(event.description or "")
     safe_creator = html.escape(f"{event.creator.first_name} (@{event.creator.username})")
 
-    # Same style as My Events, rich layout
-    text = (
-        f"<b>{safe_title}</b>\n\n"
-        f"Creator: {safe_creator}\n"
-        f"Date: {event.event_date}\n"
-        f"Time: {event.event_time}\n"
-        f"Location: {safe_location}\n"
-        f"Category: {safe_cat}\n"
-        f"Status: {event.status.upper()}\n\n"
-        f"Description:\n{safe_desc}\n"
+    render_text = lambda safe_desc: _render_admin_manage_event_text(
+        event,
+        safe_title=safe_title,
+        safe_creator=safe_creator,
+        safe_location=safe_location,
+        safe_cat=safe_cat,
+        safe_desc=safe_desc,
     )
+    safe_desc = escape_and_fit_description(event.description or "", render_text) if event.poster_file_id else html.escape(event.description or "")
+    text = render_text(safe_desc)
 
     builder = ReplyKeyboardBuilder()
     builder.button(text="Edit")
+    if event.status == EventStatus.ARCHIVED.value:
+        builder.button(text="Restore")
+    else:
+        builder.button(text="Archive")
     builder.button(text="Delete")
     builder.button(text="Back to Active Events")
     builder.button(text="Back to Menu")
@@ -733,12 +927,7 @@ async def _show_admin_manage_event(
             await _cleanup_admin_temp_messages(state, message_obj.bot, message_obj.chat.id)
         
         if event.poster_file_id:
-            sent = await message_obj.answer_photo(
-                event.poster_file_id,
-                caption=text,
-                parse_mode="HTML",
-                reply_markup=reply_markup,
-            )
+            sent = await message_obj.answer_photo(event.poster_file_id, caption=text, parse_mode="HTML", reply_markup=reply_markup)
         else:
             sent = await message_obj.answer(
                 text,
@@ -751,12 +940,7 @@ async def _show_admin_manage_event(
         await _record_admin_panel_user_message(state, message_obj)
 
         if event.poster_file_id:
-            sent = await message_obj.answer_photo(
-                event.poster_file_id,
-                caption=text,
-                parse_mode="HTML",
-                reply_markup=reply_markup,
-            )
+            sent = await message_obj.answer_photo(event.poster_file_id, caption=text, parse_mode="HTML", reply_markup=reply_markup)
         else:
             sent = await message_obj.answer(
                 text,
@@ -775,6 +959,8 @@ class AdminPanelModeFilter(Filter):
 
         if message.text in {
             "Edit",
+            "Archive",
+            "Restore",
             "Delete",
             "Yes, Delete",
             "Cancel",
