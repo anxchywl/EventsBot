@@ -1,6 +1,6 @@
 # Student Events
 
-Student Events is a campus event platform with four current surfaces:
+Student Events is a campus event discovery and management platform with four current surfaces:
 
 - a Telegram Mini App for students to discover and interact with events
 - a standalone Flutter development host for coordinators to create, moderate, and manage events
