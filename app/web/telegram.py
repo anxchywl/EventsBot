@@ -18,5 +18,7 @@ async def get_bot_username() -> str | None:
         me = await bot.get_me()
         _bot_username = me.username
         return _bot_username
+    except Exception:
+        return None
     finally:
         await bot.session.close()

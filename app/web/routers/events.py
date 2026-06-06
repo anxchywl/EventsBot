@@ -244,6 +244,7 @@ async def register_event_click(
     already_registered = await session.scalar(
         select(
             exists()
+            .select_from(EventAnalytics)
             .join(User, EventAnalytics.user_id == User.id)
             .where(
                 EventAnalytics.event_id == event.id,
@@ -264,6 +265,7 @@ async def register_event_click(
 
     count = await session.scalar(
         select(func.count(func.distinct(User.telegram_id)))
+        .select_from(EventAnalytics)
         .join(User, EventAnalytics.user_id == User.id)
         .where(
             EventAnalytics.event_id == event.id,

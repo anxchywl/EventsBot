@@ -32,6 +32,8 @@ async def event_cover(
         buffer = BytesIO()
         await bot.download_file(file.file_path, destination=buffer)
         buffer.seek(0)
+    except Exception as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Cover fetch failed: {exc}")
     finally:
         await bot.session.close()
 
