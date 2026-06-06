@@ -25,6 +25,8 @@ async def upsert_user_from_telegram(
     settings = get_settings()
     if telegram_user.id in settings.admin_ids:
         user.role = "admin"
+    elif user.role == "admin":
+        user.role = "user"
 
     # keep profile fields in sync with telegram
     user.username = telegram_user.username

@@ -1,9 +1,9 @@
-import { addFavorite, createReminder, removeFavorite } from "../api.js";
-import { coverStyle, escapeAttr, escapeHtml, nav } from "../components/events.js?v=20260601-fallback-gradient-v7";
-import { openReminderSheet } from "../components/sheets.js?v=20260601-fallback-gradient-v7";
-import { t } from "../i18n.js?v=20260601-fallback-gradient-v7";
-import { state } from "../state.js";
-import { haptic } from "../telegram.js";
+import { addFavorite, createReminder, removeFavorite } from "../api.js?v=20260607-cal-v2";
+import { coverStyle, escapeAttr, escapeHtml, nav } from "../components/events.js?v=20260607-cal-v2";
+import { openReminderSheet } from "../components/sheets.js?v=20260607-cal-v2";
+import { t } from "../i18n.js?v=20260607-cal-v2";
+import { state } from "../state.js?v=20260607-cal-v2";
+import { haptic } from "../telegram.js?v=20260607-cal-v2";
 
 const MONTH_RANGE = 12; // -12 to +12 = 25 months
 const monthGridCache = new Map();

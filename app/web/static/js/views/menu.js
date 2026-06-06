@@ -1,6 +1,6 @@
-import { controls, coverStyle, escapeAttr, escapeHtml, eventRow, nav, status } from "../components/events.js?v=20260601-fallback-gradient-v7";
-import { t } from "../i18n.js?v=20260601-fallback-gradient-v7";
-import { state } from "../state.js";
+import { controls, coverStyle, escapeAttr, escapeHtml, eventRow, nav, status } from "../components/events.js?v=20260607-cal-v2";
+import { t } from "../i18n.js?v=20260607-cal-v2";
+import { state } from "../state.js?v=20260607-cal-v2";
 
 export function formatGroupDate(dateStr, lang) {
   const date = new Date(`${dateStr}T00:00:00`);
@@ -12,31 +12,40 @@ export function formatGroupDate(dateStr, lang) {
   }).format(date);
 }
 
-import { renderCalendarInner } from "./calendar.js";
+import { renderCalendarInner } from "./calendar.js?v=20260607-cal-v2";
+import { renderProfileInner } from "./ratings.js?v=20260607-cal-v2";
 
 export function renderMenu(events) {
-  const isCalendar = state.calendarMode;
+  const isProfile = state.route === "profile";
+  const isCalendar = !isProfile && state.calendarMode;
+  
   return `
-    <div class="screen ${isCalendar ? "calendar-mode-active" : ""}" data-route="events">
+    <div class="screen ${isCalendar ? "calendar-mode-active" : ""} ${isProfile ? "profile-mode-active" : ""}" data-route="${isProfile ? "profile" : "events"}">
       <header class="cover compact" ${coverStyle(null, "header-main")}>
         <button class="calendar-toggle-btn ${isCalendar ? "mode-active" : ""}" type="button" data-action="calendar-toggle" aria-label="Calendar">
           <svg class="icon-calendar" viewBox="0 0 24 24" width="22" height="22"><path d="M19 3h-1V1h-2v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11zM7 10h5v5H7v-5z" fill="currentColor"/></svg>
           <svg class="icon-list" viewBox="0 0 24 24" width="22" height="22"><path d="M3 13h2v-2H3v2zm0 4h2v-2H3v2zm0-8h2V7H3v2zm4 4h14v-2H7v2zm0 4h14v-2H7v2zM7 7v2h14V7H7z" fill="currentColor"/></svg>
         </button>
         <div class="events-title-block">
-          <h1>${isCalendar ? t("eventsCalendar") : t("events")}</h1>
+          <h1>${isProfile ? t("userProfile") : (isCalendar ? t("eventsCalendar") : t("events"))}</h1>
         </div>
       </header>
       <main class="content">
-        <div class="events-mode-container ${isCalendar ? "mode-hidden" : ""}">
-          ${renderFilterBar()}
-          <div data-events-list-region>
-            ${renderEventResults(events)}
+        ${isProfile ? `
+          <div class="profile-mode-container">
+            ${renderProfileInner()}
           </div>
-        </div>
-        <div class="calendar-mode-container ${!isCalendar ? "mode-hidden" : ""}">
-          ${isCalendar ? renderCalendarInner(events) : ""}
-        </div>
+        ` : `
+          <div class="events-mode-container ${isCalendar ? "mode-hidden" : ""}">
+            ${renderFilterBar()}
+            <div data-events-list-region>
+              ${renderEventResults(events)}
+            </div>
+          </div>
+          <div class="calendar-mode-container ${!isCalendar ? "mode-hidden" : ""}">
+            ${isCalendar ? renderCalendarInner(events) : ""}
+          </div>
+        `}
       </main>
     </div>
   `;

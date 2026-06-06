@@ -1,5 +1,5 @@
-import { authHeaders, setSession } from "./state.js";
-import { initData } from "./telegram.js";
+import { authHeaders, setSession } from "./state.js?v=20260607-cal-v2";
+import { initData } from "./telegram.js?v=20260607-cal-v2";
 
 export async function request(path, options = {}) {
   const controller = new AbortController();
@@ -198,4 +198,70 @@ export function adminDeleteReview(userId, eventToken) {
 
 export function fetchReviews(token) {
   return request(`/api/events/${encodeURIComponent(token)}/reviews`);
+}
+
+export function fetchFriends() {
+  return request("/api/friends");
+}
+
+export function fetchFriendRequests() {
+  return request("/api/friends/requests");
+}
+
+export function sendFriendRequest(userId) {
+  return request("/api/friends/requests", {
+    method: "POST",
+    body: JSON.stringify({ user_id: userId }),
+  });
+}
+
+export function sendInviteFriendRequest(inviteToken) {
+  return request("/api/friends/requests", {
+    method: "POST",
+    body: JSON.stringify({ invite_token: inviteToken }),
+  });
+}
+
+export function acceptFriendRequest(requestId) {
+  return request(`/api/friends/requests/${encodeURIComponent(requestId)}/accept`, { method: "POST" });
+}
+
+export function declineFriendRequest(requestId) {
+  return request(`/api/friends/requests/${encodeURIComponent(requestId)}/decline`, { method: "POST" });
+}
+
+export function cancelFriendRequest(requestId) {
+  return request(`/api/friends/requests/${encodeURIComponent(requestId)}/cancel`, { method: "POST" });
+}
+
+export function removeFriend(userId) {
+  return request(`/api/friends/${encodeURIComponent(userId)}`, { method: "DELETE" });
+}
+
+export function searchFriends(query, page = 1, limit = 20) {
+  const params = new URLSearchParams({ q: query, page: String(page), limit: String(limit) });
+  return request(`/api/friends/search?${params.toString()}`);
+}
+
+export function createFriendInvite() {
+  return request("/api/friends/invites", { method: "POST" });
+}
+
+export function fetchFriendInvite(token) {
+  return request(`/api/friends/invites/${encodeURIComponent(token)}`);
+}
+
+export function revokeFriendInvite(inviteId) {
+  return request(`/api/friends/invites/${encodeURIComponent(inviteId)}`, { method: "DELETE" });
+}
+
+export function fetchPrivacySettings() {
+  return request("/api/friends/settings");
+}
+
+export function updatePrivacySettings(settings) {
+  return request("/api/friends/settings", {
+    method: "PUT",
+    body: JSON.stringify(settings),
+  });
 }

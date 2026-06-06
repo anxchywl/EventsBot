@@ -16,6 +16,7 @@ from app.models.reminder import Reminder
 from app.models.rating import Rating
 from app.models.comment import Comment
 from app.services.favorites import get_favorite_event_ids, is_event_favorite
+from app.services.friends import avatar_payload, bulk_event_friends_going, event_friends_going
 from app.services.telegram_links import build_telegram_share_link
 from app.web.auth import effective_web_role
 from app.web.schemas import EventDetail, EventListItem, ReviewDetail
@@ -70,6 +71,8 @@ async def event_list_items(
     reminder_counts = await get_reminder_counts(session, user, event_ids)
     attendee_counts = await get_attendee_counts(session, event_ids)
     ratings = await rating_summaries(session, event_ids)
+    friends_going_map = await bulk_event_friends_going(session, user, event_ids)
+    
     return [
         EventListItem(
             token=event.public_token,
@@ -87,6 +90,7 @@ async def event_list_items(
             cover_url=event_cover_url(event),
             average_rating=ratings.get(event.id, (None, 0))[0],
             rating_count=ratings.get(event.id, (None, 0))[1],
+            friends_going=friends_going_map.get(event.id, []),
         )
         for event in events
     ]
@@ -127,6 +131,7 @@ async def event_detail(
             "comment_id": None,
             "rating_id": r.id,
             "nickname": r.user.nickname or "Anonymous",
+            "avatar": avatar_payload(r.user),
             "content": None,
             "score": r.score,
             "created_at": r.created_at.isoformat(),
@@ -143,6 +148,7 @@ async def event_detail(
                 "comment_id": c.id,
                 "rating_id": None,
                 "nickname": c.user.nickname or "Anonymous",
+                "avatar": avatar_payload(c.user),
                 "content": c.content,
                 "score": None,
                 "created_at": c.created_at.isoformat(),
@@ -179,6 +185,7 @@ async def event_detail(
         average_rating=average_rating,
         rating_count=rating_count,
         reviews=reviews,
+        friends_going=await event_friends_going(session, user, event.id),
     )
 
 

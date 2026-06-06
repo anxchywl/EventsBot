@@ -1,6 +1,6 @@
-import { controls, coverStyle, escapeAttr, escapeHtml, nav, formatDisplayName } from "../components/events.js?v=20260601-fallback-gradient-v7";
-import { t } from "../i18n.js?v=20260601-fallback-gradient-v7";
-import { state } from "../state.js";
+import { controls, coverStyle, escapeAttr, escapeHtml, nav, formatDisplayName } from "../components/events.js?v=20260607-cal-v2";
+import { t } from "../i18n.js?v=20260607-cal-v2";
+import { state } from "../state.js?v=20260607-cal-v2";
 
 export function renderRatingsTab(profileData = null, reviewsList = []) {
   const feed = state.prefetchedRatings?.feed || reviewsList || [];
@@ -24,6 +24,14 @@ export function renderRatingsTab(profileData = null, reviewsList = []) {
         </section>
       </main>
       ${nav("ratings")}
+    </div>
+  `;
+}
+
+export function renderProfileInner() {
+  return `
+    <div id="auth-profile-container" style="padding-top: 10px;">
+      ${renderAuthSection(state.cachedRatingsProfile)}
     </div>
   `;
 }
@@ -252,33 +260,201 @@ function renderProfile(profile) {
         </button>
         </div>
       </div>
+    </div>
       
 
-      <!-- History Section -->
-      <div class="profile-history">
-        <h3 class="history-title">${t("myReviewsTitle")}</h3>
-        <div class="history-list">
-          ${profile.history.length === 0 
-            ? `<p class="empty-history-text">${t("emptyHistoryText")}</p>`
-            : profile.history.map(item => `
-                <article class="history-item" data-event-token="${escapeAttr(item.event_token)}">
-                  <div class="history-item-header">
-                    <strong class="history-event-title">${escapeHtml(item.event_title)}</strong>
-                    ${item.score ? `<span class="history-stars">${"★".repeat(item.score)}${"☆".repeat(5 - item.score)}</span>` : ""}
+    <div class="panel friends-parent-panel">
+      ${renderFriendsSubSection()}
+      ${renderFriendRequestsSubSection()}
+      ${renderFriendSearchSubSection()}
+      ${renderPrivacySubSection()}
+    </div>
+
+    <!-- History Section -->
+    <div class="panel profile-history">
+      <h3 class="history-title">${t("myReviewsTitle")}</h3>
+      <div class="history-list">
+        ${profile.history.length === 0 
+          ? `<p class="empty-history-text">${t("emptyHistoryText")}</p>`
+          : profile.history.map(item => `
+              <article class="history-item" data-event-token="${escapeAttr(item.event_token)}">
+                <div class="history-item-header">
+                  <strong class="history-event-title">${escapeHtml(item.event_title)}</strong>
+                  ${item.score ? `<span class="history-stars">${"★".repeat(item.score)}${"☆".repeat(5 - item.score)}</span>` : ""}
+                </div>
+                ${item.content ? `<p class="history-comment-content">${escapeHtml(item.content)}</p>` : ""}
+                <div class="history-item-footer">
+                  <span class="history-date">${formatDate(item.created_at)}</span>
+                  <div class="history-actions">
+                    <button class="delete-history-btn" data-delete-review-token="${escapeAttr(item.event_token)}">${t("deleteBtn")}</button>
                   </div>
-                  ${item.content ? `<p class="history-comment-content">${escapeHtml(item.content)}</p>` : ""}
-                  <div class="history-item-footer">
-                    <span class="history-date">${formatDate(item.created_at)}</span>
-                    <div class="history-actions">
-                      <button class="delete-history-btn" data-delete-review-token="${escapeAttr(item.event_token)}">${t("deleteBtn")}</button>
-                    </div>
-                  </div>
-                </article>
-              `).join("")
-          }
-        </div>
+                </div>
+              </article>
+            `).join("")
+        }
       </div>
     </div>
+  `;
+}
+
+function renderFriendsSubSection() {
+  const friends = state.friends?.friends || [];
+  if (!friends.length) return "";
+  return `
+    <div class="friends-sub-section">
+      <h3 class="history-title">${escapeHtml(t("friendsTabTitle"))}</h3>
+      <div class="friends-list">
+        ${friends.map((friend) => renderFriendRow(friend, { mode: "friend" })).join("")}
+      </div>
+    </div>
+  `;
+}
+
+function renderFriendRequestsSubSection() {
+  const incoming = state.friendRequests?.incoming || [];
+  const outgoing = state.friendRequests?.outgoing || [];
+  
+  if (incoming.length === 0 && outgoing.length === 0) {
+    return "";
+  }
+
+  return `
+    <div class="friends-sub-section">
+      <h3 class="history-title">${escapeHtml(t("friendRequestsTitle"))}</h3>
+      ${incoming.length ? `
+        <div class="request-group">
+          <span class="friend-subtitle">${escapeHtml(t("incomingRequests"))}</span>
+          ${incoming.map((item) => renderRequestRow(item, "incoming")).join("")}
+        </div>
+      ` : ""}
+      ${outgoing.length ? `
+        <div class="request-group">
+          <span class="friend-subtitle">${escapeHtml(t("outgoingRequests"))}</span>
+          ${outgoing.map((item) => renderRequestRow(item, "outgoing")).join("")}
+        </div>
+      ` : ""}
+    </div>
+  `;
+}
+
+function renderFriendSearchSubSection() {
+  const search = state.friendSearch || {};
+  
+  const inviteOutputHtml = state.currentFriendInvite?.url ? `
+    <div class="friend-invite-output" id="friend-invite-output">
+      <div class="friend-invite-actions-row">
+        <button class="friend-invite-link-btn" type="button" data-copy-value="${escapeAttr(state.currentFriendInvite.url)}">
+          <svg viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" style="margin-top: -1px;"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+          ${escapeHtml(t("copyLinkBtn"))}
+        </button>
+        <button class="action primary friend-share-btn" type="button" data-action="share-invite" data-share-url="${escapeAttr(state.currentFriendInvite.share_url || "")}">${escapeHtml(t("shareBtn"))}</button>
+      </div>
+    </div>
+  ` : "";
+
+  return `
+    <div class="friends-sub-section">
+      <div class="friends-section-head">
+        <h3 class="history-title">${escapeHtml(t("findNuFriendsTitle"))}</h3>
+        <button class="action compact-action invite-friend-btn" type="button" data-action="create-friend-invite">${escapeHtml(t("inviteFriendBtn"))}</button>
+      </div>
+      <div class="friend-search-box">
+        <input class="auth-input" id="friend-search-input" type="search" autocomplete="off" maxlength="100" placeholder="${escapeAttr(t("findNuFriendsPlaceholder"))}" value="${escapeAttr(search.query || "")}" />
+      </div>
+      ${inviteOutputHtml}
+      <div id="friend-search-results" class="friends-list">
+        ${renderFriendSearchResults()}
+      </div>
+    </div>
+  `;
+}
+
+function renderPrivacySubSection() {
+  const settings = state.privacySettings || {};
+  return `
+    <div class="friends-sub-section privacy-sub-section">
+      <h3 class="history-title">${escapeHtml(t("privacyTitle"))}</h3>
+      ${privacyToggle("show_favorites_to_friends", t("showFavoritesToFriendsLabel"), settings.show_favorites_to_friends !== false)}
+      ${privacyToggle("show_profile_to_friends", t("showProfileToFriendsLabel"), settings.show_profile_to_friends !== false)}
+      ${privacyToggle("allow_friend_requests", t("allowFriendRequestsLabel"), settings.allow_friend_requests !== false)}
+    </div>
+  `;
+}
+
+function privacyToggle(key, label, checked) {
+  return `
+    <button class="privacy-toggle" type="button" data-privacy-key="${escapeAttr(key)}" data-checked="${checked ? "true" : "false"}" aria-pressed="${checked ? "true" : "false"}">
+      <span>${escapeHtml(label)}</span>
+      <span class="privacy-status-label">${checked ? escapeHtml(t("onLabel")) : escapeHtml(t("offLabel"))}</span>
+    </button>
+  `;
+}
+
+function renderRequestRow(item, direction) {
+  const friend = item.user || {};
+  return `
+    <article class="friend-row">
+      ${friendAvatar(friend)}
+      <div class="friend-main">
+        <strong>${escapeHtml(formatDisplayName(friend.nickname, friend.email))}</strong>
+        <span>${Number(friend.mutual_friends_count || 0)} ${escapeHtml(t("mutual"))}</span>
+      </div>
+      <div class="friend-actions-inline">
+        ${direction === "incoming" ? `
+          <button class="mini-action primary" type="button" data-friend-request-accept="${escapeAttr(item.id)}">${escapeHtml(t("accept"))}</button>
+          <button class="mini-action" type="button" data-friend-request-decline="${escapeAttr(item.id)}">${escapeHtml(t("decline"))}</button>
+        ` : `
+          <button class="mini-action" type="button" data-friend-request-cancel="${escapeAttr(item.id)}">${escapeHtml(t("cancel"))}</button>
+        `}
+      </div>
+    </article>
+  `;
+}
+
+function renderFriendRow(friend, { mode }) {
+  const status = friend.relationship_status || "none";
+  const canAdd = mode === "search" && status === "none";
+  const pending = status === "outgoing_pending";
+  const incoming = status === "incoming_pending";
+  return `
+    <article class="friend-row ${friend.telegram_url ? "friend-row-clickable" : ""}" data-friend-user-id="${escapeAttr(friend.id)}" ${friend.telegram_url ? `data-open-telegram="${escapeAttr(friend.telegram_url)}"` : ""}>
+      ${friendAvatar(friend)}
+      <div class="friend-main">
+        <strong>${escapeHtml(formatDisplayName(friend.nickname, friend.email))}</strong>
+        <span>${Number(friend.friend_count || 0)} ${escapeHtml(t("friends"))} · ${Number(friend.mutual_friends_count || 0)} ${escapeHtml(t("mutual"))}</span>
+      </div>
+      <div class="friend-actions-inline">
+        ${mode === "friend" ? `<button class="mini-action danger" type="button" data-remove-friend="${escapeAttr(friend.id)}">${escapeHtml(t("remove"))}</button>` : ""}
+        ${canAdd ? `<button class="mini-action primary" type="button" data-add-friend="${escapeAttr(friend.id)}">${escapeHtml(t("sendFriendRequest"))}</button>` : ""}
+        ${pending ? `<span class="friend-status-pill">${escapeHtml(t("requestSent"))}</span>` : ""}
+        ${incoming ? `<span class="friend-status-pill">${escapeHtml(t("incomingRequests"))}</span>` : ""}
+      </div>
+    </article>
+  `;
+}
+
+function friendAvatar(friend) {
+  const avatar = friend.avatar || {};
+  const initials = escapeHtml(avatar.initials || "NU");
+  if (avatar.url) {
+    return `
+      <div style="position: relative; width: 42px; height: 42px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+        <img class="friend-avatar" src="${escapeAttr(avatar.url)}" alt="" loading="lazy" onerror="this.style.display='none'; this.nextElementSibling.style.display='inline-flex';" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; border-radius: 50%; object-fit: cover;" />
+        <span class="friend-avatar initials" style="display: none; width: 100%; height: 100%;">${initials}</span>
+      </div>
+    `;
+  }
+  return `<span class="friend-avatar initials">${initials}</span>`;
+}
+
+export function renderFriendSearchResults() {
+  const search = state.friendSearch || {};
+  const results = search.results || [];
+  return `
+    ${search.loading ? `<div class="line skeleton"></div>` : ""}
+    ${search.query && (search.query || "").length >= 2 && !results.length && !search.loading ? `<p class="empty-history-text">${escapeHtml(t("noVerifiedUsersFound"))}</p>` : ""}
+    ${results.map((friend) => renderFriendRow(friend, { mode: "search" })).join("")}
+    ${search.hasMore ? `<button class="action compact-action full-width" type="button" data-action="friend-search-more">Load more</button>` : ""}
   `;
 }
 

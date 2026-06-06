@@ -1,6 +1,6 @@
-import { escapeAttr, escapeHtml } from "./events.js";
-import { categoryLabel, t } from "../i18n.js?v=20260601-fallback-gradient-v7";
-import { state } from "../state.js";
+import { escapeAttr, escapeHtml } from "./events.js?v=20260607-cal-v2";
+import { categoryLabel, t } from "../i18n.js?v=20260607-cal-v2";
+import { state } from "../state.js?v=20260607-cal-v2";
 
 const SORT_GROUPS = [
   ["time", [["time_asc", "nearestFirst"], ["time_desc", "furthestFirst"]]],

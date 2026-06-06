@@ -4,6 +4,7 @@ from app.models.club import Club
 from app.models.event import Event, EventCategory, EventDetailMessage
 from app.models.event_sync import EventSyncJob
 from app.models.favorite import Favorite
+from app.models.friend import FriendInvite, FriendRequest, Friendship, PrivacySettings
 from app.models.moderation import ModerationLog
 from app.models.reminder import Reminder
 from app.models.user import User
@@ -30,7 +31,11 @@ __all__ = (
     "EventDetailMessage",
     "EventSyncJob",
     "Favorite",
+    "FriendInvite",
+    "FriendRequest",
+    "Friendship",
     "ModerationLog",
+    "PrivacySettings",
     "Rating",
     "Reminder",
     "User",

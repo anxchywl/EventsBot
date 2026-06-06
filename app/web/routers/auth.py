@@ -19,6 +19,7 @@ from app.models.favorite import Favorite
 from app.models.reminder import Reminder
 from app.models.rating import Rating
 from app.models.comment import Comment
+from app.models.friend import FriendInvite, FriendRequest, Friendship, PrivacySettings
 from app.models.event import Event
 from app.models.club import Club
 from app.models.analytics import EventAnalytics
@@ -26,6 +27,8 @@ from app.models.moderation import ModerationLog
 from app.models.chat import Chat
 from app.services.email import send_verification_email, send_password_reset_email
 from app.services.security import hash_password, verify_password, validate_password_format, validate_nickname_format
+from app.services.friends import canonical_pair, friend_ids
+from app.web.realtime import publish_miniapp_event
 from app.web.auth import (
     MiniAppUser,
     create_session_token,
@@ -335,6 +338,95 @@ async def resend(
     )
 
 
+async def merge_friend_records(
+    session: AsyncSession,
+    *,
+    guest_user_id: int,
+    verified_user_id: int,
+) -> None:
+    friendship_rows = list(
+        (
+            await session.execute(
+                select(Friendship).where(
+                    (Friendship.user_id == guest_user_id)
+                    | (Friendship.friend_user_id == guest_user_id)
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for row in friendship_rows:
+        other_id = row.friend_user_id if row.user_id == guest_user_id else row.user_id
+        if other_id == verified_user_id:
+            await session.delete(row)
+            continue
+        first_id, second_id = canonical_pair(verified_user_id, other_id)
+        duplicate = await session.scalar(
+            select(Friendship).where(
+                Friendship.id != row.id,
+                Friendship.user_id == first_id,
+                Friendship.friend_user_id == second_id,
+            )
+        )
+        if duplicate is not None:
+            await session.delete(row)
+        else:
+            row.user_id = first_id
+            row.friend_user_id = second_id
+
+    request_rows = list(
+        (
+            await session.execute(
+                select(FriendRequest).where(
+                    (FriendRequest.requester_id == guest_user_id)
+                    | (FriendRequest.recipient_id == guest_user_id)
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for row in request_rows:
+        next_requester_id = verified_user_id if row.requester_id == guest_user_id else row.requester_id
+        next_recipient_id = verified_user_id if row.recipient_id == guest_user_id else row.recipient_id
+        if next_requester_id == next_recipient_id:
+            await session.delete(row)
+            continue
+        if row.status == "pending":
+            duplicate = await session.scalar(
+                select(FriendRequest).where(
+                    FriendRequest.id != row.id,
+                    FriendRequest.status == "pending",
+                    FriendRequest.requester_id == next_requester_id,
+                    FriendRequest.recipient_id == next_recipient_id,
+                )
+            )
+            if duplicate is not None:
+                await session.delete(row)
+                continue
+        row.requester_id = next_requester_id
+        row.recipient_id = next_recipient_id
+
+    await session.execute(
+        update(FriendInvite)
+        .where(FriendInvite.owner_id == guest_user_id)
+        .values(owner_id=verified_user_id)
+    )
+
+    verified_privacy = await session.scalar(
+        select(PrivacySettings).where(PrivacySettings.user_id == verified_user_id)
+    )
+    guest_privacy = await session.scalar(
+        select(PrivacySettings).where(PrivacySettings.user_id == guest_user_id)
+    )
+    if guest_privacy is not None:
+        if verified_privacy is None:
+            guest_privacy.user_id = verified_user_id
+        else:
+            await session.delete(guest_privacy)
+
+
 @router.post("/login", response_model=AuthResponse)
 async def login(
     payload: UserLoginRequest,
@@ -461,6 +553,12 @@ async def login(
             update(Chat)
             .where(Chat.created_by_user_id == current_guest_user.id)
             .values(created_by_user_id=verified_user.id)
+        )
+
+        await merge_friend_records(
+            session,
+            guest_user_id=current_guest_user.id,
+            verified_user_id=verified_user.id,
         )
 
         # Delete the guest user record A to make room for changing telegram_id
@@ -593,6 +691,14 @@ async def update_nickname(
 
     user.nickname = nickname
     await session.commit()
+    await publish_miniapp_event(
+        "friend_profile_changed",
+        {
+            "user_id": user.id,
+            "nickname": user.nickname,
+            "target_user_ids": list(await friend_ids(session, user.id)) + [user.id],
+        },
+    )
     return ActionResponse(ok=True, message="Nickname updated successfully.")
 
 

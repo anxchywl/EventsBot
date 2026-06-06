@@ -14,7 +14,7 @@ from app.services.telegram_links import (
     build_miniapp_event_url,
     build_public_miniapp_event_url,
     build_telegram_miniapp_direct_link,
-    build_telegram_share_link,
+    build_telegram_text_share_link,
 )
 
 PHOTO_CAPTION_LIMIT = 1024
@@ -121,7 +121,7 @@ def build_event_share_url(event: Event, *, bot_username: str | None) -> str | No
     if not deep_link:
         return None
 
-    return build_telegram_share_link(url=deep_link, text=event.title)
+    return build_telegram_text_share_link(text=event.title, url=deep_link)
 
 
 def render_dashboard_event_line(

@@ -25,19 +25,33 @@ import {
   forgotPasswordRequest,
   forgotPasswordVerify,
   forgotPasswordReset,
-} from "./api.js";
-import { loadingScreen, resetFallbackCoverStyles, startCountdowns } from "./components/events.js?v=20260606-review-popups-v2";
-import { closeFilterSheet, openFilterSheet } from "./components/filterSheet.js?v=20260606-review-popups-v2";
-import { fetchAdminStats, fetchAdminUsers, fetchConnectedGroups, renderAdminPanel, renderAdminUsersList, renderConnectedGroupsList, blockUser, unblockUser, adminStatusLabel, adminSortLabel } from "./views/admin.js?v=20260606-review-popups-v2";
-import { closeSheet, openReminderSheet } from "./components/sheets.js?v=20260606-review-popups-v2";
-import { t, translateError } from "./i18n.js?v=20260606-review-popups-v2";
-import { currentTheme, nextLang, normalizeEventFilters, rememberScroll, restoreScroll, setEventFilters, setLang, setTheme, state, toggleTheme } from "./state.js";
-import { configureBackButton, haptic, initTelegram, openLink, openTelegramLink, startParam, tg } from "./telegram.js";
-import { renderEvent, renderEventUnavailable, renderEventSkeleton } from "./views/event.js?v=20260606-review-popups-v2";
-import { renderEventResults, renderFilterBar, renderMenu, renderPlaceholder } from "./views/menu.js?v=20260606-review-popups-v2";
-import { renderReminders } from "./views/reminders.js?v=20260606-review-popups-v2";
-import { renderCalendarInner, attachCalendarInteractions, refreshCalendarMonthPanels } from "./views/calendar.js?v=20260606-review-popups-v2";
-import { renderAuthSection, renderRatingsTab, renderForgotPasswordCard } from "./views/ratings.js?v=20260606-review-popups-v2";
+  fetchFriends,
+  fetchFriendRequests,
+  sendFriendRequest,
+  sendInviteFriendRequest,
+  acceptFriendRequest,
+  declineFriendRequest,
+  cancelFriendRequest,
+  removeFriend,
+  searchFriends,
+  createFriendInvite,
+  fetchFriendInvite,
+  revokeFriendInvite,
+  fetchPrivacySettings,
+  updatePrivacySettings,
+} from "./api.js?v=20260607-cal-v2";
+import { coverStyle, loadingScreen, resetFallbackCoverStyles, startCountdowns } from "./components/events.js?v=20260607-cal-v2";
+import { closeFilterSheet, openFilterSheet } from "./components/filterSheet.js?v=20260607-cal-v2";
+import { fetchAdminStats, fetchAdminUsers, fetchConnectedGroups, renderAdminPanel, renderAdminUsersList, renderConnectedGroupsList, blockUser, unblockUser, adminStatusLabel, adminSortLabel } from "./views/admin.js?v=20260607-cal-v2";
+import { closeSheet, openReminderSheet } from "./components/sheets.js?v=20260607-cal-v2";
+import { t, translateError } from "./i18n.js?v=20260607-cal-v2";
+import { currentTheme, nextLang, normalizeEventFilters, rememberScroll, restoreScroll, setEventFilters, setLang, setTheme, state, toggleTheme } from "./state.js?v=20260607-cal-v2";
+import { configureBackButton, haptic, initTelegram, openLink, openTelegramLink, startParam, tg } from "./telegram.js?v=20260607-cal-v2";
+import { renderEvent, renderEventUnavailable, renderEventSkeleton } from "./views/event.js?v=20260607-cal-v2";
+import { renderEventResults, renderFilterBar, renderMenu, renderPlaceholder } from "./views/menu.js?v=20260607-cal-v2";
+import { renderReminders } from "./views/reminders.js?v=20260607-cal-v2";
+import { renderCalendarInner, attachCalendarInteractions, refreshCalendarMonthPanels } from "./views/calendar.js?v=20260607-cal-v2";
+import { renderAuthSection, renderRatingsTab, renderForgotPasswordCard, renderProfileInner, renderFriendSearchResults } from "./views/ratings.js?v=20260607-cal-v2";
 
 
 const app = document.getElementById("app");
@@ -151,7 +165,7 @@ function closeConfirmSheet() {
   window.setTimeout(() => current.remove(), 220);
 }
 
-function openConfirmSheet({ title, description, confirmText = "Delete", cancelText = "Cancel", danger = false }) {
+function openConfirmSheet({ title, description, confirmText = t("deleteBtn"), cancelText = t("cancel"), danger = false }) {
   closeConfirmSheet();
   document.documentElement.classList.add("sheet-open");
   return new Promise((resolve) => {
@@ -397,6 +411,8 @@ const favoriteRequests = new Set();
 let pendingEventsRefreshAfterFavorite = false;
 let lastDirectHapticAt = 0;
 let reviewUpdatesSource = null;
+let miniappUpdatesSource = null;
+let friendSearchTimer = null;
 
 // Snapshot of the events menu DOM — saved when leaving for an event page,
 // restored instantly when coming back so the transition is invisible.
@@ -447,6 +463,7 @@ export async function boot() {
   loadFromLocation();
   startEventSyncPolling();
   startReviewUpdates();
+  startMiniappUpdates();
 }
 
 function startEventSyncPolling() {
@@ -484,6 +501,75 @@ function startReviewUpdates() {
     reviewUpdatesSource = null;
     window.setTimeout(startReviewUpdates, 3000);
   };
+}
+
+function startMiniappUpdates() {
+  if (!window.EventSource || miniappUpdatesSource || !state.session) return;
+  miniappUpdatesSource = new EventSource(`/api/events/updates?token=${encodeURIComponent(state.session)}`);
+  [
+    "favorite_changed",
+    "friend_request_received",
+    "friend_request_accepted",
+    "friend_request_declined",
+    "friend_request_cancelled",
+    "friend_removed",
+    "friend_profile_changed",
+    "privacy_settings_changed",
+  ].forEach((eventName) => {
+    miniappUpdatesSource.addEventListener(eventName, (event) => {
+      try {
+        handleMiniappRealtime(eventName, JSON.parse(event.data || "{}")).catch(() => null);
+      } catch {
+        // Ignore malformed realtime payloads; normal API reads remain authoritative.
+      }
+    });
+  });
+  miniappUpdatesSource.onerror = () => {
+    miniappUpdatesSource?.close();
+    miniappUpdatesSource = null;
+    window.setTimeout(startMiniappUpdates, 3000);
+  };
+}
+
+async function handleMiniappRealtime(eventName, payload) {
+  if (eventName === "favorite_changed" && state.route === "event" && state.currentEvent?.token === payload.event_token) {
+    // Soft update only — the optimistic toggle already updated the button visually.
+    // Avoid a full re-render which causes a jarring flash.
+    const newFav = Boolean(payload.is_favorite);
+    if (state.currentEvent) state.currentEvent.is_favorite = newFav;
+    syncFavoriteState(payload.event_token, newFav);
+    setFavoriteButtonState(newFav, false);
+    setEventRowFavoriteBadge(payload.event_token, newFav);
+    return;
+  }
+  if (
+    eventName.startsWith("friend_") ||
+    eventName === "privacy_settings_changed"
+  ) {
+    await refreshFriendsState({ rerenderProfile: Boolean(document.querySelector(".auth-sheet-backdrop")) });
+    if (state.route === "event" && state.currentEvent?.token) {
+      state.currentEvent = await fetchEvent(state.currentEvent.token);
+      app.innerHTML = renderEvent(state.currentEvent);
+      initEventReviewsHandlers();
+    }
+  }
+}
+
+async function refreshFriendsState({ rerenderProfile = false } = {}) {
+  if (!state.user?.is_verified) {
+    return;
+  }
+  const [friends, requests, privacy] = await Promise.all([
+    fetchFriends().catch(() => state.friends),
+    fetchFriendRequests().catch(() => state.friendRequests),
+    fetchPrivacySettings().catch(() => state.privacySettings),
+  ]);
+  state.friends = friends || { total: 0, friends: [] };
+  state.friendRequests = requests || { incoming: [], outgoing: [] };
+  state.privacySettings = privacy || state.privacySettings;
+  if (rerenderProfile) {
+    updateAuthSectionDOM({ skipTransition: true });
+  }
 }
 
 async function handleReviewDeleted(payload) {
@@ -609,6 +695,10 @@ function routeFromLocation() {
   if (pathEvent) {
     return { route: "event", token: decodeURIComponent(pathEvent[1]) };
   }
+  const pathInvite = window.location.pathname.match(/^\/friends\/invite\/([^/]+)/);
+  if (pathInvite) {
+    return { route: "friend-invite", token: decodeURIComponent(pathInvite[1]) };
+  }
   const hash = window.location.hash.replace(/^#\/?/, "");
   const [hashRoute, hashQuery = ""] = hash.split("?");
   const filterParams = new URLSearchParams(hashQuery);
@@ -619,6 +709,9 @@ function routeFromLocation() {
   if (hashRoute.startsWith("events/")) {
     return { route: "event", token: decodeURIComponent(hashRoute.split("/")[1] || "") };
   }
+  if (hashRoute.startsWith("friends/invite/")) {
+    return { route: "friend-invite", token: decodeURIComponent(hashRoute.split("/")[2] || "") };
+  }
   if (hashRoute === "favorites") {
     setEventFilters({ ...state.eventFilters, favoritesOnly: true });
     return { route: "events", token: "" };
@@ -626,8 +719,8 @@ function routeFromLocation() {
   if (hashRoute === "reminders") {
     return { route: "events", token: "" };
   }
-  if (hashRoute === "ratings") {
-    return { route: "events", token: "" };
+  if (hashRoute === "profile" || hashRoute === "ratings") {
+    return { route: "profile", token: "" };
   }
   if (hashRoute === "calendar") {
     return { route: "calendar", token: "" };
@@ -639,6 +732,9 @@ function routeFromLocation() {
   if (start.startsWith("event_")) {
     return { route: "event", token: start.slice(6) };
   }
+  if (start.startsWith("invite_")) {
+    return { route: "friend-invite", token: start.slice(7) };
+  }
   return { route: "events", token: "" };
 }
 
@@ -648,6 +744,9 @@ async function loadFromLocation() {
 }
 
 async function navigate(route, options = {}) {
+  if (route === "ratings") {
+    route = "profile";
+  }
   if (route === state.route && (options.token || "") === state.token && options.replaceHash !== false) {
     return;
   }
@@ -911,13 +1010,15 @@ async function navigate(route, options = {}) {
 }
 
 function getRouteIndex(route) {
-  const order = ["events", "calendar", "ratings", "reminders", "admin"];
+  const order = ["events", "calendar", "ratings", "reminders", "admin", "profile"];
   return order.indexOf(route);
 }
 
 function isTopLevelRoute(route) {
-  return ["events", "calendar", "ratings", "reminders", "admin"].includes(route);
+  return ["events", "calendar", "ratings", "reminders", "admin", "profile"].includes(route);
 }
+
+
 
 async function renderRoute({ quiet = false, prefetched = false } = {}) {
   // If data was pre-fetched before the view transition, skip loading screen & network calls
@@ -949,6 +1050,68 @@ async function renderRoute({ quiet = false, prefetched = false } = {}) {
       app.innerHTML = renderEvent(state.currentEvent);
       applyQuietRender(quiet);
       initEventReviewsHandlers();
+      return;
+    }
+    if (state.route === "friend-invite") {
+      if (!state.token) {
+        app.innerHTML = renderFriendInviteScreen({ state: "not_found" });
+        applyQuietRender(quiet);
+        return;
+      }
+      try {
+        state.currentFriendInvite = await fetchFriendInvite(state.token);
+      } catch (error) {
+        state.currentFriendInvite = { state: "not_found", error: error.message };
+      }
+      app.innerHTML = renderFriendInviteScreen(state.currentFriendInvite);
+      applyQuietRender(quiet);
+      initRatingsHandlers();
+      return;
+    }
+    if (state.route === "profile") {
+      if (!state.session) {
+        await authenticate().catch(() => null);
+      }
+      if (!state.user || !state.user.is_verified) {
+        // Not logged in — redirect to events and show the login popup sheet
+        state.route = "events";
+        document.documentElement.setAttribute("data-current-route", "events");
+        if (!state.events || state.events.length === 0) {
+          try {
+            await ensureEventFilterOptions();
+            state.events = await fetchEvents(state.eventFilters);
+          } catch (_) {}
+        }
+        app.innerHTML = renderMenu(state.events || []);
+        applyQuietRender(quiet);
+        initRatingsHandlers();
+        openAuthSheet();
+        return;
+      }
+      if (state.user && state.user.is_verified) {
+        try {
+          if (!state.cachedRatingsProfile) {
+            const [profile] = await Promise.all([
+              fetchProfile(),
+              refreshFriendsState(),
+            ]);
+            state.cachedRatingsProfile = profile;
+          } else {
+            await Promise.all([
+              refreshFriendsState(),
+            ]);
+          }
+        } catch (_) {}
+      }
+      if (!state.events || state.events.length === 0) {
+        try {
+          await ensureEventFilterOptions();
+          state.events = await fetchEvents(state.eventFilters);
+        } catch (_) {}
+      }
+      app.innerHTML = renderMenu(state.events || []);
+      applyQuietRender(quiet);
+      initRatingsHandlers();
       return;
     }
     if (state.route === "admin") {
@@ -995,6 +1158,28 @@ function renderCurrent({ quiet = false } = {}) {
     applyQuietRender(quiet);
     return;
   }
+  if (state.route === "profile") {
+    if (!state.user || !state.user.is_verified) {
+      // Not logged in — stay on events and show the auth sheet
+      state.route = "events";
+      document.documentElement.setAttribute("data-current-route", "events");
+      app.innerHTML = renderMenu(state.events || []);
+      applyQuietRender(quiet);
+      initRatingsHandlers();
+      openAuthSheet();
+      return;
+    }
+    app.innerHTML = renderMenu(state.events || []);
+    applyQuietRender(quiet);
+    initRatingsHandlers();
+    return;
+  }
+  if (state.route === "friend-invite") {
+    app.innerHTML = renderFriendInviteScreen(state.currentFriendInvite);
+    applyQuietRender(quiet);
+    initRatingsHandlers();
+    return;
+  }
   if (state.route === "admin") {
     app.innerHTML = renderAdminPanel(state.adminStats, state.adminUsers, state.connectedGroups);
     restoreAdminGroupControls();
@@ -1026,10 +1211,74 @@ function applyQuietRender(quiet) {
 }
 
 function syncHash(route, token) {
-  const target = route === "events" ? eventsHash() : route === "event" ? `#/events/${token}` : `#/${route}`;
+  const target = route === "events"
+    ? eventsHash()
+    : route === "event"
+      ? `#/events/${token}`
+      : route === "friend-invite"
+        ? `#/friends/invite/${token}`
+        : `#/${route}`;
   if (window.location.hash !== target) {
     history.pushState(null, "", target);
   }
+}
+
+function renderFriendInviteScreen(payload = {}) {
+  const inviter = payload.inviter;
+  const stateName = payload.state || "not_found";
+  const message = stateName === "requires_start"
+    ? t("inviteRequiresStart")
+    : stateName === "requires_verification"
+      ? t("inviteRequiresVerification")
+      : stateName === "not_found"
+        ? t("inviteNotFound")
+        : "";
+        
+  const profileCardHtml = inviter ? `
+    <div class="invite-profile-card" style="margin-bottom: 16px;">
+      ${renderInlineFriendAvatar(inviter)}
+      <div class="invite-profile-meta">
+        <h2>${escapeSheetHtml(inviter.nickname)}</h2>
+        <span>${Number(inviter.friend_count || 0)} ${escapeSheetHtml(t("friends"))} ${state.user && state.user.is_verified ? `· ${Number(inviter.mutual_friends_count || 0)} ${escapeSheetHtml(t("mutual"))}` : ""}</span>
+      </div>
+    </div>
+  ` : "";
+
+  return `
+    <div class="screen" data-route="friend-invite">
+      <header class="cover compact" ${coverStyle(null, "friend-invite")}>
+        <h1>${escapeSheetHtml(t("friendInviteTitle"))}</h1>
+      </header>
+      <main class="content">
+        <section class="panel friend-invite-card">
+          ${profileCardHtml}
+          ${stateName !== "ready" ? `
+            <p class="description" style="text-align: center; margin-bottom: 8px;">${escapeSheetHtml(message)}</p>
+            ${stateName === "requires_verification" ? `<button class="action primary" type="button" data-action="open-profile-auth" style="margin-top: 10px;">${escapeSheetHtml(t("verifyAccountBtn"))}</button>` : ""}
+            ${stateName === "requires_start" ? `<button class="action primary" type="button" data-action="open-profile-auth" style="margin-top: 10px;">${escapeSheetHtml(t("loginRegisterBtn"))}</button>` : ""}
+          ` : `
+            <button class="action primary" type="button" data-send-invite-request="${escapeSheetAttr(state.token)}" ${inviter.relationship_status !== "none" ? "disabled" : ""}>
+              ${inviter.relationship_status === "friends" ? escapeSheetHtml(t("alreadyFriends")) : inviter.relationship_status === "outgoing_pending" ? escapeSheetHtml(t("requestSent")) : escapeSheetHtml(t("sendFriendRequest"))}
+            </button>
+          `}
+        </section>
+      </main>
+    </div>
+  `;
+}
+
+function renderInlineFriendAvatar(friend = {}) {
+  const avatar = friend.avatar || {};
+  const initials = escapeSheetHtml(avatar.initials || "NU");
+  if (avatar.url) {
+    return `
+      <div style="position: relative; width: 62px; height: 62px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+        <img class="friend-avatar large" src="${escapeSheetAttr(avatar.url)}" alt="" onerror="this.style.display='none'; this.nextElementSibling.style.display='inline-flex';" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; border-radius: 50%; object-fit: cover;" />
+        <span class="friend-avatar large initials" style="display: none; width: 100%; height: 100%;">${initials}</span>
+      </div>
+    `;
+  }
+  return `<span class="friend-avatar large initials">${initials}</span>`;
 }
 
 function renderEventPreservingFavorite() {
@@ -1306,14 +1555,139 @@ async function onClick(event) {
   const copyTarget = event.target.closest("[data-copy-value]");
   if (copyTarget) {
     await copyText(copyTarget.dataset.copyValue || "");
-    copyTarget.classList.add("copied");
-    window.setTimeout(() => copyTarget.classList.remove("copied"), 520);
     haptic("success");
+    const value = copyTarget.querySelector(".value");
+    const originalValue = value ? value.textContent : copyTarget.textContent;
+    const originalHTML = value ? "" : copyTarget.innerHTML;
+    if (value) {
+      value.textContent = t("copiedLabel");
+    } else {
+      copyTarget.textContent = t("copiedLabel");
+    }
+    copyTarget.classList.add("copied");
+    window.setTimeout(() => {
+      copyTarget.classList.remove("copied");
+      if (value) {
+        value.textContent = originalValue;
+      } else {
+        copyTarget.innerHTML = originalHTML;
+      }
+    }, 1500);
     return;
   }
   const favoriteFilter = event.target.closest("[data-action='favorite-filter-toggle']");
   if (favoriteFilter) {
     updateEventFilters({ favoritesOnly: !state.eventFilters.favoritesOnly });
+    return;
+  }
+  const profileTrigger = event.target.closest("#ratings-profile-trigger");
+  if (profileTrigger) {
+    haptic("light");
+    if (state.route === "profile") {
+      navigate("events", { circularEvent: event });
+    } else {
+      if (!state.user || !state.user.is_verified) {
+        openAuthSheet();
+        return;
+      }
+      navigate("profile", { circularEvent: event });
+    }
+    return;
+  }
+  const openProfileAuth = event.target.closest("[data-action='open-profile-auth']");
+  if (openProfileAuth) {
+    if (!state.user || !state.user.is_verified) {
+      haptic("light");
+      openAuthSheet();
+      return;
+    }
+    navigate("profile");
+    return;
+  }
+  const telegramOpen = event.target.closest("[data-open-telegram]");
+  if (telegramOpen) {
+    if (event.target.closest("button, a, input, textarea, select, [data-remove-friend], [data-add-friend], [data-friend-request-accept], [data-friend-request-decline], [data-friend-request-cancel]")) {
+      return;
+    }
+    const url = telegramOpen.dataset.openTelegram;
+    if (url) {
+      haptic("light");
+      openTelegramLink(url);
+    }
+    return;
+  }
+  const inviteBtn = event.target.closest("[data-action='create-friend-invite']");
+  if (inviteBtn) {
+    haptic("light");
+    inviteBtn.disabled = true;
+    const originalText = inviteBtn.textContent;
+    inviteBtn.textContent = t("creatingLabel");
+    try {
+      state.currentFriendInvite = await createFriendInvite();
+      if (state.currentFriendInvite && state.currentFriendInvite.token) {
+        localStorage.setItem("friend_invite_token", state.currentFriendInvite.token);
+      }
+      haptic("success");
+      
+      const searchBox = document.querySelector(".friend-search-box");
+      if (searchBox) {
+        let output = document.querySelector("#friend-invite-output");
+        if (output) {
+          output.remove();
+        }
+        const inviteOutputHtml = state.currentFriendInvite?.url ? `
+          <div class="friend-invite-output" id="friend-invite-output">
+            <div class="friend-invite-actions-row">
+              <button class="friend-invite-link-btn" type="button" data-copy-value="${escapeSheetAttr(state.currentFriendInvite.url)}">
+                <svg viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" style="margin-top: -1px;"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                ${escapeSheetHtml(t("copyLinkBtn"))}
+              </button>
+              <button class="action primary friend-share-btn" type="button" data-action="share-invite" data-share-url="${escapeSheetAttr(state.currentFriendInvite.share_url || "")}">${escapeSheetHtml(t("shareBtn"))}</button>
+            </div>
+          </div>
+        ` : "";
+        if (inviteOutputHtml) {
+          searchBox.insertAdjacentHTML("afterend", inviteOutputHtml);
+        }
+      }
+      inviteBtn.disabled = false;
+      inviteBtn.textContent = originalText;
+    } catch (error) {
+      console.error(error);
+      alert(translateError(error.message) || error.message);
+      haptic("error");
+      inviteBtn.disabled = false;
+      inviteBtn.textContent = originalText;
+    }
+    return;
+  }
+  const shareInvite = event.target.closest("[data-action='share-invite']");
+  if (shareInvite) {
+    const url = shareInvite.dataset.shareUrl;
+    if (url) {
+      haptic("light");
+      openTelegramLink(url);
+    } else {
+      haptic("error");
+      alert(t("anErrorOccurred"));
+    }
+    return;
+  }
+  const inviteRequest = event.target.closest("[data-send-invite-request]");
+  if (inviteRequest) {
+    inviteRequest.disabled = true;
+    const originalText = inviteRequest.textContent;
+    inviteRequest.textContent = "Sending…";
+    try {
+      await sendInviteFriendRequest(inviteRequest.dataset.sendInviteRequest);
+      haptic("success");
+      state.currentFriendInvite = await fetchFriendInvite(inviteRequest.dataset.sendInviteRequest);
+      app.innerHTML = renderFriendInviteScreen(state.currentFriendInvite);
+    } catch (error) {
+      haptic("error");
+      inviteRequest.disabled = false;
+      inviteRequest.textContent = originalText;
+    }
     return;
   }
   const favoriteRemove = event.target.closest("[data-favorite-remove]");
@@ -1574,6 +1948,7 @@ async function handleEventAction(action, element) {
         }
       },
     });
+    return;
   }
   if (action === "delete-reminder") {
     const reminderId = element.dataset.reminderId;
@@ -1628,14 +2003,14 @@ async function handleEventAction(action, element) {
         console.error(e);
         element.disabled = false;
         haptic("error");
-        alert("Failed to delete review. Ensure you have admin/moderator privileges.");
+        alert(t("failedDeleteReview"));
       }
     };
     const confirmed = await openConfirmSheet({
-      title: "Delete this review?",
-      description: "This action cannot be undone.",
-      confirmText: "Delete",
-      cancelText: "Cancel",
+      title: t("deleteReviewConfirmTitle"),
+      description: t("deleteReviewConfirmDesc"),
+      confirmText: t("deleteBtn"),
+      cancelText: t("cancel"),
       danger: true,
     });
     if (confirmed) {
@@ -1938,17 +2313,192 @@ function updateAuthSectionDOM(options = {}) {
   }
 }
 
+function updateFriendSearchResultsDOM() {
+  const root = document.querySelector(".auth-sheet-backdrop") || document.getElementById("app");
+  const results = root?.querySelector("#friend-search-results");
+  if (!results) {
+    updateAuthSectionDOM({ skipTransition: true });
+    return;
+  }
+  results.innerHTML = renderFriendSearchResults();
+  initRatingsHandlers();
+}
+
+async function mutateFriendButton(button, operation) {
+  if (!button) return;
+  const originalText = button.textContent;
+  button.disabled = true;
+  button.textContent = "…";
+  try {
+    await operation();
+    haptic("success");
+    updateAuthSectionDOM({ skipTransition: true });
+  } catch (error) {
+    console.error(error);
+    button.disabled = false;
+    button.textContent = originalText;
+    haptic("error");
+  }
+}
+
 function initRatingsHandlers() {
   const isAuthSheetOpen = document.querySelector(".auth-sheet-backdrop") !== null;
-  if (state.route !== "ratings" && state.route !== "events" && !isAuthSheetOpen) return;
+  if (state.route !== "ratings" && state.route !== "events" && state.route !== "profile" && state.route !== "friend-invite" && !isAuthSheetOpen) return;
 
   const app = document.querySelector(".auth-sheet-backdrop") || document.getElementById("app");
 
-  const profileTrigger = document.querySelector("#ratings-profile-trigger");
-  if (profileTrigger) {
-    profileTrigger.onclick = () => {
+
+
+  const inviteBtn = app.querySelector("[data-action='create-friend-invite']");
+
+  app.querySelectorAll("[data-add-friend]").forEach((btn) => {
+    btn.onclick = async () => {
+      await mutateFriendButton(btn, async () => {
+        await sendFriendRequest(Number(btn.dataset.addFriend));
+        await refreshFriendsState();
+      });
+    };
+  });
+
+  app.querySelectorAll("[data-friend-request-accept]").forEach((btn) => {
+    btn.onclick = async () => {
+      await mutateFriendButton(btn, async () => {
+        await acceptFriendRequest(btn.dataset.friendRequestAccept);
+        await refreshFriendsState();
+      });
+    };
+  });
+
+  app.querySelectorAll("[data-friend-request-decline]").forEach((btn) => {
+    btn.onclick = async () => {
+      await mutateFriendButton(btn, async () => {
+        await declineFriendRequest(btn.dataset.friendRequestDecline);
+        await refreshFriendsState();
+      });
+    };
+  });
+
+  app.querySelectorAll("[data-friend-request-cancel]").forEach((btn) => {
+    btn.onclick = async () => {
+      await mutateFriendButton(btn, async () => {
+        await cancelFriendRequest(btn.dataset.friendRequestCancel);
+        await refreshFriendsState();
+      });
+    };
+  });
+
+  app.querySelectorAll("[data-remove-friend]").forEach((btn) => {
+    btn.onclick = async () => {
+      const confirmed = await openConfirmSheet({
+        title: t("removeFriendConfirmTitle"),
+        description: t("removeFriendConfirmDesc"),
+        confirmText: t("removeFriendConfirmBtn"),
+        cancelText: t("cancel"),
+        danger: true,
+      });
+      if (!confirmed) return;
+      await mutateFriendButton(btn, async () => {
+        await removeFriend(btn.dataset.removeFriend);
+        await refreshFriendsState();
+      });
+    };
+  });
+
+  app.querySelectorAll(".friend-row[data-open-telegram]").forEach((row) => {
+    row.onclick = (event) => {
+      if (event.target.closest("button, a, input, textarea, select, [data-remove-friend], [data-add-friend], [data-friend-request-accept], [data-friend-request-decline], [data-friend-request-cancel]")) {
+        return;
+      }
+      const url = row.dataset.openTelegram;
+      if (!url) return;
       haptic("light");
-      openAuthSheet();
+      openTelegramLink(url);
+      event.stopPropagation();
+    };
+  });
+
+  app.querySelectorAll("[data-privacy-key]").forEach((element) => {
+    element.onclick = async () => {
+      if (element.dataset.saving === "true") return;
+      const key = element.dataset.privacyKey;
+      const currentValue = element.dataset.checked === "true";
+      const nextValue = !currentValue;
+      const previous = state.privacySettings?.[key];
+      element.dataset.saving = "true";
+      element.disabled = true;
+      state.privacySettings = { ...(state.privacySettings || {}), [key]: nextValue };
+      updateAuthSectionDOM({ skipTransition: true });
+      try {
+        state.privacySettings = await updatePrivacySettings({ [key]: nextValue });
+        haptic("success");
+      } catch {
+        state.privacySettings = { ...(state.privacySettings || {}), [key]: previous };
+        updateAuthSectionDOM({ skipTransition: true });
+        haptic("error");
+      } finally {
+        element.dataset.saving = "false";
+        element.disabled = false;
+      }
+    };
+  });
+
+  const friendSearchInput = app.querySelector("#friend-search-input");
+  if (friendSearchInput) {
+    friendSearchInput.oninput = (event) => {
+      let val = event.target.value.slice(0, 100).replace(/[<>&"'/`\\;]/g, "");
+      val = val.replace(/^\s+/, "").replace(/\s{2,}/g, " ");
+      event.target.value = val;
+      state.friendSearch = {
+        ...(state.friendSearch || {}),
+        query: val,
+        page: 1,
+        loading: val.trim().length >= 2,
+      };
+      window.clearTimeout(friendSearchTimer);
+      friendSearchTimer = window.setTimeout(async () => {
+        const q = state.friendSearch.query.trim();
+        if (q.length < 2) {
+          state.friendSearch = { ...state.friendSearch, results: [], loading: false, hasMore: false };
+          updateFriendSearchResultsDOM();
+          return;
+        }
+        try {
+          const payload = await searchFriends(q, 1);
+          if (state.friendSearch.query.trim() !== q) {
+            return;
+          }
+          state.friendSearch = {
+            query: q,
+            results: payload.results || [],
+            page: payload.page || 1,
+            hasMore: Boolean(payload.has_more),
+            loading: false,
+          };
+          updateFriendSearchResultsDOM();
+        } catch {
+          state.friendSearch = { ...state.friendSearch, loading: false };
+          haptic("error");
+        }
+      }, 280);
+    };
+  }
+
+  const friendSearchMore = app.querySelector("[data-action='friend-search-more']");
+  if (friendSearchMore) {
+    friendSearchMore.onclick = async () => {
+      const q = state.friendSearch.query.trim();
+      const nextPage = Number(state.friendSearch.page || 1) + 1;
+      await mutateFriendButton(friendSearchMore, async () => {
+        const payload = await searchFriends(q, nextPage);
+        state.friendSearch = {
+          query: q,
+          results: [...(state.friendSearch.results || []), ...(payload.results || [])],
+          page: payload.page || nextPage,
+          hasMore: Boolean(payload.has_more),
+          loading: false,
+        };
+        updateFriendSearchResultsDOM();
+      });
     };
   }
 
@@ -2132,6 +2682,8 @@ function initRatingsHandlers() {
         } else {
           await login(email, password);
           haptic("success");
+          startMiniappUpdates();
+          await refreshFriendsState();
           state.authEmail = "";
           state.authPassword = "";
           state.authConfirmPassword = "";
@@ -2150,11 +2702,16 @@ function initRatingsHandlers() {
               const reviewsBlock = document.getElementById("app").querySelector("#reviews-section-anchor");
               reviewsBlock?.scrollIntoView({ behavior: "smooth" });
             }
+          } else if (state.route === "friend-invite" && state.token) {
+            closeAuthSheet();
+            const prevToken = state.token;
+            state.route = "";
+            await navigate("friend-invite", { token: prevToken });
           } else {
             closeAuthSheet();
-            // Force a fresh ratings render even if we're already on that route
+            // Force a fresh events render even if we're already on that route
             state.route = "";
-            await navigate("ratings", { replaceHash: false, quiet: true, keepScroll: true });
+            await navigate("events", { replaceHash: false, quiet: true, keepScroll: true });
           }
         }
       } catch (err) {
@@ -2187,6 +2744,8 @@ function initRatingsHandlers() {
       try {
         await verifyCode(state.authEmail, code);
         haptic("success");
+        startMiniappUpdates();
+        await refreshFriendsState();
         state.authEmail = "";
         state.authPassword = "";
         state.authConfirmPassword = "";
@@ -2207,11 +2766,16 @@ function initRatingsHandlers() {
             const reviewsBlock = document.getElementById("app").querySelector("#reviews-section-anchor");
             reviewsBlock?.scrollIntoView({ behavior: "smooth" });
           }
+        } else if (state.route === "friend-invite" && state.token) {
+          closeAuthSheet();
+          const prevToken = state.token;
+          state.route = "";
+          await navigate("friend-invite", { token: prevToken });
         } else {
           closeAuthSheet();
-          // Force a fresh ratings render even if we're already on that route
+          // Force a fresh events render even if we're already on that route
           state.route = "";
-          await navigate("ratings", { replaceHash: false, quiet: true, keepScroll: true });
+          await navigate("events", { replaceHash: false, quiet: true, keepScroll: true });
         }
       } catch (err) {
         haptic("error");
@@ -2232,6 +2796,8 @@ function initRatingsHandlers() {
       logoutBtn.disabled = true;
       logoutBtn.textContent = t("loggingOut");
       await logout();
+      miniappUpdatesSource?.close();
+      miniappUpdatesSource = null;
       state.authEmail = "";
       state.authPassword = "";
       state.authConfirmPassword = "";
@@ -2284,10 +2850,10 @@ function initRatingsHandlers() {
       };
       
       const confirmed = await openConfirmSheet({
-        title: "Delete this review?",
-        description: "This action cannot be undone.",
-        confirmText: "Delete",
-        cancelText: "Cancel",
+        title: t("deleteReviewConfirmTitle"),
+        description: t("deleteReviewConfirmDesc"),
+        confirmText: t("deleteBtn"),
+        cancelText: t("cancel"),
         danger: true,
       });
       if (confirmed) {
@@ -2325,10 +2891,10 @@ function initRatingsHandlers() {
       };
       
       const confirmed = await openConfirmSheet({
-        title: "Delete this review?",
-        description: "This action cannot be undone.",
-        confirmText: "Delete",
-        cancelText: "Cancel",
+        title: t("deleteReviewConfirmTitle"),
+        description: t("deleteReviewConfirmDesc"),
+        confirmText: t("deleteBtn"),
+        cancelText: t("cancel"),
         danger: true,
       });
       if (confirmed) {
@@ -2725,7 +3291,7 @@ function initEventReviewsHandlers() {
     if (rawContent && !rawContent.trim()) {
       haptic("error");
       if (errEl) {
-        errEl.textContent = "Comments consisting only of spaces are invalid.";
+        errEl.textContent = t("commentOnlySpaces");
         errEl.classList.remove("hide");
       }
       return;
@@ -2739,7 +3305,7 @@ function initEventReviewsHandlers() {
     if (cleanedContent.length > 256) {
       haptic("error");
       if (errEl) {
-        errEl.textContent = "Comment cannot exceed 256 characters.";
+        errEl.textContent = t("commentTooLong");
         errEl.classList.remove("hide");
       }
       return;
@@ -2747,7 +3313,7 @@ function initEventReviewsHandlers() {
 
     errEl?.classList.add("hide");
     submitBtn.disabled = true;
-    submitBtn.textContent = "Submitting…";
+    submitBtn.textContent = t("submitting");
 
     try {
       await submitReview(eventToken, scoreVal, cleanedContent);
@@ -2764,7 +3330,7 @@ function initEventReviewsHandlers() {
     } catch (err) {
       haptic("error");
       submitBtn.disabled = false;
-      submitBtn.textContent = "Submit";
+      submitBtn.textContent = t("submitReview");
       if (errEl) {
         errEl.textContent = translateError(err.message) || t("failedToSubmitReview");
         errEl.classList.remove("hide");
@@ -2778,7 +3344,7 @@ function initEventReviewsHandlers() {
       const doDelete = () => {
         haptic("light");
         deleteOwnBtn.disabled = true;
-        deleteOwnBtn.textContent = "Deleting…";
+        deleteOwnBtn.textContent = t("deleting");
         deleteReview(eventToken)
           .then(async () => {
             haptic("success");
@@ -2793,15 +3359,15 @@ function initEventReviewsHandlers() {
           .catch(() => {
             haptic("error");
             deleteOwnBtn.disabled = false;
-            deleteOwnBtn.textContent = "Delete Review";
+            deleteOwnBtn.textContent = t("deleteReview");
           });
       };
 
       const confirmed = await openConfirmSheet({
-        title: "Delete this review?",
-        description: "This action cannot be undone.",
-        confirmText: "Delete",
-        cancelText: "Cancel",
+        title: t("deleteReviewConfirmTitle"),
+        description: t("deleteReviewConfirmDesc"),
+        confirmText: t("deleteBtn"),
+        cancelText: t("cancel"),
         danger: true,
       });
       if (confirmed) {
@@ -2891,10 +3457,15 @@ export function openAuthSheet() {
 
   // If user is verified but the profile is not in the cache, fetch it asynchronously and re-render
   if (state.user && state.user.is_verified && !state.cachedRatingsProfile) {
-    fetchProfile().then((profile) => {
+    Promise.all([
+      fetchProfile(),
+      refreshFriendsState(),
+    ]).then(([profile]) => {
       state.cachedRatingsProfile = profile;
       updateAuthSectionDOM({ skipTransition: true });
     }).catch(() => null);
+  } else if (state.user && state.user.is_verified) {
+    refreshFriendsState({ rerenderProfile: true }).catch(() => null);
   }
 
   initRatingsHandlers();

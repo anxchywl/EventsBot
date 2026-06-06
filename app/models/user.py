@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from app.models.comment import Comment
     from app.models.code import EmailVerificationCode
     from app.models.password_reset import PasswordResetCode
+    from app.models.friend import FriendInvite, FriendRequest, Friendship, PrivacySettings
 
 
 # stores telegram user profiles
@@ -54,6 +55,8 @@ class User(TimestampMixin, Base):
     is_moderator: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default="false"
     )
+    photo_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    photo_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # authentication & NU profile fields
     email: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -108,4 +111,8 @@ class User(TimestampMixin, Base):
         back_populates="user",
         cascade="all, delete-orphan",
     )
-
+    privacy_settings: Mapped[PrivacySettings | None] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )

@@ -1,4 +1,4 @@
-import { boot } from "./js/router.js?v=20260606-review-popups-v2";
+import { boot } from "./js/router.js?v=20260607-cal-v2";
 
 
 boot().catch((error) => {

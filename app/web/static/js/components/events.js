@@ -1,5 +1,5 @@
-import { state } from "../state.js";
-import { categoryLabel, t } from "../i18n.js?v=20260601-fallback-gradient-v7";
+import { state } from "../state.js?v=20260607-cal-v2";
+import { categoryLabel, t } from "../i18n.js?v=20260607-cal-v2";
 
 // Guarantee fallbackCoverStyles map is shared absolutely via window to avoid potential duplicate ES module instances.
 if (!window.fallbackCoverStyles) {
@@ -76,6 +76,41 @@ function eventTimestamp(event) {
   return Number.isNaN(value.getTime()) ? "" : String(value.getTime());
 }
 
+
+function avatarColor(nickname) {
+  let hash = 0;
+  for (let i = 0; i < (nickname || "").length; i++) {
+    hash = nickname.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const hue = Math.abs(hash) % 360;
+  return `hsl(${hue}, 60%, 48%)`;
+}
+
+export function friendsCarousel(friends) {
+  if (!friends || friends.length === 0) return "";
+
+  const MAX_SHOWN = 6;
+  const shown = friends.slice(0, MAX_SHOWN);
+
+  const avatarItems = shown.map(friend => {
+    const color = avatarColor(friend.nickname || "");
+    const avatarContent = friend.avatar?.url
+      ? `<img src="${escapeAttr(friend.avatar.url)}" alt="${escapeAttr(friend.nickname)}" loading="lazy">`
+      : `<span>${escapeHtml((friend.avatar?.initials || "?").slice(0, 2))}</span>`;
+    const actionAttr = friend.telegram_url
+      ? `data-open-telegram="${escapeAttr(friend.telegram_url)}"`
+      : `data-friend-id="${friend.id}"`;
+    return `<div class="fg-avatar" role="button" tabindex="0" ${actionAttr} title="${escapeAttr(friend.nickname)}" style="background:${escapeAttr(color)}">${avatarContent}</div>`;
+  }).join("");
+
+  return `
+    <div class="friends-going-row">
+      <div class="fg-stack">${avatarItems}</div>
+    </div>
+  `;
+}
+
+
 export function controls() {
   return `
     <div class="top-controls">
@@ -115,9 +150,9 @@ export function eventRow(event, options = {}) {
         ${showDateLocation ? `<span>${escapeHtml(event.location || "")}</span>` : ""}
         <div class="event-row-top-meta">
           <em>${escapeHtml(categoryText)}</em>
-          ${event.rating_count ? `<span class="event-row-rating" data-event-rating="${escapeAttr(event.token)}">★ ${Number(event.average_rating || 0).toFixed(1)} (${Number(event.rating_count || 0)})</span>` : ""}
           ${showCountdown ? `<span class="event-countdown" data-countdown-target="${escapeAttr(eventTimestamp(event))}"></span>` : ""}
         </div>
+        ${friendsCarousel(event.friends_going)}
       </div>
       ${showFavoriteAction ? `<button class="favorite-remove-button active" type="button" data-favorite-remove="${escapeAttr(event.token)}" aria-label="${t("remove")}"><span>★</span></button>` : ""}
     </article>
@@ -133,15 +168,15 @@ export function formatCountdown(ms) {
   const seconds = totalSeconds % 60;
 
   if (days > 0) {
-    return [days, hours, minutes, seconds].map((value) => String(value).padStart(2, "0")).join(":");
+    return `${days}${t("timerLabelDays")}`;
   }
   if (hours > 0) {
-    return [hours, minutes, seconds].map((value) => String(value).padStart(2, "0")).join(":");
+    return `${hours}${t("timerLabelHours")}`;
   }
   if (minutes > 0) {
-    return [minutes, seconds].map((value) => String(value).padStart(2, "0")).join(":");
+    return `${minutes}${t("timerLabelMinutes")}`;
   }
-  return String(seconds).padStart(2, "0");
+  return `${seconds}${t("timerLabelSeconds")}`;
 }
 
 let countdownTimer = null;

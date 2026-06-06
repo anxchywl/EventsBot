@@ -279,7 +279,7 @@ a {
   pointer-events: none;
 }
 
-.top-controls > * {
+.top-controls>* {
   pointer-events: auto;
 }
 
@@ -351,6 +351,7 @@ a {
   padding-top: 0;
   padding-bottom: calc(84px + env(safe-area-inset-bottom));
 }
+
 .screen.calendar-mode-active .events-title-block {
   display: contents !important;
 }
@@ -470,14 +471,16 @@ a {
   transform: scale(0.94);
 }
 
-/* Hide profile button on event and admin pages - remove it from layout entirely */
+/* Hide profile button on event, admin, and friend-invite pages - remove it from layout entirely */
 html[data-current-route="event"] #global-controls .profile-trigger-btn,
+html[data-current-route="friend-invite"] #global-controls .profile-trigger-btn,
 html[data-current-route="admin"] #global-controls .profile-trigger-btn {
   display: none !important;
 }
 
-/* Push theme/lang buttons to the right on event and admin pages */
+/* Push theme/lang buttons to the right on event, admin, and friend-invite pages */
 html[data-current-route="event"] #global-controls,
+html[data-current-route="friend-invite"] #global-controls,
 html[data-current-route="admin"] #global-controls {
   justify-content: flex-end;
   gap: 10px;
@@ -586,7 +589,7 @@ h1 {
 }
 
 .meta.copyable:active {
-  transform: scale(0.985);
+  transform: none;
 }
 
 .meta.copyable.copied {
@@ -1464,6 +1467,7 @@ html.auth-focusing .app-nav {
 }
 
 @keyframes adaptiveGradient {
+
   0%,
   100% {
     background-position: 0% 50%, 100% 50%, 0% 50%;
@@ -1627,15 +1631,31 @@ html.auth-focusing .app-nav {
 }
 
 @keyframes favoriteStarPop {
-  0% { transform: scale(1); }
-  50% { transform: scale(1.4) rotate(15deg); }
-  100% { transform: scale(1.18) rotate(8deg); }
+  0% {
+    transform: scale(1);
+  }
+
+  50% {
+    transform: scale(1.4) rotate(15deg);
+  }
+
+  100% {
+    transform: scale(1.18) rotate(8deg);
+  }
 }
 
 @keyframes starStraighten {
-  0% { transform: scale(1.18) rotate(8deg); }
-  55% { transform: scale(0.92) rotate(-4deg); }
-  100% { transform: scale(1) rotate(0deg); }
+  0% {
+    transform: scale(1.18) rotate(8deg);
+  }
+
+  55% {
+    transform: scale(0.92) rotate(-4deg);
+  }
+
+  100% {
+    transform: scale(1) rotate(0deg);
+  }
 }
 
 /* Keep legacy keyframes for fallback (non-view-transition) CSS class animations */
@@ -2251,8 +2271,15 @@ html.auth-focusing .app-nav {
 }
 
 @keyframes cacheRestoreFadeIn {
-  from { opacity: 0; transform: translateY(8px); }
-  to   { opacity: 1; transform: translateY(0);   }
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .empty-page-state {
@@ -2444,6 +2471,7 @@ html.auth-focusing .app-nav {
     opacity: 0;
     transform: translateY(20px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -2555,8 +2583,15 @@ html.auth-focusing .app-nav {
 }
 
 @keyframes live-ring-pulse {
-  0% { transform: scale(1); opacity: 0.7; }
-  100% { transform: scale(1.1); opacity: 0; }
+  0% {
+    transform: scale(1);
+    opacity: 0.7;
+  }
+
+  100% {
+    transform: scale(1.1);
+    opacity: 0;
+  }
 }
 
 .archived-faded {
@@ -2996,8 +3031,15 @@ html.auth-focusing .app-nav {
 }
 
 @keyframes slideDown {
-  from { opacity: 0; transform: translateY(-8px); }
-  to   { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 
@@ -3012,9 +3054,9 @@ html.auth-focusing .app-nav {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 18px;
-  border-bottom: 1px solid var(--line);
-  padding-bottom: 14px;
+  margin-bottom: 0;
+  padding-bottom: 0;
+  min-width: 0;
 }
 
 .profile-avatar {
@@ -3033,6 +3075,8 @@ html.auth-focusing .app-nav {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
 .profile-nickname-title {
@@ -3106,6 +3150,7 @@ html.auth-focusing .app-nav {
   font-size: 0.9rem;
   font-weight: 700;
   color: var(--text);
+  margin-top: 0;
   margin-bottom: 10px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -3524,12 +3569,14 @@ html.auth-focusing .app-nav {
 
 .event-review-card:not(.has-admin-delete) {
   flex-direction: column;
+  align-items: stretch;
 }
 
 .event-review-card.has-admin-delete {
   flex-direction: row;
   align-items: center;
   gap: 10px;
+  width: 100%;
 }
 
 .event-review-main {
@@ -3538,6 +3585,7 @@ html.auth-focusing .app-nav {
   gap: 8px;
   min-width: 0;
   flex: 1;
+  width: 100%;
 }
 
 .event-review-card:last-child {
@@ -3556,18 +3604,47 @@ html.auth-focusing .app-nav {
 .event-review-header {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 10px;
   min-width: 0;
   width: 100%;
 }
 
+.review-author {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  flex: 1;
+}
+
 .review-avatar {
-  font-size: 1.25rem;
-  background: var(--panel-soft);
   width: 32px;
   height: 32px;
-  border-radius: 8px;
-  display: flex;
+  min-width: 32px;
+  border-radius: 50%;
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, var(--brand), var(--brand-2));
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.review-avatar img,
+.review-avatar-initials {
+  width: 100%;
+  height: 100%;
+}
+
+.review-avatar img {
+  object-fit: cover;
+}
+
+.review-avatar-initials {
+  display: inline-flex;
   align-items: center;
   justify-content: center;
 }
@@ -3609,9 +3686,19 @@ html.auth-focusing .app-nav {
 }
 
 @keyframes shake {
-  0%, 100% { transform: translateX(0); }
-  25% { transform: translateX(-4px); }
-  75% { transform: translateX(4px); }
+
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+
+  25% {
+    transform: translateX(-4px);
+  }
+
+  75% {
+    transform: translateX(4px);
+  }
 }
 
 /* Auth transition overrides to prevent navigation bar flash and isolate card changes */
@@ -3633,9 +3720,11 @@ html.auth-transitioning .app-nav {
   position: relative;
   width: 100%;
 }
+
 .input-wrap.has-toggle input {
   padding-right: 52px;
 }
+
 .toggle-pass {
   position: absolute;
   top: 50%;
@@ -3655,6 +3744,7 @@ html.auth-transitioning .app-nav {
   transform: translateY(-50%);
   transition: background .18s, color .18s;
 }
+
 .toggle-pass svg {
   width: 20px;
   height: 20px;
@@ -3665,6 +3755,7 @@ html.auth-transitioning .app-nav {
   stroke-linejoin: round;
   transition: transform .18s ease;
 }
+
 .toggle-pass::after {
   content: '';
   position: absolute;
@@ -3678,17 +3769,21 @@ html.auth-transitioning .app-nav {
   opacity: 0;
   transition: transform .2s ease, opacity .2s ease;
 }
+
 .toggle-pass:hover {
   background: rgba(0, 0, 0, 0.05);
   color: var(--text);
 }
+
 [data-theme="dark"] .toggle-pass:hover {
   background: rgba(255, 255, 255, 0.08);
   color: var(--text);
 }
+
 .toggle-pass.is-visible {
   color: var(--brand);
 }
+
 .toggle-pass.is-visible::after {
   transform: translate(-50%, -50%) rotate(-45deg) scaleX(1);
   opacity: 1;
@@ -3770,7 +3865,8 @@ html.auth-transitioning .app-nav {
   justify-content: center;
   border-radius: 50%;
   transition: background-color 0.2s, transform 0.1s;
-  margin-top: 2px; /* Visually align with the heavy text baseline */
+  margin-top: 2px;
+  /* Visually align with the heavy text baseline */
 }
 
 .write-review-trigger-btn:hover {
@@ -3852,13 +3948,13 @@ html.auth-transitioning .app-nav {
 }
 
 /* Admin dialog content padding */
-#admin-action-modal > p,
-#admin-action-modal > textarea,
-#admin-action-modal > div:last-of-type {
+#admin-action-modal>p,
+#admin-action-modal>textarea,
+#admin-action-modal>div:last-of-type {
   padding: 0 16px;
 }
 
-#admin-action-modal > p {
+#admin-action-modal>p {
   margin-bottom: 16px;
 }
 
@@ -4052,9 +4148,10 @@ html.auth-transitioning .app-nav {
   display: flex;
   justify-content: flex-end;
 }
+
 .profile-admin-btn {
   background: transparent;
-  border: 1px solid rgba(0,0,0,0.06);
+  border: 1px solid rgba(0, 0, 0, 0.06);
   color: var(--brand);
   padding: 8px 12px;
   border-radius: 10px;
@@ -4066,9 +4163,21 @@ html.auth-transitioning .app-nav {
   cursor: pointer;
   transition: background 0.15s ease, transform 0.06s ease;
 }
-.profile-admin-btn svg { width: 18px; height: 18px; stroke: currentColor; }
-.profile-admin-btn:hover { background: color-mix(in srgb, var(--accent) 8%, transparent); transform: translateY(-1px); }
-.profile-admin-btn:active { transform: translateY(0); }
+
+.profile-admin-btn svg {
+  width: 18px;
+  height: 18px;
+  stroke: currentColor;
+}
+
+.profile-admin-btn:hover {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  transform: translateY(-1px);
+}
+
+.profile-admin-btn:active {
+  transform: translateY(0);
+}
 
 /* Compact admin icon used next to logout-inline-btn */
 .profile-admin-icon {
@@ -4077,27 +4186,40 @@ html.auth-transitioning .app-nav {
   justify-content: center;
   background: transparent;
   border: none;
-  padding: 6px;
+  padding: 6px 2px;
   border-radius: 12px;
   cursor: pointer;
-  min-width: 36px;
+  min-width: 0;
+  max-width: clamp(92px, 30vw, 132px);
   min-height: 36px;
-  margin-right: 8px;
+  margin-right: 4px;
+  flex: 0 1 auto;
 }
-.profile-admin-icon svg { width: 18px; height: 18px; }
+
+.profile-admin-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
 .profile-admin-label {
-  font-size: 0.95rem;
+  font-size: clamp(0.68rem, 2.5vw, 0.9rem);
   font-weight: 600;
   color: var(--text);
   line-height: 1;
   display: inline-block;
   transform: translateY(-1px);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .profile-actions {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
+  flex: 0 1 auto;
 }
 
 .admin-delete-review-btn {
@@ -4115,12 +4237,35 @@ html.auth-transitioning .app-nav {
   min-width: 32px;
   min-height: 32px;
 }
-.admin-delete-review-btn svg { width: 16px; height: 16px; stroke: currentColor; }
-.admin-delete-review-btn:hover { background: transparent; color: color-mix(in srgb, var(--red) 78%, var(--text)); }
-.admin-delete-review-btn:active { background: transparent; }
-.admin-delete-review-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-.profile-admin-icon:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); }
-.profile-admin-icon:active { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+
+.admin-delete-review-btn svg {
+  width: 16px;
+  height: 16px;
+  stroke: currentColor;
+}
+
+.admin-delete-review-btn:hover {
+  background: transparent;
+  color: color-mix(in srgb, var(--red) 78%, var(--text));
+}
+
+.admin-delete-review-btn:active {
+  background: transparent;
+}
+
+.admin-delete-review-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.profile-admin-icon:hover {
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+.profile-admin-icon:active {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
 .admin-btn-unblock:active {
   background: color-mix(in srgb, var(--brand) 12%, transparent);
 }
@@ -4186,4 +4331,580 @@ html.auth-transitioning .app-nav {
 /* Margin spacing for review modal errors */
 #review-error-msg {
   margin: 12px 0;
+}
+
+.friends-parent-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.friends-sub-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+#friend-search-results:not(:has(*)) {
+  display: none;
+}
+
+
+
+.friends-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.friends-section-head .history-title {
+  margin: 0;
+}
+
+.friends-count,
+.friend-subtitle {
+  display: block;
+  color: var(--hint);
+  font-size: 0.82rem;
+  margin-top: 2px;
+}
+
+.compact-action {
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
+.invite-friend-btn {
+  min-height: 30px;
+  padding: 0 12px;
+  border-radius: 10px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  white-space: nowrap;
+  margin: 0;
+  color: var(--brand);
+  border-color: var(--brand);
+}
+
+.full-width {
+  width: 100%;
+  justify-content: center;
+}
+
+.friend-invite-output {
+  margin-top: 8px;
+  margin-bottom: 2px;
+}
+
+.friend-invite-info {
+  font-size: 0.8rem;
+  color: var(--hint);
+  margin-bottom: 8px;
+}
+
+.friend-invite-info strong {
+  color: var(--text);
+}
+
+.friend-invite-actions-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.friend-invite-actions-row .friend-invite-link-btn {
+  flex: 1;
+  border: 1px solid var(--line-strong);
+  background: var(--panel-soft);
+  color: var(--brand);
+  border-radius: 8px;
+  padding: 10px 12px;
+  text-align: center;
+  font-size: 0.85rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  cursor: pointer;
+  transition: background-color 0.18s, color 0.18s, border-color 0.18s, transform 0.12s;
+}
+
+.friend-invite-actions-row .friend-invite-link-btn:active {
+  background-color: var(--line);
+  transform: scale(0.98);
+}
+
+.friend-invite-actions-row .friend-invite-link-btn.copied {
+  color: var(--green);
+  border-color: var(--green);
+  background-color: color-mix(in srgb, var(--green) 8%, transparent);
+}
+
+.friend-invite-actions-row .friend-invite-link-btn svg {
+  flex-shrink: 0;
+}
+
+.friend-invite-actions-row .friend-share-btn {
+  flex-shrink: 0;
+  margin: 0;
+  min-height: auto;
+  font-size: 0.82rem;
+  padding: 0 16px;
+  border-radius: 8px;
+}
+
+.friends-list,
+.request-group {
+  display: grid;
+  gap: 8px;
+}
+
+.request-group+.request-group {
+  margin-top: 14px;
+}
+
+.friend-row {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 58px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-soft);
+}
+
+.friend-row-clickable {
+  cursor: pointer;
+}
+
+.friend-row-clickable,
+.friend-row-clickable * {
+  -webkit-tap-highlight-color: transparent;
+}
+
+.friend-row-clickable:focus,
+.friend-row-clickable:focus-visible,
+.friend-avatar:focus,
+.friend-avatar:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+.friend-avatar {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex: 0 0 auto;
+}
+
+.friend-avatar.large {
+  width: 62px;
+  height: 62px;
+}
+
+.friend-avatar.initials {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, var(--brand), var(--brand-2));
+  color: #fff;
+  font-weight: 800;
+  font-size: 0.82rem;
+}
+
+.friend-main {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.friend-main strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.9rem;
+}
+
+.friend-main span {
+  color: var(--hint);
+  font-size: 0.76rem;
+}
+
+.friend-actions-inline {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  max-width: 156px;
+}
+
+.mini-action {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--text);
+  border-radius: 8px;
+  min-height: 30px;
+  padding: 0 9px;
+  font-size: 0.73rem;
+  font-weight: 700;
+}
+
+.mini-action.primary {
+  border-color: transparent;
+  background: var(--brand);
+  color: var(--button-text);
+}
+
+.mini-action.danger {
+  color: var(--red);
+}
+
+.friend-actions-inline .mini-action.danger {
+  background: transparent;
+  border-color: transparent;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.mini-action:disabled {
+  opacity: 0.55;
+}
+
+.friend-status-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--brand) 12%, transparent);
+  color: var(--brand);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.friend-search-box {
+  margin-bottom: 4px;
+}
+
+.privacy-toggle {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.86rem;
+  text-align: left;
+  cursor: pointer;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.privacy-toggle:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+.privacy-sub-section {
+  gap: 0;
+}
+
+.privacy-toggle:last-of-type {
+  border-bottom: none;
+}
+
+.privacy-toggle .privacy-status-label {
+  color: var(--brand);
+  font-weight: 700;
+  font-size: 0.82rem;
+}
+
+.friends-going-panel {
+  position: relative;
+  overflow: hidden;
+}
+
+.friends-going-panel::before,
+.friends-going-panel::after {
+  content: "";
+  position: absolute;
+  top: 42px;
+  bottom: 12px;
+  width: 28px;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.friends-going-panel::before {
+  left: 0;
+  background: linear-gradient(90deg, var(--panel), transparent);
+}
+
+.friends-going-panel::after {
+  right: 0;
+  background: linear-gradient(270deg, var(--panel), transparent);
+}
+
+.friends-going-scroll {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+  -webkit-overflow-scrolling: touch;
+  padding: 2px 8px 4px;
+  scrollbar-width: none;
+}
+
+.friends-going-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.friend-going-avatar {
+  width: 46px;
+  height: 46px;
+  min-width: 46px;
+  border: 2px solid var(--panel);
+  border-radius: 50%;
+  padding: 0;
+  background: var(--panel-soft);
+  color: #fff;
+  box-shadow: 0 8px 22px rgba(17, 24, 39, 0.16);
+  overflow: hidden;
+  scroll-snap-align: start;
+}
+
+.friend-going-avatar img,
+.friend-going-avatar span {
+  width: 100%;
+  height: 100%;
+}
+
+.friend-going-avatar span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, var(--brand), var(--brand-2));
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.friend-invite-card {
+  display: grid;
+  gap: 16px;
+}
+
+.invite-profile-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.invite-profile-meta {
+  min-width: 0;
+}
+
+.invite-profile-meta h2 {
+  margin: 0 0 4px;
+  font-size: 1.1rem;
+}
+
+.invite-profile-meta span {
+  color: var(--hint);
+  font-size: 0.82rem;
+}
+
+@media (max-width: 430px) {
+  .friend-row {
+    grid-template-columns: 38px minmax(0, 1fr) auto;
+  }
+
+  .friend-avatar {
+    width: 38px;
+    height: 38px;
+  }
+
+  .friend-actions-inline {
+    grid-column: auto;
+    max-width: none;
+    justify-content: flex-end;
+  }
+}
+
+
+/* Subtle edge gradients */
+.friends-carousel-container::before,
+.friends-carousel-container::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 20px;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.friends-carousel-container::before {
+  left: 0;
+  background: linear-gradient(to right, var(--bg-color, white) 0%, transparent 100%);
+}
+
+.friends-carousel-container::after {
+  right: 0;
+  background: linear-gradient(to left, var(--bg-color, white) 0%, transparent 100%);
+}
+
+[data-theme="dark"] .friends-carousel-container::before {
+  background: linear-gradient(to right, var(--bg-color, #1a1a1a) 0%, transparent 100%);
+}
+
+[data-theme="dark"] .friends-carousel-container::after {
+  background: linear-gradient(to left, var(--bg-color, #1a1a1a) 0%, transparent 100%);
+}
+
+.friends-carousel {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  /* Firefox */
+  padding-bottom: 4px;
+  /* Space for scrollbar if any */
+}
+
+.friends-carousel::-webkit-scrollbar {
+  display: none;
+  /* Chrome/Safari */
+}
+
+.friend-avatar {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--surface-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  cursor: pointer;
+  transition: transform 0.2s ease;
+}
+
+.friend-avatar:active {
+  transform: scale(0.9);
+}
+
+.friend-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.friend-row .friend-avatar {
+  width: 42px;
+  height: 42px;
+  border: 0;
+  background: transparent;
+  color: #fff;
+}
+
+.friend-row .friend-avatar.initials {
+  background: linear-gradient(135deg, var(--brand), var(--brand-2));
+}
+
+/* Friends Going — compact overlapping avatar row */
+.friends-going-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 7px;
+  padding-top: 7px;
+  border-top: 1px solid var(--border-subtle, rgba(128, 128, 128, 0.12));
+}
+
+.fg-stack {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.fg-avatar {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2px solid var(--card-bg, #fff);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.6rem;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: 0;
+  overflow: hidden;
+  cursor: pointer;
+  flex-shrink: 0;
+  margin-left: -7px;
+  position: relative;
+  transition: transform 0.15s ease, z-index 0s;
+  z-index: 0;
+}
+
+.fg-avatar:first-child {
+  margin-left: 0;
+}
+
+.fg-avatar:hover,
+.fg-avatar:active {
+  transform: scale(1.18) translateY(-2px);
+  z-index: 10;
+}
+
+.fg-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.fg-label {
+  font-size: 0.72rem;
+  color: var(--text-secondary, #888);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+[data-theme="dark"] .fg-avatar {
+  border-color: var(--card-bg, #1e1e1e);
+}
+
+.register-panel {
+  position: relative;
+  isolation: isolate;
+}
+
+.register-panel .register-action {
+  position: relative;
+  z-index: 1;
 }

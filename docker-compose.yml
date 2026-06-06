@@ -7,7 +7,7 @@ services:
       POSTGRES_USER: events_bot
       POSTGRES_PASSWORD: events_bot
     ports:
-      - "5432:5432"
+      - "54320:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:

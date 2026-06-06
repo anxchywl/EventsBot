@@ -49,3 +49,38 @@ def _image_media_type(file_path: str) -> str:
     if clean.endswith(".webp"):
         return "image/webp"
     return "image/jpeg"
+
+
+@router.get("/avatar/{telegram_id}")
+async def user_avatar(
+    telegram_id: int,
+) -> StreamingResponse:
+    if telegram_id <= 0:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Avatar not found")
+
+    bot = Bot(token=get_settings().bot_token.get_secret_value())
+    try:
+        photos = await bot.get_user_profile_photos(user_id=telegram_id, limit=1)
+        if not photos or photos.total_count == 0:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "No profile photos found")
+        
+        # Take the smallest size of the first photo for optimized mini-app loading
+        sizes = photos.photos[0]
+        photo = sizes[0]
+        file = await bot.get_file(photo.file_id)
+        if not file.file_path:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "File path not found")
+        
+        buffer = BytesIO()
+        await bot.download_file(file.file_path, destination=buffer)
+        buffer.seek(0)
+    except Exception as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Avatar fetch failed: {exc}")
+    finally:
+        await bot.session.close()
+
+    return StreamingResponse(
+        buffer,
+        media_type=_image_media_type(file.file_path),
+        headers={"Cache-Control": "public, max-age=600"},
+    )

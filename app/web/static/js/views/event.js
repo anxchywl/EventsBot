@@ -1,6 +1,6 @@
-import { coverStyle, escapeAttr, escapeHtml, status, formatDisplayName } from "../components/events.js?v=20260606-review-popups-v2";
-import { formatEventDate, t } from "../i18n.js?v=20260606-review-popups-v2";
-import { state } from "../state.js";
+import { coverStyle, escapeAttr, escapeHtml, status, formatDisplayName } from "../components/events.js?v=20260607-cal-v2";
+import { formatEventDate, t } from "../i18n.js?v=20260607-cal-v2";
+import { state } from "../state.js?v=20260607-cal-v2";
 
 function meta(label, value, copyable = false) {
   const displayValue = value || "—";
@@ -37,7 +37,13 @@ export function renderEvent(event) {
           </div>
         </section>
 
-        ${event.registration_url ? `<section class="panel action-panel"><button class="action register-action" type="button" data-action="register" ${isArchived ? "disabled" : ""}>${t("register")}</button></section>` : ""}
+        ${event.registration_url ? `<section class="panel action-panel register-panel">
+          ${renderFriendsGoing(event)}
+          <button class="action register-action" type="button" data-action="register" ${isArchived ? "disabled" : ""}>${t("register")}</button>
+        </section>` : renderFriendsGoing(event) ? `<section class="panel action-panel register-panel">
+          ${renderFriendsGoing(event)}
+        </section>` : ""}
+
 
         <section class="panel">
           <p class="description">${escapeHtml(event.description || "")}</p>
@@ -53,9 +59,9 @@ export function renderEvent(event) {
         <!-- Reviews Section -->
         <section class="panel reviews-panel" id="reviews-section-anchor">
           <div class="reviews-header">
-            <h2 class="section-title">Reviews (${event.reviews?.length || 0})</h2>
+            <h2 class="section-title">${escapeHtml(t("reviewsSectionTitle"))} (${event.reviews?.length || 0})</h2>
             ${!event.reviews?.find(r => r.is_own) ? `
-            <button class="write-review-trigger-btn" id="reviews-pen-trigger" type="button" aria-label="Write a Review">
+            <button class="write-review-trigger-btn" id="reviews-pen-trigger" type="button" aria-label="${escapeAttr(t("writeReviewButton"))}">
               <svg viewBox="0 0 24 24" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
                 <path d="M18.5 2.5a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
@@ -76,13 +82,18 @@ export function renderEvent(event) {
       <!-- Modal Backdrop (Premium App Store Style) -->
       <div class="review-modal-backdrop" id="review-submission-modal">
         <div class="review-modal-card">
-          <button class="review-modal-close-btn" id="review-modal-close" type="button" aria-label="Close modal">✕</button>
+          <button class="review-modal-close-btn" id="review-modal-close" type="button" aria-label="${escapeAttr(t("close"))}">✕</button>
           ${renderSubmitReviewForm(event)}
         </div>
       </div>
     </div>
   `;
 }
+
+function renderFriendsGoing(event) {
+  return "";
+}
+
 
 function renderEventReviewsSummary(event) {
   const reviews = event.reviews || [];
@@ -109,7 +120,7 @@ function renderEventReviewsSummary(event) {
   if (reviews.length === 0) {
     return `
       <div class="reviews-empty-summary">
-        <p>No reviews yet</p>
+        <p>${escapeHtml(t("noReviewsYet"))}</p>
       </div>
     `;
   }
@@ -118,7 +129,7 @@ function renderEventReviewsSummary(event) {
     <div class="reviews-summary-block">
       <div class="reviews-summary-left">
         <div class="reviews-avg">${avg}</div>
-        <div class="reviews-out-of">out of 5</div>
+        <div class="reviews-out-of">${escapeHtml(t("ratingOutOf"))}</div>
       </div>
       <div class="reviews-summary-right">
         <div class="reviews-bars-container">
@@ -140,7 +151,7 @@ function renderSubmitReviewForm(event) {
   if (!isVerified) {
     return `
       <form class="review-form unauth-review-form" id="review-verify-btn" style="cursor: pointer;">
-        <h3 class="review-form-title">RATE THE EVENT</h3>
+        <h3 class="review-form-title">${escapeHtml(t("rateTheEvent"))}</h3>
         
         <div class="star-rating-selector" style="pointer-events: none;">
           <span class="star-btn">★</span>
@@ -151,11 +162,11 @@ function renderSubmitReviewForm(event) {
         </div>
 
         <div class="form-group" style="pointer-events: none;">
-          <textarea class="auth-input review-textarea" readonly placeholder="Share your experience..." style="cursor: pointer;"></textarea>
+          <textarea class="auth-input review-textarea" readonly placeholder="${escapeAttr(t("reviewPlaceholder"))}" style="cursor: pointer;"></textarea>
         </div>
         
         <div class="review-form-actions" style="pointer-events: none;">
-          <button class="action primary submit-review-btn" type="button">Submit</button>
+          <button class="action primary submit-review-btn" type="button">${escapeHtml(t("submitReview"))}</button>
         </div>
       </form>
     `;
@@ -163,7 +174,7 @@ function renderSubmitReviewForm(event) {
 
   return `
     <form id="event-review-form" class="review-form">
-      <h3 class="review-form-title">RATE THE EVENT</h3>
+      <h3 class="review-form-title">${escapeHtml(t("rateTheEvent"))}</h3>
       
       <!-- Interactive Stars -->
       <div class="star-rating-selector" data-selected-score="0">
@@ -176,13 +187,13 @@ function renderSubmitReviewForm(event) {
       </div>
 
       <div class="form-group">
-        <textarea class="auth-input review-textarea" id="review-comment-field" rows="3" placeholder="Share your experience..." maxlength="256"></textarea>
+        <textarea class="auth-input review-textarea" id="review-comment-field" rows="3" placeholder="${escapeAttr(t("reviewPlaceholder"))}" maxlength="256"></textarea>
       </div>
       
       <div id="review-error-msg" class="auth-error hide"></div>
       
       <div class="review-form-actions">
-        <button class="action primary submit-review-btn" type="submit" disabled>Submit</button>
+        <button class="action primary submit-review-btn" type="submit" disabled>${escapeHtml(t("submitReview"))}</button>
       </div>
     </form>
   `;
@@ -204,7 +215,7 @@ function renderEventReviewsList(event) {
   return sortedReviews.map(r => `
     <div class="event-review-card ${r.can_delete ? "has-admin-delete" : ""}" data-user-id="${r.user_id}">
       ${r.can_delete ? `
-        <button class="admin-review-delete-btn" data-action="admin-delete-review" data-user-id="${escapeAttr(r.user_id)}" aria-label="Delete Review" title="Delete Review">
+        <button class="admin-review-delete-btn" data-action="admin-delete-review" data-user-id="${escapeAttr(r.user_id)}" aria-label="${escapeAttr(t("deleteReview"))}" title="${escapeAttr(t("deleteReview"))}">
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <polyline points="3 6 5 6 21 6"></polyline>
             <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path>
@@ -214,9 +225,12 @@ function renderEventReviewsList(event) {
       ` : ""}
       <div class="event-review-main">
         <div class="event-review-header">
-          <div class="review-meta">
-            <strong class="review-nickname">${escapeHtml(formatDisplayName(r.nickname))}</strong>
-            <span class="review-date">${formatReviewDate(r.created_at)}</span>
+          <div class="review-author">
+            ${reviewAvatar(r)}
+            <div class="review-meta">
+              <strong class="review-nickname">${escapeHtml(formatDisplayName(r.nickname))}</strong>
+              <span class="review-date">${formatReviewDate(r.created_at)}</span>
+            </div>
           </div>
           ${r.score ? `<span class="review-stars">${"★".repeat(r.score)}${"☆".repeat(5 - r.score)}</span>` : ""}
         </div>
@@ -224,6 +238,20 @@ function renderEventReviewsList(event) {
       </div>
     </div>
   `).join("");
+}
+
+function reviewAvatar(review) {
+  const avatar = review.avatar || {};
+  const initials = escapeHtml((avatar.initials || formatDisplayName(review.nickname || "?").slice(0, 2) || "?").slice(0, 2));
+  if (avatar.url) {
+    return `
+      <span class="review-avatar">
+        <img src="${escapeAttr(avatar.url)}" alt="" loading="lazy" onerror="this.style.display='none'; this.nextElementSibling.style.display='inline-flex';" />
+        <span class="review-avatar-initials" style="display:none;">${initials}</span>
+      </span>
+    `;
+  }
+  return `<span class="review-avatar review-avatar-initials">${initials}</span>`;
 }
 
 function formatReviewDate(dateStr) {

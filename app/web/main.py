@@ -15,10 +15,13 @@ from app.web.auth import (
     effective_web_role,
     upsert_miniapp_user,
     verify_init_data,
+    verify_session_token,
 )
+from app.config import get_settings
 from app.web.routers import (
     events_router,
     favorites_router,
+    friends_router,
     media_router,
     reminders_router,
     sharing_router,
@@ -36,6 +39,7 @@ web_app = FastAPI(title="Events Bot Mini App")
 web_app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 web_app.include_router(events_router)
 web_app.include_router(favorites_router)
+web_app.include_router(friends_router)
 web_app.include_router(reminders_router)
 web_app.include_router(sharing_router)
 web_app.include_router(media_router)
@@ -61,7 +65,21 @@ async def stop_sync_cache_listener() -> None:
 @web_app.middleware("http")
 async def rate_limit(request: Request, call_next):
     if request.url.path.startswith("/api/"):
-        key = request.headers.get("authorization") or request.client.host
+        auth_header = request.headers.get("authorization")
+        is_admin = False
+        if auth_header and auth_header.startswith("Bearer "):
+            try:
+                token = auth_header.removeprefix("Bearer ").strip()
+                miniapp_user = verify_session_token(token)
+                if miniapp_user.id in get_settings().admin_ids:
+                    is_admin = True
+            except Exception:
+                pass
+
+        if is_admin:
+            return await call_next(request)
+
+        key = auth_header or request.client.host
         now = time.time()
 
         # 1. Registration Rate Limit (Max 5 attempts / 15 mins)
@@ -179,6 +197,11 @@ async def index() -> FileResponse:
 
 @web_app.get("/events/{public_token}")
 async def event_page(public_token: str) -> FileResponse:
+    return _index_response()
+
+
+@web_app.get("/friends/invite/{token}")
+async def friend_invite_page(token: str) -> FileResponse:
     return _index_response()
 
 

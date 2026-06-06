@@ -1,7 +1,7 @@
-import { escapeHtml, coverStyle, formatDisplayName } from "../components/events.js?v=20260601-fallback-gradient-v7";
-import { state, authHeaders } from "../state.js";
-import { t } from "../i18n.js?v=20260601-fallback-gradient-v7";
-import { authenticate } from "../api.js";
+import { escapeHtml, coverStyle, formatDisplayName } from "../components/events.js?v=20260607-cal-v2";
+import { state, authHeaders } from "../state.js?v=20260607-cal-v2";
+import { t } from "../i18n.js?v=20260607-cal-v2";
+import { authenticate } from "../api.js?v=20260607-cal-v2";
 
 async function adminRequest(path, options = {}) {
   await authenticate().catch(() => null);

@@ -13,6 +13,7 @@ from app.models.event import Event
 from app.models.rating import Rating
 from app.models.comment import Comment
 from app.services.events import get_event_by_public_token
+from app.services.friends import avatar_payload
 from app.services.reviews import invalidate_review_caches, permanently_delete_review
 from app.web.realtime import publish_review_deleted
 from app.web.auth import (
@@ -180,6 +181,7 @@ async def list_reviews(
             "comment_id": None,
             "rating_id": r.id,
             "nickname": r.user.nickname or "Anonymous",
+            "avatar": avatar_payload(r.user),
             "content": None,
             "score": r.score,
             "created_at": r.created_at.isoformat(),
@@ -200,6 +202,7 @@ async def list_reviews(
                 "comment_id": c.id,
                 "rating_id": None,
                 "nickname": c.user.nickname or "Anonymous",
+                "avatar": avatar_payload(c.user),
                 "content": c.content,
                 "score": None,
                 "created_at": c.created_at.isoformat(),

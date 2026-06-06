@@ -6,7 +6,7 @@ import hmac
 import json
 import time
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, UTC
 from urllib.parse import parse_qsl
 
 from fastapi import Header, HTTPException, status, Depends
@@ -26,6 +26,7 @@ class MiniAppUser:
     last_name: str | None = None
     language_code: str | None = None
     is_bot: bool = False
+    photo_url: str | None = None
 
 
 def verify_init_data(init_data: str) -> MiniAppUser:
@@ -65,6 +66,7 @@ def verify_init_data(init_data: str) -> MiniAppUser:
         last_name=user_data.get("last_name"),
         language_code=user_data.get("language_code"),
         is_bot=bool(user_data.get("is_bot", False)),
+        photo_url=user_data.get("photo_url"),
     )
 
 
@@ -79,6 +81,7 @@ def create_session_token(user: MiniAppUser) -> str:
         "last_name": user.last_name,
         "language_code": user.language_code,
         "is_bot": user.is_bot,
+        "photo_url": user.photo_url,
         "exp": expires_at,
     }
     header_part = _b64(json.dumps(header, separators=(",", ":")).encode())
@@ -113,6 +116,7 @@ def verify_session_token(token: str) -> MiniAppUser:
         last_name=payload.get("last_name"),
         language_code=payload.get("language_code"),
         is_bot=bool(payload.get("is_bot", False)),
+        photo_url=payload.get("photo_url"),
     )
 
 
@@ -172,7 +176,11 @@ async def upsert_miniapp_user(session: AsyncSession, miniapp_user: MiniAppUser) 
     user.last_name = miniapp_user.last_name
     user.language_code = miniapp_user.language_code
     user.is_bot = miniapp_user.is_bot
-    user.last_active_at = datetime.now()
+    user.last_active_at = datetime.now(UTC)
+
+    if miniapp_user.photo_url:
+        user.photo_url = miniapp_user.photo_url
+        user.photo_updated_at = datetime.now(UTC)
 
     await session.flush()
     return user

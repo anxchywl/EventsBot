@@ -32,12 +32,40 @@ class EventListItem(BaseModel):
     cover_url: str | None = None
     average_rating: float | None = None
     rating_count: int = 0
+    friends_going: list[EventFriendGoing] = Field(default_factory=list)
+
+
+class FriendAvatar(BaseModel):
+    url: str | None = None
+    initials: str
+
+
+class FriendUserSummary(BaseModel):
+    id: int
+    nickname: str
+    email: str | None = None
+    avatar: FriendAvatar
+    friend_count: int = 0
+    mutual_friends_count: int = 0
+    telegram_url: str | None = None
+    relationship_status: str = "none"
+    request_id: int | None = None
+
+
+class EventFriendGoing(BaseModel):
+    id: int
+    nickname: str
+    avatar: FriendAvatar
+    friend_count: int = 0
+    mutual_friends_count: int = 0
+    telegram_url: str | None = None
 
 
 class ReviewDetail(BaseModel):
     comment_id: int | None = None
     rating_id: int | None = None
     nickname: str
+    avatar: FriendAvatar | None = None
     content: str | None = None
     score: int | None = None
     created_at: str
@@ -70,6 +98,7 @@ class EventDetail(BaseModel):
     average_rating: float | None = None
     rating_count: int = 0
     reviews: list[ReviewDetail] = Field(default_factory=list)
+    friends_going: list[EventFriendGoing] = Field(default_factory=list)
 
 
 class FavoriteResponse(BaseModel):
@@ -171,3 +200,64 @@ class ProfileResponse(BaseModel):
     is_blocked: bool = False
     blocked_reason: str | None = None
     history: list[ProfileHistoryItem] = Field(default_factory=list)
+
+
+class PrivacySettingsResponse(BaseModel):
+    show_favorites_to_friends: bool = True
+    show_profile_to_friends: bool = True
+    allow_friend_requests: bool = True
+
+
+class PrivacySettingsUpdate(BaseModel):
+    show_favorites_to_friends: bool | None = None
+    show_profile_to_friends: bool | None = None
+    allow_friend_requests: bool | None = None
+
+
+class FriendRequestCreate(BaseModel):
+    user_id: int | None = None
+    invite_token: str | None = None
+
+
+class FriendRequestItem(BaseModel):
+    id: int
+    status: str
+    created_at: str
+    expires_at: str
+    user: FriendUserSummary
+
+
+class FriendRequestsResponse(BaseModel):
+    incoming: list[FriendRequestItem] = Field(default_factory=list)
+    outgoing: list[FriendRequestItem] = Field(default_factory=list)
+
+
+class FriendsListResponse(BaseModel):
+    total: int
+    friends: list[FriendUserSummary] = Field(default_factory=list)
+
+
+class FriendSearchResponse(BaseModel):
+    results: list[FriendUserSummary] = Field(default_factory=list)
+    page: int
+    limit: int
+    has_more: bool = False
+
+
+class FriendInviteResponse(BaseModel):
+    id: int
+    token: str
+    url: str
+    share_url: str | None = None
+    expires_at: str
+
+
+class FriendInviteLookupResponse(BaseModel):
+    state: str
+    inviter: FriendUserSummary | None = None
+
+
+class FriendActionResponse(BaseModel):
+    ok: bool = True
+    message: str
+    request_id: int | None = None

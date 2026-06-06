@@ -1,5 +1,5 @@
-import { controls, coverStyle, escapeAttr, escapeHtml, nav } from "../components/events.js?v=20260601-fallback-gradient-v7";
-import { t } from "../i18n.js?v=20260601-fallback-gradient-v7";
+import { controls, coverStyle, escapeAttr, escapeHtml, nav } from "../components/events.js?v=20260607-cal-v2";
+import { t } from "../i18n.js?v=20260607-cal-v2";
 
 function formatReminderLeadTime(minutes) {
   const days = Math.floor(minutes / 1440);

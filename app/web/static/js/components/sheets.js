@@ -1,5 +1,5 @@
-import { escapeHtml } from "./events.js";
-import { formatReminderOffset, t, translateError } from "../i18n.js?v=20260606-review-popups-v2";
+import { escapeAttr, escapeHtml } from "./events.js?v=20260607-cal-v2";
+import { formatReminderOffset, t, translateError } from "../i18n.js?v=20260607-cal-v2";
 
 const MAX_REMINDERS = 3;
 
@@ -78,10 +78,10 @@ function buildSheet(event) {
       </div>
 
       <div class="preset-grid" aria-label="${t("reminderTitle")}">
-        ${presetButton(60, "1h", atLimit)}
-        ${presetButton(180, "3h", atLimit)}
-        ${presetButton(1440, "1d", atLimit)}
-        ${presetButton(4320, "3d", atLimit)}
+        ${presetButton(60, t("reminderPreset1h"), atLimit)}
+        ${presetButton(180, t("reminderPreset3h"), atLimit)}
+        ${presetButton(1440, t("reminderPreset1d"), atLimit)}
+        ${presetButton(4320, t("reminderPreset3d"), atLimit)}
       </div>
 
       <div class="timer-wrap ${atLimit ? "timer-disabled" : ""}">
@@ -95,10 +95,10 @@ function buildSheet(event) {
               placeholder="00"
               data-seg="dd"
               data-max="99"
-              aria-label="Days"
+              aria-label="${escapeAttr(t("timerLabelDays"))}"
               ${atLimit ? "disabled" : ""}
             />
-            <span class="timer-label">d</span>
+            <span class="timer-label">${escapeHtml(t("timerLabelDays"))}</span>
           </div>
           <span class="timer-colon">:</span>
           <div class="timer-field">
@@ -110,10 +110,10 @@ function buildSheet(event) {
               placeholder="00"
               data-seg="hh"
               data-max="23"
-              aria-label="Hours"
+              aria-label="${escapeAttr(t("timerLabelHours"))}"
               ${atLimit ? "disabled" : ""}
             />
-            <span class="timer-label">h</span>
+            <span class="timer-label">${escapeHtml(t("timerLabelHours"))}</span>
           </div>
           <span class="timer-colon">:</span>
           <div class="timer-field">
@@ -125,10 +125,10 @@ function buildSheet(event) {
               placeholder="00"
               data-seg="mm"
               data-max="59"
-              aria-label="Minutes"
+              aria-label="${escapeAttr(t("timerLabelMinutes"))}"
               ${atLimit ? "disabled" : ""}
             />
-            <span class="timer-label">m</span>
+            <span class="timer-label">${escapeHtml(t("timerLabelMinutes"))}</span>
           </div>
         </div>
         <p class="timer-error" data-error></p>

@@ -12,7 +12,9 @@ from app.models.enums import EventStatus
 from app.services.analytics import record_event_action_by_ids
 from app.services.events import get_event_by_public_token
 from app.services.favorites import add_favorite, get_user_favorite_events, remove_favorite
+from app.services.friends import friend_ids, public_user_summary
 from app.web.auth import MiniAppUser, require_miniapp_user, upsert_miniapp_user
+from app.web.realtime import publish_miniapp_event
 from app.web.routers.events import event_cache
 from app.web.schemas import EventListItem, FavoriteResponse
 from app.web.serializers import event_list_items
@@ -44,7 +46,8 @@ async def favorite_event(
     if not event or event.status != EventStatus.APPROVED.value:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Event no longer available")
 
-    if await add_favorite(session, user, event):
+    changed = await add_favorite(session, user, event)
+    if changed:
         await record_event_action_by_ids(
             session,
             event_id=event.id,
@@ -53,6 +56,18 @@ async def favorite_event(
             source="miniapp",
         )
     await session.commit()
+    if changed:
+        targets = list(await friend_ids(session, user.id)) + [user.id]
+        await publish_miniapp_event(
+            "favorite_changed",
+            {
+                "event_token": event.public_token,
+                "user_id": user.id,
+                "is_favorite": True,
+                "friend": await public_user_summary(session, user, current_user=user),
+                "target_user_ids": targets,
+            },
+        )
     event_cache.clear()
     return FavoriteResponse(is_favorite=True)
 
@@ -68,7 +83,8 @@ async def unfavorite_event(
     if not event or event.status != EventStatus.APPROVED.value:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Event no longer available")
 
-    if await remove_favorite(session, user, event):
+    changed = await remove_favorite(session, user, event)
+    if changed:
         await record_event_action_by_ids(
             session,
             event_id=event.id,
@@ -77,5 +93,16 @@ async def unfavorite_event(
             source="miniapp",
         )
     await session.commit()
+    if changed:
+        targets = list(await friend_ids(session, user.id)) + [user.id]
+        await publish_miniapp_event(
+            "favorite_changed",
+            {
+                "event_token": event.public_token,
+                "user_id": user.id,
+                "is_favorite": False,
+                "target_user_ids": targets,
+            },
+        )
     event_cache.clear()
     return FavoriteResponse(is_favorite=False)

@@ -36,6 +36,27 @@ export const state = {
   },
   favorites: [],
   reminders: [],
+  friends: {
+    total: 0,
+    friends: [],
+  },
+  friendRequests: {
+    incoming: [],
+    outgoing: [],
+  },
+  friendSearch: {
+    query: "",
+    results: [],
+    page: 1,
+    hasMore: false,
+    loading: false,
+  },
+  privacySettings: {
+    show_favorites_to_friends: true,
+    show_profile_to_friends: true,
+    allow_friend_requests: true,
+  },
+  currentFriendInvite: null,
   currentEvent: null,
   calendarState: {
     currentDate: new Date().toISOString(),

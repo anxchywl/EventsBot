@@ -6,27 +6,39 @@ from contextlib import suppress
 from typing import Any
 
 
-_subscribers: set[asyncio.Queue[dict[str, Any]]] = set()
+_subscribers: set[tuple[int | None, asyncio.Queue[dict[str, Any]]]] = set()
 
 
-async def publish_review_deleted(payload: dict[str, Any]) -> None:
-    message = {"type": "review_deleted", **payload}
-    stale: list[asyncio.Queue[dict[str, Any]]] = []
-    for queue in tuple(_subscribers):
+async def publish_miniapp_event(event_type: str, payload: dict[str, Any]) -> None:
+    message = {"type": event_type, **payload}
+    target_user_ids = {
+        int(user_id)
+        for user_id in payload.get("target_user_ids", []) or []
+        if user_id is not None
+    }
+    stale: list[tuple[int | None, asyncio.Queue[dict[str, Any]]]] = []
+    for user_id, queue in tuple(_subscribers):
+        if target_user_ids and user_id not in target_user_ids:
+            continue
         try:
             queue.put_nowait(message)
         except asyncio.QueueFull:
-            stale.append(queue)
-    for queue in stale:
-        _subscribers.discard(queue)
+            stale.append((user_id, queue))
+    for subscriber in stale:
+        _subscribers.discard(subscriber)
 
 
-async def subscribe_miniapp_events() -> AsyncIterator[dict[str, Any]]:
+async def publish_review_deleted(payload: dict[str, Any]) -> None:
+    await publish_miniapp_event("review_deleted", payload)
+
+
+async def subscribe_miniapp_events(user_id: int | None = None) -> AsyncIterator[dict[str, Any]]:
     queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=20)
-    _subscribers.add(queue)
+    subscriber = (user_id, queue)
+    _subscribers.add(subscriber)
     try:
         while True:
             yield await queue.get()
     finally:
         with suppress(KeyError):
-            _subscribers.remove(queue)
+            _subscribers.remove(subscriber)

@@ -67,6 +67,23 @@ def build_telegram_miniapp_direct_link(
     )
 
 
+def build_telegram_miniapp_invite_link(
+    *,
+    bot_username: str | None,
+    miniapp_short_name: str | None,
+    token: str | None,
+) -> str | None:
+    normalized_username = normalize_username(bot_username)
+    normalized_short_name = normalize_username(miniapp_short_name)
+    if not normalized_username or not normalized_short_name or not token:
+        return None
+
+    return (
+        f"https://t.me/{normalized_username}/{normalized_short_name}"
+        f"?startapp=invite_{quote_plus(token)}"
+    )
+
+
 def build_miniapp_event_url(
     *, miniapp_base_url: str | None, public_token: str | None
 ) -> str | None:
@@ -100,10 +117,17 @@ def is_public_https_url(url: str | None) -> bool:
 
 
 def build_telegram_share_link(*, url: str, text: str | None = None) -> str:
+    if not url:
+        return f"https://t.me/share/url?text={quote_plus(text)}" if text else "https://t.me/share/url"
     share_url = f"https://t.me/share/url?url={quote_plus(url)}"
     if text:
         share_url += f"&text={quote_plus(text)}"
     return share_url
+
+
+def build_telegram_text_share_link(*, text: str, url: str | None = None) -> str:
+    message = f"{text}\n\n{url}" if url else text
+    return build_telegram_share_link(url="", text=message)
 
 
 def normalize_username(username: str | None) -> str | None:
