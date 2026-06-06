@@ -14,7 +14,7 @@ It is mainly for students who want to find campus events, clubs that want to sub
 - Event submission flow in private chat
 - Moderation flow for approving, rejecting, or requesting changes
 - Editable event cards with poster, title, description, date, time, location, category, and registration link
-- Group setup with `/register_chat`, `/categories`, and `/dashboard`
+- Automatic group setup by adding the bot to the chat and granting specific permissions (Delete, Edit, and Pin messages)
 - One dashboard message per connected group
 - Category filters per group
 - Telegram Mini App for browsing events
@@ -221,9 +221,6 @@ Common commands:
 /start
 /submit_event
 /moderate
-/register_chat
-/categories
-/dashboard
 /favorites
 ```
 
@@ -234,6 +231,16 @@ The Mini App is served by FastAPI from `app/web/static`. It lets users browse ap
 ### Group Dashboards
 
 Each connected Telegram group can choose categories. The bot keeps one dashboard message updated instead of posting every event as a new message.
+
+**How to set up a group:**
+1. **Add the bot** to your Telegram group or channel.
+2. **Grant the bot these 3 specific administrator permissions** (it does *not* need full admin rights):
+   - **Delete Messages** (required to clean up commands and keep the chat clean)
+   - **Edit Messages** (required to update the event list dashboard on the fly)
+   - **Pin Messages** (optional, to pin the dashboard at the top of the chat)
+3. The bot will automatically detect these permissions and display an interactive **Category Chooser** in the chat.
+4. Select the event categories you want to display, and the bot will automatically generate and pin the dashboard!
+5. If the dashboard message is ever deleted or needs recreation, admins can simply run the `/dashboard` command in the group.
 
 ### Admin Panel
 

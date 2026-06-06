@@ -1,6 +1,6 @@
-import { coverStyle, escapeAttr, escapeHtml, status, formatDisplayName } from "../components/events.js?v=20260607-cal-v2";
-import { formatEventDate, t } from "../i18n.js?v=20260607-cal-v2";
-import { state } from "../state.js?v=20260607-cal-v2";
+import { coverStyle, escapeAttr, escapeHtml, status, formatDisplayName } from "../components/events.js?v=20260607-cal-v4";
+import { formatEventDate, t } from "../i18n.js?v=20260607-cal-v4";
+import { state } from "../state.js?v=20260607-cal-v4";
 
 function meta(label, value, copyable = false) {
   const displayValue = value || "—";

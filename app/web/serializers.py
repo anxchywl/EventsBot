@@ -191,10 +191,11 @@ async def event_detail(
 
 async def attendee_count(session: AsyncSession, event_id: int) -> int:
     registered = await session.scalar(
-        select(func.count(func.distinct(EventAnalytics.user_id))).where(
+        select(func.count(func.distinct(User.telegram_id)))
+        .join(User, EventAnalytics.user_id == User.id)
+        .where(
             EventAnalytics.event_id == event_id,
             EventAnalytics.action == "register_click",
-            EventAnalytics.user_id.is_not(None),
         )
     )
     return int(registered or 0)
@@ -207,11 +208,11 @@ async def get_attendee_counts(
     if not event_ids:
         return {}
     registered_result = await session.execute(
-        select(EventAnalytics.event_id, func.count(func.distinct(EventAnalytics.user_id)))
+        select(EventAnalytics.event_id, func.count(func.distinct(User.telegram_id)))
+        .join(User, EventAnalytics.user_id == User.id)
         .where(
             EventAnalytics.event_id.in_(event_ids),
             EventAnalytics.action == "register_click",
-            EventAnalytics.user_id.is_not(None),
         )
         .group_by(EventAnalytics.event_id)
     )

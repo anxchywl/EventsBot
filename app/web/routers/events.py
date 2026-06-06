@@ -243,9 +243,11 @@ async def register_event_click(
 
     already_registered = await session.scalar(
         select(
-            exists().where(
+            exists()
+            .join(User, EventAnalytics.user_id == User.id)
+            .where(
                 EventAnalytics.event_id == event.id,
-                EventAnalytics.user_id == user.id,
+                User.telegram_id == user.telegram_id,
                 EventAnalytics.action == "register_click",
             )
         )
@@ -261,10 +263,11 @@ async def register_event_click(
         event_cache.clear()
 
     count = await session.scalar(
-        select(func.count(func.distinct(EventAnalytics.user_id))).where(
+        select(func.count(func.distinct(User.telegram_id)))
+        .join(User, EventAnalytics.user_id == User.id)
+        .where(
             EventAnalytics.event_id == event.id,
             EventAnalytics.action == "register_click",
-            EventAnalytics.user_id.is_not(None),
         )
     )
     await session.commit()

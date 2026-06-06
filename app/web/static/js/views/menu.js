@@ -1,6 +1,6 @@
-import { controls, coverStyle, escapeAttr, escapeHtml, eventRow, nav, status } from "../components/events.js?v=20260607-cal-v2";
-import { t } from "../i18n.js?v=20260607-cal-v2";
-import { state } from "../state.js?v=20260607-cal-v2";
+import { controls, coverStyle, escapeAttr, escapeHtml, eventRow, nav, status } from "../components/events.js?v=20260607-cal-v4";
+import { t } from "../i18n.js?v=20260607-cal-v4";
+import { state } from "../state.js?v=20260607-cal-v4";
 
 export function formatGroupDate(dateStr, lang) {
   const date = new Date(`${dateStr}T00:00:00`);
@@ -12,8 +12,8 @@ export function formatGroupDate(dateStr, lang) {
   }).format(date);
 }
 
-import { renderCalendarInner } from "./calendar.js?v=20260607-cal-v2";
-import { renderProfileInner } from "./ratings.js?v=20260607-cal-v2";
+import { renderCalendarInner } from "./calendar.js?v=20260607-cal-v4";
+import { renderProfileInner } from "./ratings.js?v=20260607-cal-v4";
 
 export function renderMenu(events) {
   const isProfile = state.route === "profile";

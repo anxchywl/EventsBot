@@ -39,19 +39,19 @@ import {
   revokeFriendInvite,
   fetchPrivacySettings,
   updatePrivacySettings,
-} from "./api.js?v=20260607-cal-v2";
-import { coverStyle, loadingScreen, resetFallbackCoverStyles, startCountdowns } from "./components/events.js?v=20260607-cal-v2";
-import { closeFilterSheet, openFilterSheet } from "./components/filterSheet.js?v=20260607-cal-v2";
-import { fetchAdminStats, fetchAdminUsers, fetchConnectedGroups, renderAdminPanel, renderAdminUsersList, renderConnectedGroupsList, blockUser, unblockUser, adminStatusLabel, adminSortLabel } from "./views/admin.js?v=20260607-cal-v2";
-import { closeSheet, openReminderSheet } from "./components/sheets.js?v=20260607-cal-v2";
-import { t, translateError } from "./i18n.js?v=20260607-cal-v2";
-import { currentTheme, nextLang, normalizeEventFilters, rememberScroll, restoreScroll, setEventFilters, setLang, setTheme, state, toggleTheme } from "./state.js?v=20260607-cal-v2";
-import { configureBackButton, haptic, initTelegram, openLink, openTelegramLink, startParam, tg } from "./telegram.js?v=20260607-cal-v2";
-import { renderEvent, renderEventUnavailable, renderEventSkeleton } from "./views/event.js?v=20260607-cal-v2";
-import { renderEventResults, renderFilterBar, renderMenu, renderPlaceholder } from "./views/menu.js?v=20260607-cal-v2";
-import { renderReminders } from "./views/reminders.js?v=20260607-cal-v2";
-import { renderCalendarInner, attachCalendarInteractions, refreshCalendarMonthPanels } from "./views/calendar.js?v=20260607-cal-v2";
-import { renderAuthSection, renderRatingsTab, renderForgotPasswordCard, renderProfileInner, renderFriendSearchResults } from "./views/ratings.js?v=20260607-cal-v2";
+} from "./api.js?v=20260607-cal-v4";
+import { coverStyle, loadingScreen, resetFallbackCoverStyles, startCountdowns } from "./components/events.js?v=20260607-cal-v4";
+import { closeFilterSheet, openFilterSheet } from "./components/filterSheet.js?v=20260607-cal-v4";
+import { fetchAdminStats, fetchAdminUsers, fetchConnectedGroups, renderAdminPanel, renderAdminUsersList, renderConnectedGroupsList, blockUser, unblockUser, adminStatusLabel, adminSortLabel } from "./views/admin.js?v=20260607-cal-v4";
+import { closeSheet, openReminderSheet } from "./components/sheets.js?v=20260607-cal-v4";
+import { t, translateError } from "./i18n.js?v=20260607-cal-v4";
+import { currentTheme, nextLang, normalizeEventFilters, rememberScroll, restoreScroll, setEventFilters, setLang, setTheme, state, toggleTheme } from "./state.js?v=20260607-cal-v4";
+import { configureBackButton, haptic, initTelegram, openLink, openTelegramLink, startParam, tg } from "./telegram.js?v=20260607-cal-v4";
+import { renderEvent, renderEventUnavailable, renderEventSkeleton } from "./views/event.js?v=20260607-cal-v4";
+import { renderEventResults, renderFilterBar, renderMenu, renderPlaceholder } from "./views/menu.js?v=20260607-cal-v4";
+import { renderReminders } from "./views/reminders.js?v=20260607-cal-v4";
+import { renderCalendarInner, attachCalendarInteractions, refreshCalendarMonthPanels } from "./views/calendar.js?v=20260607-cal-v4";
+import { renderAuthSection, renderRatingsTab, renderForgotPasswordCard, renderProfileInner, renderFriendSearchResults } from "./views/ratings.js?v=20260607-cal-v4";
 
 
 const app = document.getElementById("app");
@@ -2069,6 +2069,7 @@ async function toggleFavorite(event) {
   const previous = event.is_favorite;
   event.is_favorite = !previous;
   setFavoriteButtonState(event.is_favorite, true);
+  setFavoriteButtonLoading(true);
   syncFavoriteState(event.token, event.is_favorite);
   setEventRowFavoriteBadge(event.token, event.is_favorite);
   haptic();
@@ -2144,7 +2145,6 @@ function setFavoriteButtonState(isFavorite, animate) {
     return;
   }
   button.classList.toggle("active", isFavorite);
-  setFavoriteButtonLoading(true);
   if (animate) {
     button.classList.remove("favorite-spin", "favorite-unspin");
     void button.offsetWidth;
@@ -2807,6 +2807,7 @@ function initRatingsHandlers() {
       cachedMenuHTML = null;
       state.route = "";
       await navigate("events", { replaceHash: false, quiet: false });
+      startMiniappUpdates();
     };
   });
 

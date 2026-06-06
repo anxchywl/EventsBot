@@ -1,7 +1,7 @@
-import { escapeHtml, coverStyle, formatDisplayName } from "../components/events.js?v=20260607-cal-v2";
-import { state, authHeaders } from "../state.js?v=20260607-cal-v2";
-import { t } from "../i18n.js?v=20260607-cal-v2";
-import { authenticate } from "../api.js?v=20260607-cal-v2";
+import { escapeHtml, coverStyle, formatDisplayName } from "../components/events.js?v=20260607-cal-v4";
+import { state, authHeaders } from "../state.js?v=20260607-cal-v4";
+import { t } from "../i18n.js?v=20260607-cal-v4";
+import { authenticate } from "../api.js?v=20260607-cal-v4";
 
 async function adminRequest(path, options = {}) {
   await authenticate().catch(() => null);

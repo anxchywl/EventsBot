@@ -1,5 +1,5 @@
-import { state } from "../state.js?v=20260607-cal-v2";
-import { categoryLabel, t } from "../i18n.js?v=20260607-cal-v2";
+import { state } from "../state.js?v=20260607-cal-v4";
+import { categoryLabel, t } from "../i18n.js?v=20260607-cal-v4";
 
 // Guarantee fallbackCoverStyles map is shared absolutely via window to avoid potential duplicate ES module instances.
 if (!window.fallbackCoverStyles) {
