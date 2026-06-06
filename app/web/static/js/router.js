@@ -21,24 +21,23 @@ import {
   submitReview,
   deleteReview,
   adminDeleteReview,
-  fetchReviews,
   request,
   forgotPasswordRequest,
   forgotPasswordVerify,
   forgotPasswordReset,
 } from "./api.js";
-import { loadingScreen, resetFallbackCoverStyles, startCountdowns } from "./components/events.js?v=20260602-white-screen-fix-v1";
-import { closeFilterSheet, openFilterSheet } from "./components/filterSheet.js?v=20260602-white-screen-fix-v1";
-import { fetchAdminStats, fetchAdminUsers, renderAdminPanel, renderAdminUsersList, blockUser, unblockUser } from "./views/admin.js?v=20260602-white-screen-fix-v1";
-import { closeSheet, openReminderSheet } from "./components/sheets.js?v=20260602-white-screen-fix-v1";
-import { t, translateError } from "./i18n.js?v=20260602-white-screen-fix-v1";
+import { loadingScreen, resetFallbackCoverStyles, startCountdowns } from "./components/events.js?v=20260606-review-popups-v2";
+import { closeFilterSheet, openFilterSheet } from "./components/filterSheet.js?v=20260606-review-popups-v2";
+import { fetchAdminStats, fetchAdminUsers, fetchConnectedGroups, renderAdminPanel, renderAdminUsersList, renderConnectedGroupsList, blockUser, unblockUser, adminStatusLabel, adminSortLabel } from "./views/admin.js?v=20260606-review-popups-v2";
+import { closeSheet, openReminderSheet } from "./components/sheets.js?v=20260606-review-popups-v2";
+import { t, translateError } from "./i18n.js?v=20260606-review-popups-v2";
 import { currentTheme, nextLang, normalizeEventFilters, rememberScroll, restoreScroll, setEventFilters, setLang, setTheme, state, toggleTheme } from "./state.js";
 import { configureBackButton, haptic, initTelegram, openLink, openTelegramLink, startParam, tg } from "./telegram.js";
-import { renderEvent, renderEventUnavailable, renderEventSkeleton } from "./views/event.js?v=20260602-white-screen-fix-v1";
-import { renderEventResults, renderFilterBar, renderMenu, renderPlaceholder } from "./views/menu.js?v=20260602-white-screen-fix-v1";
-import { renderReminders } from "./views/reminders.js?v=20260602-white-screen-fix-v1";
-import { renderCalendarInner, attachCalendarInteractions, refreshCalendarMonthPanels } from "./views/calendar.js?v=20260602-white-screen-fix-v1";
-import { renderAuthSection, renderRatingsTab, renderForgotPasswordCard } from "./views/ratings.js?v=20260602-white-screen-fix-v1";
+import { renderEvent, renderEventUnavailable, renderEventSkeleton } from "./views/event.js?v=20260606-review-popups-v2";
+import { renderEventResults, renderFilterBar, renderMenu, renderPlaceholder } from "./views/menu.js?v=20260606-review-popups-v2";
+import { renderReminders } from "./views/reminders.js?v=20260606-review-popups-v2";
+import { renderCalendarInner, attachCalendarInteractions, refreshCalendarMonthPanels } from "./views/calendar.js?v=20260606-review-popups-v2";
+import { renderAuthSection, renderRatingsTab, renderForgotPasswordCard } from "./views/ratings.js?v=20260606-review-popups-v2";
 
 
 const app = document.getElementById("app");
@@ -142,6 +141,139 @@ function createAdminDialog({ title, description, textarea = false, placeholder =
   });
 }
 
+function closeConfirmSheet() {
+  const current = document.querySelector(".confirm-sheet-backdrop");
+  if (!current) return;
+  current.classList.remove("open");
+  if (!document.querySelector(".sheet-backdrop:not(.confirm-sheet-backdrop)")) {
+    document.documentElement.classList.remove("sheet-open");
+  }
+  window.setTimeout(() => current.remove(), 220);
+}
+
+function openConfirmSheet({ title, description, confirmText = "Delete", cancelText = "Cancel", danger = false }) {
+  closeConfirmSheet();
+  document.documentElement.classList.add("sheet-open");
+  return new Promise((resolve) => {
+    const node = document.createElement("div");
+    node.className = "sheet-backdrop filter-sheet-backdrop confirm-sheet-backdrop";
+    node.innerHTML = `
+      <section class="bottom-sheet filter-sheet confirm-sheet" role="dialog" aria-modal="true">
+        <div class="sheet-handle"></div>
+        <div class="sheet-header">
+          <h2>${escapeSheetHtml(title)}</h2>
+        </div>
+        <p class="confirm-sheet-description">${escapeSheetHtml(description)}</p>
+        <div class="confirm-sheet-actions">
+          <button class="action confirm-sheet-cancel" type="button" data-confirm-cancel>${escapeSheetHtml(cancelText)}</button>
+          <button class="action primary ${danger ? "confirm-sheet-danger" : ""}" type="button" data-confirm-ok>${escapeSheetHtml(confirmText)}</button>
+        </div>
+      </section>
+    `;
+    const finish = (confirmed) => {
+      closeConfirmSheet();
+      resolve(confirmed);
+    };
+    node.addEventListener("click", (event) => {
+      if (event.target === node || event.target.closest("[data-confirm-cancel]")) {
+        finish(false);
+        return;
+      }
+      if (event.target.closest("[data-confirm-ok]")) {
+        finish(true);
+      }
+    });
+    document.body.append(node);
+    requestAnimationFrame(() => node.classList.add("open"));
+  });
+}
+
+function closeAdminGroupFilterSheet() {
+  const current = document.querySelector(".admin-group-filter-backdrop");
+  if (!current) return;
+  current.classList.remove("open");
+  if (!document.querySelector(".sheet-backdrop:not(.admin-group-filter-backdrop)")) {
+    document.documentElement.classList.remove("sheet-open");
+  }
+  window.setTimeout(() => current.remove(), 220);
+}
+
+function openAdminGroupFilterSheet(type) {
+  closeAdminGroupFilterSheet();
+  const options = type === "sort"
+    ? [
+        ["newest", t("newest")],
+        ["oldest", t("oldest")],
+        ["most_active", t("mostActive")],
+      ]
+    : [
+        ["all", t("allStatuses")],
+        ["active", t("active")],
+        ["setup_required", t("setupRequired")],
+        ["missing_permissions", t("missingPermissions")],
+      ];
+  const currentValue = type === "sort"
+    ? (state.adminGroupFilters?.sort || "newest")
+    : (state.adminGroupFilters?.status || "all");
+  const title = type === "sort" ? t("sortGroups") : t("filterGroups");
+
+  document.documentElement.classList.add("sheet-open");
+  const node = document.createElement("div");
+  node.className = "sheet-backdrop filter-sheet-backdrop admin-group-filter-backdrop";
+  node.innerHTML = `
+    <section class="bottom-sheet filter-sheet" role="dialog" aria-modal="true">
+      <div class="sheet-handle" data-sheet-drag></div>
+      <div class="sheet-header">
+        <h2>${escapeSheetHtml(title)}</h2>
+      </div>
+      <div class="filter-option-group">
+        ${options.map(([value, label]) => `
+          <button class="filter-option ${value === currentValue ? "active" : ""}" type="button" data-admin-group-filter-set="${escapeSheetAttr(type)}" data-value="${escapeSheetAttr(value)}">
+            <span>${escapeSheetHtml(label)}</span>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.2 16.6 4.9 12.3l1.4-1.4 2.9 2.9 8.5-8.5 1.4 1.4z" fill="currentColor"/></svg>
+          </button>
+        `).join("")}
+      </div>
+    </section>
+  `;
+
+  node.addEventListener("click", (event) => {
+    if (event.target === node) {
+      closeAdminGroupFilterSheet();
+      return;
+    }
+    const option = event.target.closest("[data-admin-group-filter-set]");
+    if (!option) return;
+
+    const key = option.dataset.adminGroupFilterSet;
+    const value = option.dataset.value;
+    state.adminGroupFilters = {
+      ...(state.adminGroupFilters || {}),
+      [key]: value,
+    };
+    closeAdminGroupFilterSheet();
+    restoreAdminGroupControls(state.adminGroupFilters);
+    refreshConnectedGroups().catch(() => null);
+  });
+
+  document.body.append(node);
+  requestAnimationFrame(() => node.classList.add("open"));
+}
+
+function escapeSheetHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (char) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  }[char]));
+}
+
+function escapeSheetAttr(value) {
+  return escapeSheetHtml(value).replace(/`/g, "&#96;");
+}
+
 async function refreshAdminStats() {
   try {
     state.adminStats = await fetchAdminStats();
@@ -161,6 +293,83 @@ async function refreshAdminStats() {
     const el = app.querySelector(`#${id}`);
     if (el) el.textContent = String(value ?? "0");
   });
+}
+
+async function refreshConnectedGroups({ preserveControls = true } = {}) {
+  if (state.route !== "admin") {
+    return;
+  }
+  const filters = currentAdminGroupFilters();
+  try {
+    state.connectedGroups = await fetchConnectedGroups(filters);
+  } catch (error) {
+    console.error("Failed to refresh connected groups", error);
+    return;
+  }
+
+  const list = app.querySelector("#admin-groups-list");
+  if (list) {
+    const openGroupIds = new Set(
+      [...list.querySelectorAll(".connected-group-card[open][data-group-id]")]
+        .map((el) => el.dataset.groupId)
+        .filter(Boolean)
+    );
+    list.innerHTML = renderConnectedGroupsList(state.connectedGroups.groups || []);
+    openGroupIds.forEach((id) => {
+      const card = list.querySelector(`.connected-group-card[data-group-id="${CSS.escape(id)}"]`);
+      if (card) {
+        card.open = true;
+      }
+    });
+  }
+
+  const summary = state.connectedGroups.summary || {};
+  [
+    ["admin-groups-total", summary.total_groups],
+    ["admin-groups-active", summary.active],
+    ["admin-groups-setup", summary.setup_required],
+    ["admin-groups-permissions", summary.missing_permissions],
+  ].forEach(([id, value]) => {
+    const el = app.querySelector(`#${id}`);
+    if (el) el.textContent = String(value ?? "0");
+  });
+
+  if (preserveControls) {
+    restoreAdminGroupControls(filters);
+  }
+}
+
+function currentAdminGroupFilters() {
+  const q = app.querySelector("#admin-group-search")?.value?.trim() || state.adminGroupFilters?.q || "";
+  const status = app.querySelector("[data-admin-group-filter-open='status']")?.dataset.value || state.adminGroupFilters?.status || "all";
+  const sort = app.querySelector("[data-admin-group-filter-open='sort']")?.dataset.value || state.adminGroupFilters?.sort || "newest";
+  state.adminGroupFilters = { q, status, sort };
+  return state.adminGroupFilters;
+}
+
+function restoreAdminGroupControls(filters = state.adminGroupFilters || {}) {
+  const search = app.querySelector("#admin-group-search");
+  const status = app.querySelector("[data-admin-group-filter-open='status']");
+  const sort = app.querySelector("[data-admin-group-filter-open='sort']");
+  const statusLabel = app.querySelector("#admin-group-status-label");
+  const sortLabel = app.querySelector("#admin-group-sort-label");
+  if (search && search.value !== (filters.q || "")) search.value = filters.q || "";
+  if (status) status.dataset.value = filters.status || "all";
+  if (sort) sort.dataset.value = filters.sort || "newest";
+  if (statusLabel) statusLabel.textContent = adminStatusLabel(filters.status || "all");
+  if (sortLabel) sortLabel.textContent = adminSortLabel(filters.sort || "newest");
+}
+
+function startAdminGroupsPolling() {
+  window.clearInterval(adminGroupsPollTimer);
+  adminGroupsPollTimer = window.setInterval(() => {
+    refreshConnectedGroups().catch(() => null);
+  }, 5000);
+}
+
+function stopAdminGroupsPolling() {
+  window.clearInterval(adminGroupsPollTimer);
+  adminGroupsPollTimer = null;
 }
 
 let backHandler = async () => {
@@ -187,6 +396,7 @@ let searchCloseTimer = null;
 const favoriteRequests = new Set();
 let pendingEventsRefreshAfterFavorite = false;
 let lastDirectHapticAt = 0;
+let reviewUpdatesSource = null;
 
 // Snapshot of the events menu DOM — saved when leaving for an event page,
 // restored instantly when coming back so the transition is invisible.
@@ -236,6 +446,7 @@ export async function boot() {
   installKeyboardOverlayNav();
   loadFromLocation();
   startEventSyncPolling();
+  startReviewUpdates();
 }
 
 function startEventSyncPolling() {
@@ -256,6 +467,81 @@ async function checkEventSyncVersion() {
   }
   lastEventSyncVersion = version;
   await refreshAfterExternalEventSync();
+}
+
+function startReviewUpdates() {
+  if (!window.EventSource || reviewUpdatesSource) return;
+  reviewUpdatesSource = new EventSource("/api/events/review-updates");
+  reviewUpdatesSource.addEventListener("review_deleted", (event) => {
+    try {
+      handleReviewDeleted(JSON.parse(event.data || "{}")).catch(() => null);
+    } catch {
+      // Ignore malformed realtime payloads; the next fetch still returns fresh data.
+    }
+  });
+  reviewUpdatesSource.onerror = () => {
+    reviewUpdatesSource?.close();
+    reviewUpdatesSource = null;
+    window.setTimeout(startReviewUpdates, 3000);
+  };
+}
+
+async function handleReviewDeleted(payload) {
+  const token = payload?.event_token;
+  const targetUserId = String(payload?.target_user_id || "");
+  state.prefetchedRatings = null;
+  state.cachedRatingsProfile = null;
+  cachedMenuHTML = null;
+  applyDeletedReviewToCachedState(payload);
+
+  if (state.route === "event" && state.currentEvent?.token === token) {
+    state.currentEvent = await fetchEvent(token);
+    app.innerHTML = renderEvent(state.currentEvent);
+    initEventReviewsHandlers();
+    return;
+  }
+
+  if (state.route === "ratings") {
+    await navigate("ratings", { replaceHash: false, quiet: true, keepScroll: true });
+    return;
+  }
+
+  if (state.route === "events" || state.route === "calendar") {
+    const filters = state.route === "calendar"
+      ? { ...state.eventFilters, relevance: "all" }
+      : state.eventFilters;
+    state.events = await fetchEvents(filters);
+    app.innerHTML = renderMenu(state.events || []);
+    applyQuietRender(true);
+    initRatingsHandlers();
+    if (state.calendarMode) attachCalendarInteractions();
+  }
+}
+
+function applyDeletedReviewToCachedState(payload) {
+  const token = payload?.event_token;
+  const targetUserId = String(payload?.target_user_id || "");
+  if (!token || !targetUserId) return;
+  const applySummary = (event) => {
+    if (!event || event.token !== token) return;
+    event.average_rating = payload.average_rating ?? null;
+    event.rating_count = Number(payload.rating_count || 0);
+    if (Array.isArray(event.reviews)) {
+      event.reviews = event.reviews.filter((review) => String(review.user_id) !== targetUserId);
+    }
+  };
+  applySummary(state.currentEvent);
+  (state.events || []).forEach(applySummary);
+  if (state.prefetchedRatings?.feed) {
+    state.prefetchedRatings.feed = state.prefetchedRatings.feed.filter((review) => (
+      review.event_token !== token || String(review.user_id) !== targetUserId
+    ));
+  }
+  if (state.cachedRatingsProfile?.history) {
+    state.cachedRatingsProfile.history = state.cachedRatingsProfile.history.filter((review) => (
+      review.event_token !== token || String(review.user_id || "") !== targetUserId
+    ));
+  }
 }
 
 async function refreshAfterExternalEventSync() {
@@ -420,6 +706,9 @@ async function navigate(route, options = {}) {
   const performNavigation = async () => {
     state.route = route;
     state.token = options.token || "";
+    if (route !== "admin") {
+      stopAdminGroupsPolling();
+    }
     if (route === "calendar") {
       state.calendarMode = true;
     } else if (route === "events") {
@@ -665,10 +954,14 @@ async function renderRoute({ quiet = false, prefetched = false } = {}) {
     if (state.route === "admin") {
       state.adminStats = await fetchAdminStats();
       state.adminUsers = await fetchAdminUsers();
-      app.innerHTML = renderAdminPanel(state.adminStats, state.adminUsers);
+      state.connectedGroups = await fetchConnectedGroups(state.adminGroupFilters || {});
+      app.innerHTML = renderAdminPanel(state.adminStats, state.adminUsers, state.connectedGroups);
+      restoreAdminGroupControls();
+      startAdminGroupsPolling();
       applyQuietRender(quiet);
       return;
     }
+    stopAdminGroupsPolling();
     if (!useCache) {
       await ensureEventFilterOptions();
       const fetchFilters = state.route === "calendar" ? { ...state.eventFilters, relevance: "all" } : state.eventFilters;
@@ -703,10 +996,13 @@ function renderCurrent({ quiet = false } = {}) {
     return;
   }
   if (state.route === "admin") {
-    app.innerHTML = renderAdminPanel(state.adminStats, state.adminUsers);
+    app.innerHTML = renderAdminPanel(state.adminStats, state.adminUsers, state.connectedGroups);
+    restoreAdminGroupControls();
+    startAdminGroupsPolling();
     applyQuietRender(quiet);
     return;
   }
+  stopAdminGroupsPolling();
   app.innerHTML = renderMenu(state.events);
   applyQuietRender(quiet);
   initRatingsHandlers();
@@ -951,6 +1247,7 @@ async function onClick(event) {
     runCircularTransition(event, () => {
       resetFallbackCoverStyles();
       toggleTheme();
+      cachedMenuHTML = null;
       renderCurrent({ quiet: true });
     });
     return;
@@ -960,6 +1257,7 @@ async function onClick(event) {
     hapticImpactFallback();
     runCircularTransition(event, () => {
       nextLang();
+      cachedMenuHTML = null;
       renderCurrent({ quiet: true });
     });
     return;
@@ -978,6 +1276,12 @@ async function onClick(event) {
       type: filterOpen.dataset.filterOpen,
       onChange: updateEventFilters,
     });
+    return;
+  }
+  const adminGroupFilterOpen = event.target.closest("[data-admin-group-filter-open]");
+  if (adminGroupFilterOpen) {
+    openAdminGroupFilterSheet(adminGroupFilterOpen.dataset.adminGroupFilterOpen);
+    haptic();
     return;
   }
   const searchOpen = event.target.closest("[data-action='event-search-open']");
@@ -1108,6 +1412,22 @@ function onInput(event) {
     return;
   }
 
+  const adminGroupSearch = event.target.closest("#admin-group-search");
+  if (adminGroupSearch) {
+    let val = adminGroupSearch.value.slice(0, 120).replace(/[<>&"'/`\\;]/g, "");
+    val = val.replace(/^\s+/, "").replace(/\s{2,}/g, " ");
+    adminGroupSearch.value = val;
+    state.adminGroupFilters = {
+      ...(state.adminGroupFilters || {}),
+      q: val.trim(),
+    };
+    window.clearTimeout(adminGroupSearchTimer);
+    adminGroupSearchTimer = window.setTimeout(() => {
+      refreshConnectedGroups().catch(() => null);
+    }, 300);
+    return;
+  }
+
   const searchInput = event.target.closest("[data-event-search-input]");
   if (!searchInput) {
     return;
@@ -1143,6 +1463,19 @@ async function onFocusOut(event) {
       } catch (e) {
         console.error("Admin search focusout failed", e);
       }
+    }
+  }
+
+  const adminGroupSearch = event.target.closest("#admin-group-search");
+  if (adminGroupSearch) {
+    const val = adminGroupSearch.value.trim();
+    if (adminGroupSearch.value !== val) {
+      adminGroupSearch.value = val;
+      state.adminGroupFilters = {
+        ...(state.adminGroupFilters || {}),
+        q: val,
+      };
+      await refreshConnectedGroups().catch(() => null);
     }
   }
 }
@@ -1276,22 +1609,37 @@ async function handleEventAction(action, element) {
   }
   if (action === "admin-delete-review") {
     const userId = element.dataset.userId;
-    if (!userId || !confirm("Are you sure you want to delete this review?")) return;
-    element.disabled = true;
-    try {
-      await request(`/api/admin/reviews/${event.id}/${userId}`, {
-        method: "DELETE"
-      });
-      
-      haptic("success");
-      // Refetch event to get updated reviews
-      state.currentEvent = await fetchEvent(event.token);
-      app.innerHTML = renderEvent(state.currentEvent);
-    } catch (e) {
-      console.error(e);
-      element.disabled = false;
-      haptic("error");
-      alert("Failed to delete review. Ensure you have admin/moderator privileges.");
+    const eventToken = element.dataset.eventToken || event?.token;
+    if (!userId || !eventToken) return;
+    const doDelete = async () => {
+      element.disabled = true;
+      try {
+        const result = await adminDeleteReview(userId, eventToken);
+        haptic("success");
+        state.prefetchedRatings = null;
+        state.cachedRatingsProfile = null;
+        applyDeletedReviewToCachedState({ ...(result || {}), event_token: eventToken, target_user_id: userId });
+        if (state.route === "event" && state.currentEvent?.token === eventToken) {
+          state.currentEvent = await fetchEvent(eventToken);
+          app.innerHTML = renderEvent(state.currentEvent);
+          initEventReviewsHandlers();
+        }
+      } catch (e) {
+        console.error(e);
+        element.disabled = false;
+        haptic("error");
+        alert("Failed to delete review. Ensure you have admin/moderator privileges.");
+      }
+    };
+    const confirmed = await openConfirmSheet({
+      title: "Delete this review?",
+      description: "This action cannot be undone.",
+      confirmText: "Delete",
+      cancelText: "Cancel",
+      danger: true,
+    });
+    if (confirmed) {
+      await doDelete();
     }
   }
 
@@ -1505,6 +1853,8 @@ window.addEventListener("keydown", (event) => {
 let resendInterval = null;
 let forgotResendInterval = null;
 let adminSearchTimer = null;
+let adminGroupSearchTimer = null;
+let adminGroupsPollTimer = null;
 
 function startResendCountdown() {
   window.clearInterval(resendInterval);
@@ -1933,11 +2283,14 @@ function initRatingsHandlers() {
           });
       };
       
-      if (tg && tg.showConfirm) {
-        tg.showConfirm("Are you sure you want to delete this rating and comment?", (ok) => {
-          if (ok) doDelete();
-        });
-      } else if (confirm("Are you sure you want to delete this rating and comment?")) {
+      const confirmed = await openConfirmSheet({
+        title: "Delete this review?",
+        description: "This action cannot be undone.",
+        confirmText: "Delete",
+        cancelText: "Cancel",
+        danger: true,
+      });
+      if (confirmed) {
         doDelete();
       }
     };
@@ -1971,11 +2324,14 @@ function initRatingsHandlers() {
           });
       };
       
-      if (tg && tg.showConfirm) {
-        tg.showConfirm("Are you sure you want to delete this review?", (ok) => {
-          if (ok) doDelete();
-        });
-      } else if (confirm("Are you sure you want to delete this review?")) {
+      const confirmed = await openConfirmSheet({
+        title: "Delete this review?",
+        description: "This action cannot be undone.",
+        confirmText: "Delete",
+        cancelText: "Cancel",
+        danger: true,
+      });
+      if (confirmed) {
         doDelete();
       }
     };
@@ -2441,11 +2797,14 @@ function initEventReviewsHandlers() {
           });
       };
 
-      if (tg && tg.showConfirm) {
-        tg.showConfirm("Are you sure you want to delete your review?", (ok) => {
-          if (ok) doDelete();
-        });
-      } else if (confirm("Are you sure you want to delete your review?")) {
+      const confirmed = await openConfirmSheet({
+        title: "Delete this review?",
+        description: "This action cannot be undone.",
+        confirmText: "Delete",
+        cancelText: "Cancel",
+        danger: true,
+      });
+      if (confirmed) {
         doDelete();
       }
     };

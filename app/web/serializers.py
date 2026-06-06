@@ -17,6 +17,7 @@ from app.models.rating import Rating
 from app.models.comment import Comment
 from app.services.favorites import get_favorite_event_ids, is_event_favorite
 from app.services.telegram_links import build_telegram_share_link
+from app.web.auth import effective_web_role
 from app.web.schemas import EventDetail, EventListItem, ReviewDetail
 
 
@@ -35,6 +36,8 @@ async def event_list_item(
     favorites = favorite_ids or set()
     counts = reminder_counts or {}
     attendees = attendee_counts or {}
+    rating_summary = await rating_summaries(session, [event.id])
+    average_rating, rating_count = rating_summary.get(event.id, (None, 0))
     return EventListItem(
         token=event.public_token,
         title=event.title,
@@ -51,6 +54,8 @@ async def event_list_item(
         is_ended=is_event_ended(event),
         is_archived=is_event_archived(event),
         cover_url=event_cover_url(event),
+        average_rating=average_rating,
+        rating_count=rating_count,
     )
 
 
@@ -64,14 +69,24 @@ async def event_list_items(
     favorite_ids = await get_favorite_event_ids(session, user, event_ids)
     reminder_counts = await get_reminder_counts(session, user, event_ids)
     attendee_counts = await get_attendee_counts(session, event_ids)
+    ratings = await rating_summaries(session, event_ids)
     return [
-        await event_list_item(
-            session,
-            event,
-            user=user,
-            favorite_ids=favorite_ids,
-            reminder_counts=reminder_counts,
-            attendee_counts=attendee_counts,
+        EventListItem(
+            token=event.public_token,
+            title=event.title,
+            date=event.event_date.isoformat(),
+            time=event.event_time.strftime("%H:%M"),
+            location=event.location,
+            organizer=event.organizer_name,
+            category=event.category.name,
+            is_favorite=event.id in favorite_ids,
+            reminder_count=reminder_counts.get(event.id, 0),
+            attendee_count=attendee_counts.get(event.id, 0),
+            is_ended=is_event_ended(event),
+            is_archived=is_event_archived(event),
+            cover_url=event_cover_url(event),
+            average_rating=ratings.get(event.id, (None, 0))[0],
+            rating_count=ratings.get(event.id, (None, 0))[1],
         )
         for event in events
     ]
@@ -90,18 +105,22 @@ async def event_detail(
     reminder_ids, reminder_offsets = await user_reminder_details(session, user, event.id)
 
     # Fetch ratings
-    stmt_ratings = select(Rating).where(Rating.event_id == event.id).options(selectinload(Rating.user))
+    stmt_ratings = select(Rating).where(Rating.event_id == event.id, Rating.deleted_at.is_(None)).options(selectinload(Rating.user))
     ratings = (await session.execute(stmt_ratings)).scalars().all()
     verified_ratings = [r for r in ratings if r.user.is_verified]
     rating_count = len(verified_ratings)
     average_rating = sum(r.score for r in verified_ratings) / rating_count if rating_count > 0 else None
 
     # Fetch comments
-    stmt_comments = select(Comment).where(Comment.event_id == event.id).options(selectinload(Comment.user))
+    stmt_comments = select(Comment).where(Comment.event_id == event.id, Comment.deleted_at.is_(None)).options(selectinload(Comment.user))
     comments = (await session.execute(stmt_comments)).scalars().all()
     verified_comments = [c for c in comments if c.user.is_verified]
 
     # Merge ratings and comments by user_id
+    can_delete_all = False
+    if user is not None and effective_web_role(user, abs(user.telegram_id)) in ("admin", "moderator"):
+        can_delete_all = True
+
     user_map = {}
     for r in verified_ratings:
         user_map[r.user_id] = {
@@ -111,7 +130,9 @@ async def event_detail(
             "content": None,
             "score": r.score,
             "created_at": r.created_at.isoformat(),
-            "is_own": user is not None and r.user_id == user.id
+            "is_own": user is not None and r.user_id == user.id,
+            "can_delete": can_delete_all,
+            "user_id": r.user_id,
         }
     for c in verified_comments:
         if c.user_id in user_map:
@@ -125,7 +146,9 @@ async def event_detail(
                 "content": c.content,
                 "score": None,
                 "created_at": c.created_at.isoformat(),
-                "is_own": user is not None and c.user_id == user.id
+                "is_own": user is not None and c.user_id == user.id,
+                "can_delete": can_delete_all,
+                "user_id": c.user_id,
             }
 
     reviews_list = list(user_map.values())
@@ -207,6 +230,25 @@ async def get_reminder_counts(
         .group_by(Reminder.event_id)
     )
     return {event_id: int(count) for event_id, count in result.all()}
+
+
+async def rating_summaries(session: AsyncSession, event_ids: list[int]) -> dict[int, tuple[float | None, int]]:
+    if not event_ids:
+        return {}
+    result = await session.execute(
+        select(Rating.event_id, func.avg(Rating.score), func.count(Rating.id))
+        .join(Rating.user)
+        .where(
+            Rating.event_id.in_(event_ids),
+            Rating.deleted_at.is_(None),
+            User.is_verified == True,
+        )
+        .group_by(Rating.event_id)
+    )
+    summaries = {event_id: (None, 0) for event_id in event_ids}
+    for event_id, average, count in result.all():
+        summaries[event_id] = (float(average) if average is not None else None, int(count or 0))
+    return summaries
 
 
 async def user_reminder_offsets(

@@ -845,7 +845,7 @@ html.auth-focusing .app-nav {
   height: 32px;
   border: none;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--text) 8%, transparent);
+  background: transparent;
   color: var(--hint);
   cursor: pointer;
   font-size: 1.25rem;
@@ -853,6 +853,14 @@ html.auth-focusing .app-nav {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.event-search-control button:hover,
+.event-search-control button:active,
+.event-search-control button:focus {
+  background: transparent;
+  outline: none;
 }
 
 .filter-chip span,
@@ -1801,6 +1809,52 @@ html.auth-focusing .app-nav {
   border-bottom: none;
   border-left: none;
   border-radius: 24px 24px 0 0;
+}
+
+.reminder-sheet-backdrop,
+.confirm-sheet-backdrop {
+  justify-content: stretch;
+  padding: 0;
+}
+
+.reminder-sheet,
+.confirm-sheet {
+  width: 100vw;
+  max-height: calc(90vh - env(safe-area-inset-top));
+  padding-bottom: calc(18px + env(safe-area-inset-bottom));
+}
+
+.confirm-sheet-description {
+  margin: 12px auto 18px;
+  max-width: 460px;
+  padding: 0 8px;
+  color: var(--hint);
+  font-size: 0.94rem;
+  line-height: 1.45;
+  text-align: center;
+}
+
+.confirm-sheet-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.confirm-sheet-actions .action {
+  min-height: 48px;
+  border-radius: 15px;
+}
+
+.confirm-sheet-cancel {
+  background: var(--panel-soft);
+  border-color: var(--line);
+}
+
+.confirm-sheet-danger {
+  background: var(--red);
+  border-color: var(--red);
+  color: #fff;
 }
 
 .filter-option-group {
@@ -3298,6 +3352,16 @@ html.auth-focusing .app-nav {
   margin-bottom: 24px;
 }
 
+.reviews-empty-summary {
+  margin: 0 0 18px;
+  color: var(--hint);
+  font-weight: 700;
+}
+
+.reviews-empty-summary p {
+  margin: 0;
+}
+
 .reviews-summary-left {
   display: flex;
   flex-direction: column;
@@ -3357,6 +3421,16 @@ html.auth-focusing .app-nav {
   text-align: right;
   width: 45px;
   opacity: 0.8;
+}
+
+.event-row-rating {
+  color: #9a6700;
+  background: rgba(251, 191, 36, 0.18);
+  border-radius: 999px;
+  padding: 2px 7px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  white-space: nowrap;
 }
 
 .rating-bar-track {
@@ -3443,8 +3517,27 @@ html.auth-focusing .app-nav {
   padding: 16px 0;
   border-bottom: 1.5px dashed var(--line);
   display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+
+.event-review-card:not(.has-admin-delete) {
+  flex-direction: column;
+}
+
+.event-review-card.has-admin-delete {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+}
+
+.event-review-main {
+  display: flex;
   flex-direction: column;
   gap: 8px;
+  min-width: 0;
+  flex: 1;
 }
 
 .event-review-card:last-child {
@@ -3464,6 +3557,8 @@ html.auth-focusing .app-nav {
   display: flex;
   align-items: center;
   gap: 10px;
+  min-width: 0;
+  width: 100%;
 }
 
 .review-avatar {
@@ -3482,12 +3577,14 @@ html.auth-focusing .app-nav {
   flex-direction: column;
   gap: 2px;
   flex: 1;
+  min-width: 0;
 }
 
 .review-nickname {
   font-size: 0.88rem;
   font-weight: 800;
   color: var(--text);
+  overflow-wrap: anywhere;
 }
 
 .review-date {
@@ -3498,6 +3595,8 @@ html.auth-focusing .app-nav {
 .review-stars {
   font-size: 0.85rem;
   color: #fbbf24;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .review-body {
@@ -3506,6 +3605,7 @@ html.auth-focusing .app-nav {
   color: var(--hint);
   line-height: 1.45;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 @keyframes shake {
@@ -3883,6 +3983,43 @@ html.auth-transitioning .app-nav {
   width: 100%;
 }
 
+.connected-group-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px;
+  transition: border-color 0.18s ease, background 0.18s ease;
+}
+
+.connected-group-card[open] {
+  border-color: color-mix(in srgb, var(--brand) 18%, var(--line));
+}
+
+.connected-group-summary {
+  list-style: none;
+  cursor: pointer;
+  display: grid;
+  gap: 8px;
+  border-radius: 8px;
+  padding: 4px;
+  outline: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.connected-group-summary::-webkit-details-marker {
+  display: none;
+}
+
+.connected-group-summary:focus-visible {
+  box-shadow: none;
+}
+
+.connected-group-details {
+  margin-top: 10px;
+  padding: 12px 4px 4px;
+  border-top: 1px solid var(--line);
+}
+
 /* Admin panel button styling (in the user list) */
 .admin-btn {
   background: transparent;
@@ -3979,8 +4116,8 @@ html.auth-transitioning .app-nav {
   min-height: 32px;
 }
 .admin-delete-review-btn svg { width: 16px; height: 16px; stroke: currentColor; }
-.admin-delete-review-btn:hover { background: color-mix(in srgb, var(--red) 8%, transparent); }
-.admin-delete-review-btn:active { background: color-mix(in srgb, var(--red) 12%, transparent); }
+.admin-delete-review-btn:hover { background: transparent; color: color-mix(in srgb, var(--red) 78%, var(--text)); }
+.admin-delete-review-btn:active { background: transparent; }
 .admin-delete-review-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .profile-admin-icon:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); }
 .profile-admin-icon:active { background: color-mix(in srgb, var(--accent) 10%, transparent); }
@@ -3988,31 +4125,62 @@ html.auth-transitioning .app-nav {
   background: color-mix(in srgb, var(--brand) 12%, transparent);
 }
 
-/* Small delete review button on the right */
 .admin-review-delete-btn {
   background: transparent;
-  border: none;
+  border: 0;
   color: var(--red);
-  font-size: 14px;
-  font-weight: bold;
   cursor: pointer;
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  padding: 0;
+  border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
   transition: background 0.2s, transform 0.2s;
   flex-shrink: 0;
-  margin-left: auto; /* Push to the right in flex row */
+}
+
+.admin-review-delete-btn svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .admin-review-delete-btn:hover {
-  background: color-mix(in srgb, var(--red) 12%, transparent);
+  background: transparent;
+  color: color-mix(in srgb, var(--red) 78%, var(--text));
 }
 
 .admin-review-delete-btn:active {
   transform: scale(0.9);
+}
+
+.admin-review-delete-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+}
+
+@media (max-width: 380px) {
+  .event-review-card.has-admin-delete {
+    gap: 8px;
+  }
+
+  .admin-review-delete-btn {
+    width: 32px;
+    height: 32px;
+    min-width: 32px;
+  }
+
+  .event-review-header {
+    gap: 8px;
+  }
 }
 
 /* Margin spacing for review modal errors */

@@ -93,7 +93,8 @@ async def send_main_menu(
     # send the main menu with admin controls when allowed
     msg = await message.answer(
         "Welcome to NU Events Bot. I am here to help you stay updated with university life. "
-        "Use our Mini App and menu below to explore events or manage your own submissions.",
+        "Press the Launch App button to see the latest events in the Mini App. "
+        "You can also use the menu below to manage your own submissions.",
         reply_markup=get_main_menu_keyboard(is_admin),
         parse_mode="Markdown",
     )

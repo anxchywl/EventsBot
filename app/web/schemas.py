@@ -30,6 +30,8 @@ class EventListItem(BaseModel):
     is_ended: bool = False
     is_archived: bool = False
     cover_url: str | None = None
+    average_rating: float | None = None
+    rating_count: int = 0
 
 
 class ReviewDetail(BaseModel):

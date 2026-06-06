@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select, delete, func
+from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -14,6 +13,8 @@ from app.models.event import Event
 from app.models.rating import Rating
 from app.models.comment import Comment
 from app.services.events import get_event_by_public_token
+from app.services.reviews import invalidate_review_caches, permanently_delete_review
+from app.web.realtime import publish_review_deleted
 from app.web.auth import (
     MiniAppUser,
     effective_web_role,
@@ -24,7 +25,6 @@ from app.web.auth import (
     upsert_miniapp_user,
 )
 from app.web.schemas import ReviewSubmitRequest, ActionResponse, ReviewDetail
-from app.services.security import validate_nickname_format
 
 logger = logging.getLogger("app.web.routers.ratings")
 router = APIRouter(prefix="/api/events", tags=["ratings-reviews"])
@@ -92,6 +92,9 @@ async def submit_review(
         existing_rating = (await session.execute(stmt)).scalar_one_or_none()
         if existing_rating:
             existing_rating.score = score
+            existing_rating.deleted_at = None
+            existing_rating.deleted_by_user_id = None
+            existing_rating.delete_reason = None
         else:
             db_rating = Rating(user_id=user.id, event_id=event.id, score=score)
             session.add(db_rating)
@@ -102,13 +105,15 @@ async def submit_review(
         existing_comment = (await session.execute(stmt)).scalar_one_or_none()
         if existing_comment:
             existing_comment.content = content
+            existing_comment.deleted_at = None
+            existing_comment.deleted_by_user_id = None
+            existing_comment.delete_reason = None
         else:
             db_comment = Comment(user_id=user.id, event_id=event.id, content=content)
             session.add(db_comment)
 
     await session.commit()
-    from app.web.routers.events import event_cache
-    event_cache.clear()
+    invalidate_review_caches()
     return ActionResponse(ok=True, message="Review submitted successfully.")
 
 
@@ -132,8 +137,7 @@ async def delete_review(
     )
 
     await session.commit()
-    from app.web.routers.events import event_cache
-    event_cache.clear()
+    invalidate_review_caches()
     return ActionResponse(ok=True, message="Review deleted successfully.")
 
 
@@ -312,14 +316,15 @@ async def admin_delete_review(
     if not event:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
 
-    await session.execute(
-        delete(Rating).where(Rating.user_id == target_user_id, Rating.event_id == event.id)
+    result = await permanently_delete_review(
+        session,
+        event=event,
+        target_user_id=target_user_id,
+        admin=user,
     )
-    await session.execute(
-        delete(Comment).where(Comment.user_id == target_user_id, Comment.event_id == event.id)
-    )
-
+    if not result["deleted"]:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Review already deleted")
     await session.commit()
-    from app.web.routers.events import event_cache
-    event_cache.clear()
+    invalidate_review_caches()
+    await publish_review_deleted(result)
     return ActionResponse(ok=True, message="Review deleted by admin.")

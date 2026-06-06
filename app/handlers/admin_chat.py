@@ -7,7 +7,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.models.chat import Chat
-from app.services.chats import delete_chat_by_id, get_chat_by_telegram_id, register_chat
+from app.services.chats import (
+    delete_chat_data,
+    get_chat_by_telegram_id,
+    permissions_from_chat_member,
+    record_chat_activity,
+    register_chat,
+    sync_chat_telegram_metadata,
+)
 from app.services.dashboard import create_or_update_dashboard_message
 from app.services.users import upsert_user_from_telegram
 
@@ -34,7 +41,9 @@ async def handle_register_chat(
         session=session,
         telegram_chat=message.chat,
         created_by_user_id=user.id,
+        bot_id=bot.id,
     )
+    await sync_chat_telegram_metadata(session, bot, chat, telegram_chat=message.chat)
     await session.commit()
 
     sent_msg = await message.answer(
@@ -49,6 +58,7 @@ async def handle_register_chat(
     )
     chat.setup_message_id = sent_msg.message_id
     chat.registration_status = "setup_complete"
+    chat.last_activity_at = chat.last_activity_at or chat.created_at
     await session.commit()
 
 
@@ -74,10 +84,13 @@ async def handle_dashboard(
             session=session,
             telegram_chat=message.chat,
             created_by_user_id=user.id,
+            bot_id=bot.id,
         )
 
     # always trigger a refresh/recreation logic
+    await sync_chat_telegram_metadata(session, bot, chat, telegram_chat=message.chat)
     await create_or_update_dashboard_message(session=session, bot=bot, chat=chat)
+    chat.last_activity_at = chat.last_activity_at or chat.created_at
     await session.commit()
 
     # wait a second so the user sees the dashboard appeared, then remove command
@@ -100,16 +113,14 @@ async def handle_dashboard(
 )
 async def handle_bot_removed(update: ChatMemberUpdated, session: AsyncSession) -> None:
     # only care about group chats
-    if update.chat.type not in {ChatType.GROUP, ChatType.SUPERGROUP}:
+    if update.chat.type not in {ChatType.GROUP, ChatType.SUPERGROUP, ChatType.CHANNEL}:
         return
 
     chat = await get_chat_by_telegram_id(session, update.chat.id)
     if chat is None:
         return
 
-    # hard delete the chat row; ORM cascades remove dashboard, category settings,
-    # and published event message links for this chat.
-    await delete_chat_by_id(session, chat.id)
+    await delete_chat_data(session, chat)
     await session.commit()
     logger.info(
         "bot removed from chat %s (%d) — chat data deleted",
@@ -127,7 +138,7 @@ async def handle_bot_removed(update: ChatMemberUpdated, session: AsyncSession) -
 async def handle_bot_membership_update(
     update: ChatMemberUpdated, bot: Bot, session: AsyncSession
 ) -> None:
-    if update.chat.type not in {ChatType.GROUP, ChatType.SUPERGROUP}:
+    if update.chat.type not in {ChatType.GROUP, ChatType.SUPERGROUP, ChatType.CHANNEL}:
         return
 
     # Create user if needed
@@ -141,26 +152,25 @@ async def handle_bot_membership_update(
             session=session,
             telegram_chat=update.chat,
             created_by_user_id=user.id if user else None,
+            bot_id=bot.id,
         )
         chat.registration_status = "pending_permissions"
 
-    is_admin = update.new_chat_member.status == ChatMemberStatus.ADMINISTRATOR
-    req_del = getattr(update.new_chat_member, "can_delete_messages", False) if is_admin else False
-    req_pin = getattr(update.new_chat_member, "can_pin_messages", False) if is_admin else False
-    req_edit = is_admin
+    await sync_chat_telegram_metadata(session, bot, chat, telegram_chat=update.chat)
+
+    chat_type = getattr(update.chat.type, "value", update.chat.type)
+    permissions = permissions_from_chat_member(update.new_chat_member, chat_type)
+    req_del = permissions["can_delete_messages"]
+    req_edit = permissions["can_edit_messages"]
+    req_pin = permissions["can_pin_messages"]
 
     del_icon = "✅" if req_del else "❌"
     edit_icon = "✅" if req_edit else "❌"
     pin_icon = "✅" if req_pin else "❌"
 
-    permissions = {
-        "can_delete_messages": req_del,
-        "can_edit_messages": req_edit,
-        "can_pin_messages": req_pin,
-    }
     chat.permissions_status = permissions
 
-    if req_del and req_edit and req_pin:
+    if req_del and req_edit:
         setup_status = "Bot is ready to work."
     else:
         setup_status = "Waiting for permissions..."
@@ -203,9 +213,9 @@ async def handle_bot_membership_update(
 
     await session.commit()
 
-    if req_del and req_edit and req_pin:
+    if req_del and req_edit:
         import asyncio
-        await asyncio.sleep(5)
+        await asyncio.sleep(1)
 
         try:
             from app.handlers.categories import (
@@ -226,6 +236,18 @@ async def handle_bot_membership_update(
         except Exception as e:
             if "message is not modified" not in str(e).lower():
                 logger.warning(f"Failed to edit to category chooser: {e}")
+
+
+@router.message(F.chat.type.in_({ChatType.GROUP, ChatType.SUPERGROUP}))
+async def handle_group_activity(message: Message, session: AsyncSession) -> None:
+    await record_chat_activity(session, message.chat)
+    await session.commit()
+
+
+@router.channel_post()
+async def handle_channel_activity(message: Message, session: AsyncSession) -> None:
+    await record_chat_activity(session, message.chat)
+    await session.commit()
 
 
 # checks whether the sender can manage the chat

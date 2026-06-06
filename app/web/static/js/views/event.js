@@ -1,5 +1,5 @@
-import { controls, coverStyle, escapeAttr, escapeHtml, eventRow, status, formatDisplayName } from "../components/events.js?v=20260601-fallback-gradient-v7";
-import { formatEventDate, t } from "../i18n.js?v=20260601-fallback-gradient-v7";
+import { coverStyle, escapeAttr, escapeHtml, status, formatDisplayName } from "../components/events.js?v=20260606-review-popups-v2";
+import { formatEventDate, t } from "../i18n.js?v=20260606-review-popups-v2";
 import { state } from "../state.js";
 
 function meta(label, value, copyable = false) {
@@ -71,12 +71,6 @@ export function renderEvent(event) {
             ${renderEventReviewsList(event)}
           </div>
         </section>
-
-        ${
-          event.related_events?.length
-            ? `<section class="panel"><h2 class="section-title">${t("related")}</h2>${event.related_events.map(eventRow).join("")}</section>`
-            : ""
-        }
       </main>
 
       <!-- Modal Backdrop (Premium App Store Style) -->
@@ -92,21 +86,30 @@ export function renderEvent(event) {
 
 function renderEventReviewsSummary(event) {
   const reviews = event.reviews || [];
-  const total = reviews.length;
-  const sum = reviews.reduce((acc, r) => acc + (r.score || 0), 0);
-  const avg = total > 0 ? (sum / total).toFixed(1) : "0.0";
+  const ratingTotal = Number(event.rating_count || 0);
+  const avg = ratingTotal > 0 && event.average_rating !== null && event.average_rating !== undefined
+    ? Number(event.average_rating).toFixed(1)
+    : "";
   const counts = {5:0, 4:0, 3:0, 2:0, 1:0};
   reviews.forEach(r => { if (r.score) counts[r.score]++; });
 
   let barsHtml = '';
   for (let i = 5; i >= 1; i--) {
-    const p = total > 0 ? (counts[i] / total) * 100 : 0;
+    const p = ratingTotal > 0 ? (counts[i] / ratingTotal) * 100 : 0;
     barsHtml += `
       <div class="rating-bar-row">
         <div class="rating-stars-label">${'★'.repeat(i)}</div>
         <div class="rating-bar-track">
           <div class="rating-bar-fill" style="width: ${p}%"></div>
         </div>
+      </div>
+    `;
+  }
+
+  if (reviews.length === 0) {
+    return `
+      <div class="reviews-empty-summary">
+        <p>No reviews yet</p>
       </div>
     `;
   }
@@ -199,16 +202,26 @@ function renderEventReviewsList(event) {
   });
 
   return sortedReviews.map(r => `
-    <div class="event-review-card" data-user-id="${r.user_id}">
-      <div class="event-review-header">
-        <div class="review-meta">
-          <strong class="review-nickname">${escapeHtml(formatDisplayName(r.nickname))}</strong>
-          <span class="review-date">${formatReviewDate(r.created_at)}</span>
+    <div class="event-review-card ${r.can_delete ? "has-admin-delete" : ""}" data-user-id="${r.user_id}">
+      ${r.can_delete ? `
+        <button class="admin-review-delete-btn" data-action="admin-delete-review" data-user-id="${escapeAttr(r.user_id)}" aria-label="Delete Review" title="Delete Review">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <polyline points="3 6 5 6 21 6"></polyline>
+            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path>
+            <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+          </svg>
+        </button>
+      ` : ""}
+      <div class="event-review-main">
+        <div class="event-review-header">
+          <div class="review-meta">
+            <strong class="review-nickname">${escapeHtml(formatDisplayName(r.nickname))}</strong>
+            <span class="review-date">${formatReviewDate(r.created_at)}</span>
+          </div>
+          ${r.score ? `<span class="review-stars">${"★".repeat(r.score)}${"☆".repeat(5 - r.score)}</span>` : ""}
         </div>
-        ${r.score ? `<span class="review-stars">${"★".repeat(r.score)}${"☆".repeat(5 - r.score)}</span>` : ""}
-        ${r.can_delete ? `<button class="admin-review-delete-btn" data-action="admin-delete-review" data-user-id="${r.user_id}" aria-label="Delete Review">✕</button>` : ""}
+        ${r.content ? `<p class="review-body">${escapeHtml(r.content)}</p>` : ""}
       </div>
-      ${r.content ? `<p class="review-body">${escapeHtml(r.content)}</p>` : ""}
     </div>
   `).join("");
 }

@@ -1,4 +1,4 @@
-import { boot } from "./js/router.js?v=20260602-white-screen-fix-v1";
+import { boot } from "./js/router.js?v=20260606-review-popups-v2";
 
 
 boot().catch((error) => {

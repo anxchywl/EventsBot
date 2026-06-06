@@ -1,5 +1,5 @@
 import { escapeHtml } from "./events.js";
-import { formatReminderOffset, t, translateError } from "../i18n.js?v=20260601-fallback-gradient-v7";
+import { formatReminderOffset, t, translateError } from "../i18n.js?v=20260606-review-popups-v2";
 
 const MAX_REMINDERS = 3;
 
@@ -9,7 +9,7 @@ export function openReminderSheet({ event, onSubmit }) {
   closeSheet();
   document.documentElement.classList.add("sheet-open");
   const node = document.createElement("div");
-  node.className = "sheet-backdrop";
+  node.className = "sheet-backdrop reminder-sheet-backdrop";
   node.innerHTML = buildSheet(event);
   node._deletedReminderIds = new Set();
   document.body.append(node);
@@ -57,10 +57,10 @@ export function openReminderSheet({ event, onSubmit }) {
 }
 
 export function closeSheet() {
-  const current = document.querySelector(".sheet-backdrop");
+  const current = document.querySelector(".reminder-sheet-backdrop");
   if (!current) return;
   current.classList.remove("open");
-  if (!document.querySelector(".filter-sheet-backdrop")) {
+  if (!document.querySelector(".sheet-backdrop:not(.reminder-sheet-backdrop)")) {
     document.documentElement.classList.remove("sheet-open");
   }
   window.setTimeout(() => current.remove(), 220);
@@ -71,8 +71,8 @@ export function closeSheet() {
 function buildSheet(event) {
   const atLimit = (event?.reminder_offsets?.length ?? 0) >= MAX_REMINDERS;
   return `
-    <section class="bottom-sheet" role="dialog" aria-modal="true">
-      <div class="sheet-handle"></div>
+    <section class="bottom-sheet filter-sheet reminder-sheet" role="dialog" aria-modal="true">
+      <div class="sheet-handle" data-sheet-drag></div>
       <div class="sheet-header">
         <h2>${t("reminderTitle")}</h2>
       </div>

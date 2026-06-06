@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import asyncio
+import json
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy import exists, func, select, String, Interval, TIMESTAMP
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -29,6 +32,7 @@ from app.web.schemas import EventDetail, EventFilterOption, EventFiltersResponse
 from app.web.serializers import event_detail as serialize_event_detail
 from app.web.serializers import event_list_items
 from app.web.telegram import get_bot_username
+from app.web.realtime import subscribe_miniapp_events
 
 
 router = APIRouter(prefix="/api/events", tags=["miniapp-events"])
@@ -144,6 +148,26 @@ async def event_sync_version(
     session: AsyncSession = Depends(get_session),
 ) -> dict:
     return await latest_completed_sync_version(session)
+
+
+@router.get("/review-updates")
+async def review_updates() -> StreamingResponse:
+    async def stream():
+        yield ": connected\n\n"
+        async for message in subscribe_miniapp_events():
+            yield f"event: {message['type']}\n"
+            yield f"data: {json.dumps(message)}\n\n"
+            await asyncio.sleep(0)
+
+    return StreamingResponse(
+        stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.get("/{public_token}", response_model=EventDetail)

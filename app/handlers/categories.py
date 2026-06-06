@@ -161,7 +161,7 @@ async def cmd_categories(
 
     # ensure user and chat are registered
     user = await upsert_user_from_telegram(session, message.from_user)
-    chat = await register_chat(session, message.chat, user.id)
+    chat = await register_chat(session, message.chat, user.id, bot_id=bot.id)
     await session.commit()
 
     categories, enabled_ids = await load_category_selection(session, chat.id)

@@ -179,7 +179,17 @@ async def upsert_miniapp_user(session: AsyncSession, miniapp_user: MiniAppUser) 
 
 
 def effective_web_role(user: User, telegram_id: int) -> str:
-    if telegram_id in get_settings().admin_ids:
+    admin_ids: set[int] = set()
+    for admin_id in get_settings().admin_ids:
+        try:
+            admin_ids.add(abs(int(admin_id)))
+        except (TypeError, ValueError):
+            continue
+    try:
+        normalized_telegram_id = abs(int(telegram_id))
+    except (TypeError, ValueError):
+        normalized_telegram_id = 0
+    if normalized_telegram_id in admin_ids or user.role in ("admin", "super_admin"):
         return "admin"
     if user.role == "moderator":
         return "moderator"

@@ -39,6 +39,7 @@ class Chat(TimestampMixin, Base):
     # telegram chat fields
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
     telegram_chat_id: Mapped[int] = mapped_column(BigInteger)
+    bot_id: Mapped[int | None] = mapped_column(BigInteger)
     title: Mapped[str | None] = mapped_column(String(255))
     username: Mapped[str | None] = mapped_column(String(255))
     chat_type: Mapped[str] = mapped_column(String(32))
@@ -49,6 +50,11 @@ class Chat(TimestampMixin, Base):
         ForeignKey("users.id", ondelete="SET NULL"),
     )
     setup_message_id: Mapped[int | None] = mapped_column(BigInteger)
+    invite_link: Mapped[str | None] = mapped_column(String(1024))
+    member_count: Mapped[int | None] = mapped_column(BigInteger)
+    connected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_activity_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    removed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     registration_status: Mapped[str] = mapped_column(
         String(32), default="pending_permissions", server_default="pending_permissions"
     )

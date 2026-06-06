@@ -115,6 +115,7 @@ export function eventRow(event, options = {}) {
         ${showDateLocation ? `<span>${escapeHtml(event.location || "")}</span>` : ""}
         <div class="event-row-top-meta">
           <em>${escapeHtml(categoryText)}</em>
+          ${event.rating_count ? `<span class="event-row-rating" data-event-rating="${escapeAttr(event.token)}">★ ${Number(event.average_rating || 0).toFixed(1)} (${Number(event.rating_count || 0)})</span>` : ""}
           ${showCountdown ? `<span class="event-countdown" data-countdown-target="${escapeAttr(eventTimestamp(event))}"></span>` : ""}
         </div>
       </div>

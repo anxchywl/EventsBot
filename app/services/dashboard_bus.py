@@ -105,7 +105,7 @@ class DashboardBus:
         """opens a fresh db session and updates dashboards for each chat."""
         from aiogram.exceptions import TelegramForbiddenError
         from app.models.chat import Chat
-        from app.services.chats import delete_chat_by_id
+        from app.services.chats import delete_chat_data
         from app.services.dashboard import create_or_update_dashboard_message
         from app.services.telegram_delivery import (
             is_bot_removed_error,
@@ -138,10 +138,12 @@ class DashboardBus:
                     except Exception as exc:
                         await session.rollback()
                         if isinstance(exc, TelegramForbiddenError) or is_bot_removed_error(exc):
-                            await delete_chat_by_id(session, chat_id)
-                            await session.commit()
+                            inactive_chat = await session.get(Chat, chat_id)
+                            if inactive_chat is not None:
+                                await delete_chat_data(session, inactive_chat)
+                                await session.commit()
                             logger.warning(
-                                "removed dashboard chat %s after Telegram forbidden: %s",
+                                "deleted dashboard chat %s after Telegram forbidden: %s",
                                 telegram_chat_id,
                                 exc,
                             )
