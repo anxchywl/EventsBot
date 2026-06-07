@@ -20,6 +20,7 @@ from app.web.telegram import get_bot_username
 router = APIRouter(tags=["miniapp-sharing"])
 
 
+# create a share target for one event
 @router.post("/api/events/{public_token}/share", response_model=ActionResponse)
 async def share_event(
     public_token: str,

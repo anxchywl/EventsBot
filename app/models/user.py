@@ -58,7 +58,7 @@ class User(TimestampMixin, Base):
     photo_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     photo_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    # authentication & NU profile fields
+    # authentication & nu profile fields
     email: Mapped[str | None] = mapped_column(String(255), nullable=True)
     password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
     is_verified: Mapped[bool] = mapped_column(
@@ -66,7 +66,7 @@ class User(TimestampMixin, Base):
     )
     nickname: Mapped[str | None] = mapped_column(String(24), nullable=True)
 
-    # Admin and moderation fields
+    # admin and moderation fields
     role: Mapped[str] = mapped_column(String(32), default="user", server_default="'user'")
     is_blocked: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     blocked_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)

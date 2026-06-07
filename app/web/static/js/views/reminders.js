@@ -1,6 +1,7 @@
 import { controls, coverStyle, escapeAttr, escapeHtml, nav } from "../components/events.js?v=20260608-auth-v7";
 import { t } from "../i18n.js?v=20260608-auth-v7";
 
+// format reminder offset for compact cards
 function formatReminderLeadTime(minutes) {
   const days = Math.floor(minutes / 1440);
   const hours = Math.floor((minutes % 1440) / 60);
@@ -12,23 +13,28 @@ function formatReminderLeadTime(minutes) {
   return parts.join(" ") || t("zeroMinutes");
 }
 
+// pluralize reminder units
 function formatReminderUnit(value, unit) {
   const key = value === 1 ? `${unit}One` : `${unit}Many`;
   return `${value} ${t(key)}`;
 }
 
+// format reminder timing relative to event start
 function formatReminderBeforeEvent(minutes) {
   return t("beforeEvent").replace("{time}", formatReminderLeadTime(minutes));
 }
 
+// build stable keys for reminder groups
 function reminderKey(reminder) {
   return reminder?.event?.token || reminder?.event?.title || "";
 }
 
+// flatten reminder groups for sorting
 function flattenReminderGroups(groups) {
   return groups.flatMap((group) => group.reminders || []);
 }
 
+// group reminders by event for display
 function groupRemindersByEvent(reminders) {
   const grouped = new Map();
   reminders.forEach((reminder) => {
@@ -50,6 +56,7 @@ function groupRemindersByEvent(reminders) {
   }));
 }
 
+// render one scheduled reminder card
 function reminderCard(group) {
   return `
     <article class="reminder-card" role="button" tabindex="0" data-event-token="${escapeAttr(group.event.token)}">
@@ -73,6 +80,7 @@ function reminderCard(group) {
   `;
 }
 
+// render reminders grouped by event
 export function renderReminders(groups) {
   const eventGroups = groupRemindersByEvent(flattenReminderGroups(groups));
 

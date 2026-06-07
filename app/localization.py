@@ -11,6 +11,7 @@ DEFAULT_LANGUAGE = "en"
 _LOCALE_DIR = Path(__file__).resolve().parent.parent / "locales"
 
 
+# load catalogs
 @lru_cache(maxsize=1)
 def _load_catalogs() -> dict[str, dict[str, str]]:
     catalogs: dict[str, dict[str, str]] = {}
@@ -21,12 +22,14 @@ def _load_catalogs() -> dict[str, dict[str, str]]:
     return catalogs
 
 
+# normalize language
 def normalize_language(language: str | None) -> str:
     if language in SUPPORTED_LANGUAGES:
         return language
     return DEFAULT_LANGUAGE
 
 
+# t
 def t(key: str, language: str | None = None, **kwargs: Any) -> str:
     lang = normalize_language(language)
     catalogs = _load_catalogs()
@@ -38,5 +41,6 @@ def t(key: str, language: str | None = None, **kwargs: Any) -> str:
     return text
 
 
+# user language
 def user_language(user: Any | None) -> str:
     return normalize_language(getattr(user, "language", None))

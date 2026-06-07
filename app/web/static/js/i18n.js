@@ -804,10 +804,12 @@ const dict = {
   },
 };
 
+// translate keys for the active language
 export function t(key) {
   return dict[state.lang]?.[key] || dict.en[key] || key;
 }
 
+// map backend error text to localized messages
 export function translateError(message) {
   if (!message) {
     return "";
@@ -849,6 +851,7 @@ export function translateError(message) {
   return message;
 }
 
+// translate known category names
 export function categoryLabel(category) {
   const value = String(category || "").trim();
   const key = String(category || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
@@ -862,6 +865,7 @@ export function categoryLabel(category) {
     .join("");
 }
 
+// format event dates for the active language
 export function formatEventDate(event) {
   const value = new Date(`${event.date}T${event.time || "00:00"}:00`);
   if (Number.isNaN(value.getTime())) {
@@ -876,6 +880,7 @@ export function formatEventDate(event) {
   }).format(value);
 }
 
+// format reminder offsets for the active language
 export function formatReminderOffset(minutes) {
   const d = Math.floor(minutes / 1440);
   const h = Math.floor((minutes % 1440) / 60);

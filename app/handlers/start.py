@@ -13,6 +13,7 @@ from app.services.users import upsert_user_from_telegram
 router = Router(name="start")
 
 
+# filter main menu active callbacks
 class MainMenuActiveFilter(Filter):
     async def __call__(self, message: Message, state: FSMContext) -> bool:
         data = await state.get_data()
@@ -65,10 +66,11 @@ async def handle_start(
     await send_main_menu(message, session, state)
 
 
-# tracks the last welcome message ID for each user so it can be cleanly replaced
+# tracks the last welcome message id for each user so it can be cleanly replaced
 last_welcome_messages = {}
 
 
+# send main menu
 async def send_main_menu(
     message: Message, session: AsyncSession, state: FSMContext | None = None
 ) -> None:
@@ -76,7 +78,7 @@ async def send_main_menu(
     settings = get_settings()
     is_admin = user.telegram_id in settings.admin_ids
 
-    # Set chat menu button to default base Mini App url
+    # set chat menu button to default base mini app url
     if settings.miniapp_base_url:
         try:
             await message.bot.set_chat_menu_button(
@@ -115,7 +117,7 @@ async def process_start_menu(
     settings = get_settings()
     is_admin = user.telegram_id in settings.admin_ids
 
-    # Set chat menu button to default base Mini App url
+    # set chat menu button to default base mini app url
     if settings.miniapp_base_url:
         try:
             await callback.bot.set_chat_menu_button(
@@ -137,6 +139,7 @@ async def process_start_menu(
     await callback.answer()
 
 
+# cleanup menu messages
 async def _cleanup_menu_messages(
     message: Message,
     state: FSMContext,
@@ -196,6 +199,7 @@ async def _cleanup_menu_messages(
     await delete_messages_fast(message.bot, message.chat.id, ids_to_delete)
 
 
+# cleanup main menu warnings
 async def cleanup_main_menu_warnings(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     warning_ids = data.get("main_menu_warning_ids") or []
@@ -211,6 +215,7 @@ async def cleanup_main_menu_warnings(message: Message, state: FSMContext) -> Non
     F.text,
     ~F.text.in_({"Create Event", "My Events", "Admin Panel", "⚙️ Admin Panel", "Back to Menu"}),
 )
+# handle main menu unknown text
 async def handle_main_menu_unknown_text(
     message: Message, session: AsyncSession, state: FSMContext
 ) -> None:

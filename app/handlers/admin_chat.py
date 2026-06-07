@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 
 # registers the current group chat for dashboards
+# handle register chat
 @router.message(Command("register_chat"))
 async def handle_register_chat(
     message: Message,
@@ -63,6 +64,7 @@ async def handle_register_chat(
 
 
 # creates or refreshes the dashboard message
+# handle dashboard
 @router.message(Command("dashboard"))
 async def handle_dashboard(
     message: Message,
@@ -111,6 +113,7 @@ async def handle_dashboard(
 @router.my_chat_member(
     F.new_chat_member.status.in_({ChatMemberStatus.KICKED, ChatMemberStatus.LEFT})
 )
+# handle bot removed
 async def handle_bot_removed(update: ChatMemberUpdated, session: AsyncSession) -> None:
     # only care about group chats
     if update.chat.type not in {ChatType.GROUP, ChatType.SUPERGROUP, ChatType.CHANNEL}:
@@ -135,13 +138,14 @@ async def handle_bot_removed(update: ChatMemberUpdated, session: AsyncSession) -
         {ChatMemberStatus.MEMBER, ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.RESTRICTED}
     )
 )
+# handle bot membership update
 async def handle_bot_membership_update(
     update: ChatMemberUpdated, bot: Bot, session: AsyncSession
 ) -> None:
     if update.chat.type not in {ChatType.GROUP, ChatType.SUPERGROUP, ChatType.CHANNEL}:
         return
 
-    # Create user if needed
+    # create user if needed
     user = None
     if update.from_user:
         user = await upsert_user_from_telegram(session, update.from_user)
@@ -196,7 +200,7 @@ async def handle_bot_membership_update(
         except Exception as e:
             if "message is not modified" not in str(e).lower():
                 logger.warning(f"Failed to edit setup message: {e}")
-                # Send a new one if not found or other errors
+                # send a new one if not found or other errors
                 sent_msg = await bot.send_message(
                     chat_id=chat.telegram_chat_id,
                     text=text,
@@ -238,12 +242,14 @@ async def handle_bot_membership_update(
                 logger.warning(f"Failed to edit to category chooser: {e}")
 
 
+# handle group activity
 @router.message(F.chat.type.in_({ChatType.GROUP, ChatType.SUPERGROUP}))
 async def handle_group_activity(message: Message, session: AsyncSession) -> None:
     await record_chat_activity(session, message.chat)
     await session.commit()
 
 
+# handle channel activity
 @router.channel_post()
 async def handle_channel_activity(message: Message, session: AsyncSession) -> None:
     await record_chat_activity(session, message.chat)

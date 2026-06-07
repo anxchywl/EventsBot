@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 _DEBOUNCE_SECONDS = 2.0
 
 
+# coalesce dashboard refreshes behind one worker queue
 class DashboardBus:
     """
     singleton-style bus that collects chat ids and refreshes their dashboards
@@ -34,15 +35,12 @@ class DashboardBus:
     def __init__(self, bot: "Bot", session_factory: "async_sessionmaker") -> None:
         self._bot = bot
         self._session_factory = session_factory
-        # pending chat ids that need a refresh (internal db id, not telegram id)
+        # store internal chat ids so telegram ids can change independently
         self._pending: set[int] = set()
         self._queue: asyncio.Queue[set[int]] = asyncio.Queue()
         self._task: asyncio.Task | None = None
         self._lock = asyncio.Lock()
 
-    # ------------------------------------------------------------------ #
-    # public api
-    # ------------------------------------------------------------------ #
 
     def start(self) -> None:
         """launch the background worker. call once at bot startup."""
@@ -60,12 +58,8 @@ class DashboardBus:
         """
         if not chat_ids:
             return
-        # put onto the queue so the worker can pick it up
         self._queue.put_nowait(chat_ids)
 
-    # ------------------------------------------------------------------ #
-    # internal worker
-    # ------------------------------------------------------------------ #
 
     async def _worker(self) -> None:
         """
@@ -75,11 +69,10 @@ class DashboardBus:
         pending: set[int] = set()
         while True:
             try:
-                # block until first item arrives
                 batch = await self._queue.get()
                 pending.update(batch)
 
-                # drain any further items that arrive within the debounce window
+                # coalesce more refreshes during the debounce window
                 while True:
                     try:
                         batch = await asyncio.wait_for(
@@ -167,12 +160,14 @@ class DashboardBus:
 _bus: DashboardBus | None = None
 
 
+# return the initialized dashboard refresh bus
 def get_bus() -> DashboardBus:
     if _bus is None:
         raise RuntimeError("DashboardBus not initialized. Call init_bus() at startup.")
     return _bus
 
 
+# start the dashboard refresh bus for bot handlers
 def init_bus(bot: "Bot", session_factory: "async_sessionmaker") -> DashboardBus:
     """create and register the global bus. call once from main()."""
     global _bus
@@ -180,6 +175,7 @@ def init_bus(bot: "Bot", session_factory: "async_sessionmaker") -> DashboardBus:
     return _bus
 
 
+# get chat ids for event
 async def get_chat_ids_for_event(session: "AsyncSession", event_id: int) -> set[int]:
     """
     returns the internal db chat ids where a given event has been published
@@ -196,6 +192,7 @@ async def get_chat_ids_for_event(session: "AsyncSession", event_id: int) -> set[
     return set(result.scalars().all())
 
 
+# get all active dashboard chat ids
 async def get_all_active_dashboard_chat_ids(session: "AsyncSession") -> set[int]:
     """
     returns internal db chat ids of all chats that have a dashboard message.

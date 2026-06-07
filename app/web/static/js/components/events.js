@@ -1,17 +1,19 @@
 import { state } from "../state.js?v=20260608-auth-v7";
 import { categoryLabel, t } from "../i18n.js?v=20260608-auth-v7";
 
-// Guarantee fallbackCoverStyles map is shared absolutely via window to avoid potential duplicate ES module instances.
+// guarantee fallbackcoverstyles map is shared absolutely via window to avoid potential duplicate es module instances
 if (!window.fallbackCoverStyles) {
   window.fallbackCoverStyles = new Map();
 }
 
+// clear generated cover styles for deterministic tests
 export function resetFallbackCoverStyles() {
   if (window.fallbackCoverStyles) {
     window.fallbackCoverStyles.clear();
   }
 }
 
+// escape text before inserting html
 export function escapeHtml(value) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -21,6 +23,7 @@ export function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
+// format display name
 export function formatDisplayName(nickname, email) {
   let namePart = nickname || "";
   if (!namePart && email) {
@@ -38,17 +41,19 @@ export function formatDisplayName(nickname, email) {
   return nickname || "Unknown";
 }
 
+// escape text before inserting attributes
 export function escapeAttr(value) {
   return escapeHtml(value).replaceAll("`", "&#096;");
 }
 
+// generate high-contrast fallback cover colors
 function randomCoverVariables() {
   const dark = document.documentElement.dataset.theme === "dark";
   const h1 = Math.floor(Math.random() * 360);
-  const h2 = (h1 + 90 + Math.floor(Math.random() * 90)) % 360;  // Spaced out by 90-180 deg for high contrast
+  const h2 = (h1 + 90 + Math.floor(Math.random() * 90)) % 360;  // spaced out by 90-180 deg for high contrast
   const h3 = (h2 + 90 + Math.floor(Math.random() * 90)) % 360;
   const h4 = (h3 + 90 + Math.floor(Math.random() * 90)) % 360;
-  const sat = 95 + Math.floor(Math.random() * 6);  // High saturation (95–100%) for maximum vibrancy
+  const sat = 95 + Math.floor(Math.random() * 6);  // high saturation (95–100%) for maximum vibrancy
   const light = dark ? 60 + Math.floor(Math.random() * 15) : 65 + Math.floor(Math.random() * 15);
   const glowLight = dark ? 74 + Math.floor(Math.random() * 14) : 82 + Math.floor(Math.random() * 10);
   const accentLight = dark ? 64 + Math.floor(Math.random() * 14) : 70 + Math.floor(Math.random() * 12);
@@ -60,6 +65,7 @@ function randomCoverVariables() {
   return `--fallback-angle: ${angle}deg; --fallback-a: ${escapeAttr(first)}; --fallback-b: ${escapeAttr(second)}; --fallback-c: ${escapeAttr(glow)}; --fallback-d: ${escapeAttr(accent)}`;
 }
 
+// reuse generated cover colors per event
 export function coverStyle(url, key = "") {
   if (url) {
     return `style="--cover-image: url('${escapeAttr(url)}')"`;
@@ -71,12 +77,14 @@ export function coverStyle(url, key = "") {
   return `style="${window.fallbackCoverStyles.get(cacheKey)}"`;
 }
 
+// build stable event sort timestamps
 function eventTimestamp(event) {
   const value = new Date(`${event.date}T${event.time || "00:00"}:00`);
   return Number.isNaN(value.getTime()) ? "" : String(value.getTime());
 }
 
 
+// derive stable avatar colors from display names
 function avatarColor(nickname) {
   let hash = 0;
   for (let i = 0; i < (nickname || "").length; i++) {
@@ -86,6 +94,7 @@ function avatarColor(nickname) {
   return `hsl(${hue}, 60%, 48%)`;
 }
 
+// render compact friends-going avatars
 export function friendsCarousel(friends) {
   if (!friends || friends.length === 0) return "";
 
@@ -111,6 +120,7 @@ export function friendsCarousel(friends) {
 }
 
 
+// render global theme and language controls
 export function controls() {
   return `
     <div class="top-controls">
@@ -123,10 +133,12 @@ export function controls() {
   `;
 }
 
+// render bottom navigation state
 export function nav(active) {
   return "";
 }
 
+// render one event list row
 export function eventRow(event, options = {}) {
   const {
     showDateLocation = true,
@@ -160,6 +172,7 @@ export function eventRow(event, options = {}) {
 }
 
 
+// format countdown
 export function formatCountdown(ms) {
   const totalSeconds = Math.max(0, Math.floor(ms / 1000));
   const days = Math.floor(totalSeconds / 86400);
@@ -181,6 +194,7 @@ export function formatCountdown(ms) {
 
 let countdownTimer = null;
 
+// update visible reminder countdowns
 export function startCountdowns(root = document) {
   if (countdownTimer) {
     window.clearInterval(countdownTimer);
@@ -207,10 +221,12 @@ export function startCountdowns(root = document) {
   }
 }
 
+// render loading status text
 export function status(message) {
   return `<div class="panel status">${escapeHtml(message)}</div>`;
 }
 
+// render route loading shell
 export function loadingScreen(title = t("loading")) {
   return `
     <div class="screen">

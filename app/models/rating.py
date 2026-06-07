@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from app.models.user import User
 
 
+# store one user rating per event
 class Rating(Base):
     __tablename__ = "ratings"
     __table_args__ = (

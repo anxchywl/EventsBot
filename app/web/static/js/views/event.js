@@ -2,6 +2,7 @@ import { coverStyle, escapeAttr, escapeHtml, status, formatDisplayName } from ".
 import { formatEventDate, t } from "../i18n.js?v=20260608-auth-v7";
 import { state } from "../state.js?v=20260608-auth-v7";
 
+// build event meta badges
 function meta(label, value, copyable = false) {
   const displayValue = value || "—";
   return `
@@ -12,6 +13,7 @@ function meta(label, value, copyable = false) {
   `;
 }
 
+// render event details and review sections
 export function renderEvent(event) {
   if (!event) {
     return "";
@@ -53,7 +55,6 @@ export function renderEvent(event) {
           </div>
         </section>
 
-        <!-- Reviews Section -->
         <section class="panel reviews-panel" id="reviews-section-anchor">
           <div class="reviews-header">
             <h2 class="section-title">${escapeHtml(t("reviewsSectionTitle"))} (${event.reviews?.length || 0})</h2>
@@ -69,14 +70,12 @@ export function renderEvent(event) {
           
           ${renderEventReviewsSummary(event)}
 
-          <!-- Reviews Feed List -->
           <div class="reviews-list-block">
             ${renderEventReviewsList(event)}
           </div>
         </section>
       </main>
 
-      <!-- Modal Backdrop (Premium App Store Style) -->
       <div class="review-modal-backdrop" id="review-submission-modal">
         <div class="review-modal-card">
           <button class="review-modal-close-btn" id="review-modal-close" type="button" aria-label="${escapeAttr(t("close"))}">✕</button>
@@ -87,6 +86,7 @@ export function renderEvent(event) {
   `;
 }
 
+// render ratings summary for event details
 function renderEventReviewsSummary(event) {
   const reviews = event.reviews || [];
   const ratingTotal = Number(event.rating_count || 0);
@@ -132,11 +132,12 @@ function renderEventReviewsSummary(event) {
   `;
 }
 
+// render review form for verified users
 function renderSubmitReviewForm(event) {
-  // Check if they already left a review
+  // hide the form after the user has reviewed
   const ownReview = event.reviews?.find(r => r.is_own);
   if (ownReview) {
-    return ""; // Remove the update form from event details page!
+    return ""; // keep event details read-only after review submission
   }
 
   const isVerified = state.user && state.user.is_verified;
@@ -168,7 +169,6 @@ function renderSubmitReviewForm(event) {
     <form id="event-review-form" class="review-form">
       <h3 class="review-form-title">${escapeHtml(t("rateTheEvent"))}</h3>
       
-      <!-- Interactive Stars -->
       <div class="star-rating-selector" data-selected-score="0">
         <span class="star-btn" data-star-score="1" role="button" tabindex="0">★</span>
         <span class="star-btn" data-star-score="2" role="button" tabindex="0">★</span>
@@ -191,13 +191,14 @@ function renderSubmitReviewForm(event) {
   `;
 }
 
+// render event reviews with own review first
 function renderEventReviewsList(event) {
   const reviews = event.reviews || [];
   if (reviews.length === 0) {
     return "";
   }
 
-  // Sort own review first, then others by date descending
+  // keep the current user's review visible first
   const sortedReviews = [...reviews].sort((a, b) => {
     if (a.is_own && !b.is_own) return -1;
     if (!a.is_own && b.is_own) return 1;
@@ -232,6 +233,7 @@ function renderEventReviewsList(event) {
   `).join("");
 }
 
+// render review avatar from initials
 function reviewAvatar(review) {
   const avatar = review.avatar || {};
   const initials = escapeHtml((avatar.initials || formatDisplayName(review.nickname || "?").slice(0, 2) || "?").slice(0, 2));
@@ -246,6 +248,7 @@ function reviewAvatar(review) {
   return `<span class="review-avatar review-avatar-initials">${initials}</span>`;
 }
 
+// format review timestamps
 function formatReviewDate(dateStr) {
   const d = new Date(dateStr);
   if (isNaN(d.getTime())) return dateStr;
@@ -257,6 +260,7 @@ function formatReviewDate(dateStr) {
   });
 }
 
+// render unavailable event state
 export function renderEventUnavailable() {
   return `
     <div class="screen">
@@ -266,6 +270,7 @@ export function renderEventUnavailable() {
   `;
 }
 
+// render event loading state
 export function renderEventSkeleton(token) {
   return `
     <div class="screen event-screen skeleton-screen" data-route="event" data-token="${escapeHtml(token)}">

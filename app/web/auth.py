@@ -19,6 +19,7 @@ from app.db.session import get_session
 from app.models.user import User
 
 
+# hold verified telegram mini app identity data
 @dataclass
 class MiniAppUser:
     id: int
@@ -37,6 +38,7 @@ MAX_INIT_DATA_FUTURE_SKEW_SECONDS = 60
 MAX_INIT_DATA_LENGTH = 8192
 
 
+# validate telegram init data before trusting user identity
 def verify_init_data(init_data: str) -> MiniAppUser:
     if not init_data or len(init_data) > MAX_INIT_DATA_LENGTH:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid Telegram initData")
@@ -109,6 +111,7 @@ def verify_init_data(init_data: str) -> MiniAppUser:
     )
 
 
+# sign mini app session data for authenticated api calls
 def create_session_token(user: MiniAppUser) -> str:
     settings = get_settings()
     issued_at = int(time.time())
@@ -137,6 +140,7 @@ def create_session_token(user: MiniAppUser) -> str:
     return f"{header_part}.{payload_part}.{signature}"
 
 
+# verify signed mini app session data
 def verify_session_token(token: str) -> MiniAppUser:
     if not token or len(token) > 4096:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid session")
@@ -190,6 +194,7 @@ def verify_session_token(token: str) -> MiniAppUser:
     )
 
 
+# require a valid mini app session
 async def require_miniapp_user(
     authorization: str | None = Header(default=None),
 ) -> MiniAppUser:
@@ -198,6 +203,7 @@ async def require_miniapp_user(
     return verify_session_token(authorization.removeprefix("Bearer ").strip())
 
 
+# require session and matching fresh telegram init data
 async def require_current_miniapp_user(
     authorization: str | None = Header(default=None),
     x_telegram_init_data: str | None = Header(
@@ -216,6 +222,7 @@ async def require_current_miniapp_user(
     return session_user
 
 
+# read mini app session when available
 async def optional_miniapp_user(
     authorization: str | None = Header(default=None),
 ) -> MiniAppUser | None:
@@ -227,6 +234,7 @@ async def optional_miniapp_user(
         return None
 
 
+# accept session only when fresh telegram init data matches
 async def optional_current_miniapp_user(
     authorization: str | None = Header(default=None),
     x_telegram_init_data: str | None = Header(
@@ -247,6 +255,7 @@ async def optional_current_miniapp_user(
         return None
 
 
+# sync telegram identity into the local user record
 async def upsert_miniapp_user(session: AsyncSession, miniapp_user: MiniAppUser) -> User:
     result = await session.execute(
         select(User).where(User.telegram_id == miniapp_user.id),
@@ -276,6 +285,7 @@ async def upsert_miniapp_user(session: AsyncSession, miniapp_user: MiniAppUser) 
     return user
 
 
+# derive web permissions from admin and moderator flags
 def effective_web_role(user: User, telegram_id: int) -> str:
     admin_ids: set[int] = set()
     for admin_id in get_settings().admin_ids:
@@ -294,23 +304,28 @@ def effective_web_role(user: User, telegram_id: int) -> str:
     return "user"
 
 
+# sign session payloads with hmac
 def _sign(value: bytes) -> bytes:
     return hmac.new(_session_signing_key(), value, hashlib.sha256).digest()
 
 
+# encode compact url-safe token parts
 def _b64(value: bytes) -> str:
     return base64.urlsafe_b64encode(value).decode().rstrip("=")
 
 
+# restore stripped base64 padding before decode
 def _pad_b64(value: str) -> bytes:
     return (value + "=" * (-len(value) % 4)).encode()
 
 
+# derive a stable signing key from the bot token
 def _session_signing_key() -> bytes:
     bot_token = get_settings().bot_token.get_secret_value().encode()
     return hmac.new(bot_token, b"nu-events-miniapp-session-v1", hashlib.sha256).digest()
 
 
+# detect legacy sha256-style bot token secrets
 def _is_hex_sha256(value: str) -> bool:
     if len(value) != 64:
         return False
@@ -321,12 +336,14 @@ def _is_hex_sha256(value: str) -> bool:
     return True
 
 
+# normalize optional telegram string fields
 def _optional_str(value: object, *, max_len: int) -> str | None:
     if value is None or not isinstance(value, str):
         return None
     return value[:max_len]
 
 
+# require verified user
 async def require_verified_user(
     miniapp_user: MiniAppUser = Depends(require_current_miniapp_user),
     session: AsyncSession = Depends(get_session),
@@ -345,11 +362,12 @@ async def require_verified_user(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Nazarbayev University email verification required",
         )
-    # Update last active
+    # keep verified-user activity fresh for admin views
     user.last_active_at = datetime.now()
     await session.commit()
     return user
 
+# allow blocked users only where logout/history still need access
 async def require_verified_user_allow_blocked(
     miniapp_user: MiniAppUser = Depends(require_current_miniapp_user),
     session: AsyncSession = Depends(get_session),
@@ -363,11 +381,12 @@ async def require_verified_user_allow_blocked(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Nazarbayev University email verification required",
         )
-    # Update last active
+    # keep verified-user activity fresh for admin views
     user.last_active_at = datetime.now()
     await session.commit()
     return user
 
+# guard moderation endpoints by elevated role
 async def require_admin_or_moderator(
     miniapp_user: MiniAppUser = Depends(require_current_miniapp_user),
     session: AsyncSession = Depends(get_session),
@@ -382,6 +401,7 @@ async def require_admin_or_moderator(
     await session.commit()
     return user
 
+# guard admin-only endpoints
 async def require_admin(
     miniapp_user: MiniAppUser = Depends(require_current_miniapp_user),
     session: AsyncSession = Depends(get_session),

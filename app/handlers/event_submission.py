@@ -125,6 +125,7 @@ async def track_messages(
     )
 
 
+# push nav prompt
 async def push_nav_prompt(
     state: FSMContext,
     *,
@@ -145,6 +146,7 @@ async def push_nav_prompt(
     await state.update_data(submission_nav_stack=stack)
 
 
+# record nav answer
 async def record_nav_answer(state: FSMContext, answer_id: int) -> None:
     data = await state.get_data()
     stack = list(data.get("submission_nav_stack") or [])
@@ -153,6 +155,7 @@ async def record_nav_answer(state: FSMContext, answer_id: int) -> None:
         await state.update_data(submission_nav_stack=stack)
 
 
+# send submission prompt
 async def send_submission_prompt(
     message: Message,
     state: FSMContext,
@@ -279,6 +282,7 @@ async def send_submission_prompt(
     raise ValueError(f"Unknown submission step: {step}")
 
 
+# parse event date input
 def parse_event_date_input(value: str):
     match = _DATE_RE.fullmatch(value.strip())
     if not match:
@@ -290,6 +294,7 @@ def parse_event_date_input(value: str):
         return None
 
 
+# parse event time input
 def parse_event_time_input(value: str):
     match = _TIME_RE.fullmatch(value.strip())
     if not match:
@@ -307,7 +312,7 @@ def get_cancel_kb():
     return builder.as_markup(resize_keyboard=True)
 
 
-# builds a step keyboard with a Back button, an optional skip button, and cancel navigation
+# builds a step keyboard with a back button, an optional skip button, and cancel navigation
 def get_step_navigation_kb(skip_text: str):
     builder = ReplyKeyboardBuilder()
     builder.button(text="Back")
@@ -337,6 +342,7 @@ def get_back_and_cancel_kb():
 
 
 # starts event creation from the main menu (inline callback fallback)
+# process menu create
 @router.callback_query(F.data == "menu_create")
 async def process_menu_create(
     callback: CallbackQuery, state: FSMContext, session: AsyncSession
@@ -361,6 +367,7 @@ async def process_menu_create(
 
 
 # starts event creation from the reply button or text command
+# cmd submit event
 @router.message(F.text == "Create Event", F.chat.type == "private")
 @router.message(Command("submit_event"), F.chat.type == "private")
 async def cmd_submit_event(message: Message, state: FSMContext, session: AsyncSession):
@@ -388,6 +395,7 @@ async def cmd_submit_event(message: Message, state: FSMContext, session: AsyncSe
 
 
 # saves the event title
+# process title
 @router.message(EventSubmission.title, F.text)
 async def process_title(message: Message, state: FSMContext, bot: Bot, session: AsyncSession):
     if message.text == "Back to Menu":
@@ -414,6 +422,7 @@ async def process_title(message: Message, state: FSMContext, bot: Bot, session: 
 
 
 # saves the event description
+# process description
 @router.message(EventSubmission.description, F.text)
 async def process_description(message: Message, state: FSMContext, bot: Bot, session: AsyncSession):
     if message.text == "Back to Menu":
@@ -443,6 +452,7 @@ async def process_description(message: Message, state: FSMContext, bot: Bot, ses
 
 
 # saves the event date
+# process date
 @router.message(EventSubmission.date, F.text)
 async def process_date(message: Message, state: FSMContext, bot: Bot, session: AsyncSession):
     if message.text == "Back to Menu":
@@ -490,6 +500,7 @@ async def process_date(message: Message, state: FSMContext, bot: Bot, session: A
 
 
 # saves the event time
+# process time
 @router.message(EventSubmission.time, F.text)
 async def process_time(message: Message, state: FSMContext, bot: Bot, session: AsyncSession):
     if message.text == "Back to Menu":
@@ -534,6 +545,7 @@ async def process_time(message: Message, state: FSMContext, bot: Bot, session: A
 
 
 # saves the event location
+# process location
 @router.message(EventSubmission.location, F.text)
 async def process_location(
     message: Message, state: FSMContext, session: AsyncSession, bot: Bot
@@ -564,6 +576,7 @@ async def process_location(
 
 
 # saves the selected category
+# process category
 @router.message(EventSubmission.category, F.text)
 async def process_category(
     message: Message, state: FSMContext, session: AsyncSession, bot: Bot
@@ -594,6 +607,7 @@ async def process_category(
 
 
 # saves the organizer name
+# process organizer
 @router.message(EventSubmission.organizer, F.text)
 async def process_organizer(message: Message, state: FSMContext, bot: Bot, session: AsyncSession):
     if message.text == "Back to Menu":
@@ -621,6 +635,7 @@ async def process_organizer(message: Message, state: FSMContext, bot: Bot, sessi
 
 
 # saves the uploaded poster
+# process poster
 @router.message(EventSubmission.poster, F.photo)
 async def process_poster(message: Message, state: FSMContext, bot: Bot):
     # use the highest resolution telegram photo
@@ -633,6 +648,7 @@ async def process_poster(message: Message, state: FSMContext, bot: Bot):
 
 
 # skips poster upload
+# skip poster
 @router.message(EventSubmission.poster, F.text == "Skip poster")
 async def skip_poster(message: Message, state: FSMContext, bot: Bot, session: AsyncSession):
     await state.update_data(poster_file_id=None, last_step_user_message_id=message.message_id)
@@ -662,6 +678,7 @@ async def prompt_poster(message_obj: Message, state: FSMContext, bot: Bot):
     await state.set_state(EventSubmission.poster)
 
 
+# is valid url
 def is_valid_url(value: str) -> bool:
     parsed = urlparse(value.strip())
     return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
@@ -685,6 +702,7 @@ async def prompt_registration_link(message_obj: Message, state: FSMContext, bot:
     await state.set_state(EventSubmission.registration_link)
 
 
+# go back one step
 async def go_back_one_step(message: Message, state: FSMContext, bot: Bot, session: AsyncSession):
     data = await state.get_data()
     if data.get("submission_back_in_progress"):
@@ -700,6 +718,7 @@ async def go_back_one_step(message: Message, state: FSMContext, bot: Bot, sessio
         await state.update_data(submission_back_in_progress=False)
 
 
+# go back one step locked
 async def _go_back_one_step_locked(message: Message, state: FSMContext, bot: Bot, session: AsyncSession):
     data = await state.get_data()
     stack = list(data.get("submission_nav_stack") or [])
@@ -769,51 +788,61 @@ async def _go_back_one_step_locked(message: Message, state: FSMContext, bot: Bot
         return
 
 
+# back from poster
 @router.message(EventSubmission.poster, F.text == "Back")
 async def back_from_poster(message: Message, state: FSMContext, bot: Bot, session: AsyncSession):
     await go_back_one_step(message, state, bot, session)
 
 
+# back from registration
 @router.message(EventSubmission.registration_link, F.text == "Back")
 async def back_from_registration(message: Message, state: FSMContext, bot: Bot, session: AsyncSession):
     await go_back_one_step(message, state, bot, session)
 
 
+# back from preview
 @router.message(EventSubmission.confirm, F.text == "Back")
 async def back_from_preview(message: Message, state: FSMContext, bot: Bot, session: AsyncSession):
     await go_back_one_step(message, state, bot, session)
 
 
+# back from organizer
 @router.message(EventSubmission.organizer, F.text == "Back")
 async def back_from_organizer(message: Message, state: FSMContext, bot: Bot, session: AsyncSession):
     await go_back_one_step(message, state, bot, session)
 
 
+# back from category
 @router.message(EventSubmission.category, F.text == "Back")
 async def back_from_category(message: Message, state: FSMContext, bot: Bot, session: AsyncSession):
     await go_back_one_step(message, state, bot, session)
 
 
+# back from location
 @router.message(EventSubmission.location, F.text == "Back")
 async def back_from_location(message: Message, state: FSMContext, bot: Bot, session: AsyncSession):
     await go_back_one_step(message, state, bot, session)
 
 
+# back from time
 @router.message(EventSubmission.time, F.text == "Back")
 async def back_from_time(message: Message, state: FSMContext, bot: Bot, session: AsyncSession):
     await go_back_one_step(message, state, bot, session)
 
 
+# back from date
 @router.message(EventSubmission.date, F.text == "Back")
 async def back_from_date(message: Message, state: FSMContext, bot: Bot, session: AsyncSession):
     await go_back_one_step(message, state, bot, session)
 
 
+# back from description
 @router.message(EventSubmission.description, F.text == "Back")
 async def back_from_description(message: Message, state: FSMContext, bot: Bot, session: AsyncSession):
     await go_back_one_step(message, state, bot, session)
 
 
+# invalid poster input
 @router.message(EventSubmission.poster)
 async def invalid_poster_input(message: Message, state: FSMContext, bot: Bot, session: AsyncSession):
     if message.text == "Back to Menu":
@@ -832,6 +861,7 @@ async def invalid_poster_input(message: Message, state: FSMContext, bot: Bot, se
 
 
 # saves the registration link
+# process registration link
 @router.message(EventSubmission.registration_link, F.text)
 async def process_registration_link(message: Message, state: FSMContext, bot: Bot, session: AsyncSession):
     if message.text == "Back to Menu":
@@ -906,7 +936,7 @@ async def show_event_preview(message_obj: Message, state: FSMContext, bot: Bot):
 
     builder = get_confirm_kb()
 
-    # Telegram photo captions are limited to 1024 chars; long previews need text.
+    # telegram photo captions are limited to 1024 chars; long previews need text
     if data.get("poster_file_id"):
         msg = await message_obj.answer_photo(
             data["poster_file_id"],
@@ -930,6 +960,7 @@ async def show_event_preview(message_obj: Message, state: FSMContext, bot: Bot):
 
 
 # creates the pending event after confirmation
+# confirm submission
 @router.message(EventSubmission.confirm, F.text == "Submit Event")
 async def confirm_submission(
     message: Message, state: FSMContext, session: AsyncSession, bot: Bot
@@ -954,6 +985,7 @@ async def confirm_submission(
 
 
 # cancels the submission flow via message or text button (fully deletes all intermediate chat history)
+# cancel submission message
 @router.message(EventSubmission.confirm, F.text == "Cancel")
 async def cancel_submission_message(
     message: Message, state: FSMContext, session: AsyncSession
@@ -964,7 +996,7 @@ async def cancel_submission_message(
     # delete all interactive user responses and bot prompts from this submission session
     delete_ids = [*reversed(messages), message.message_id]
 
-    # delete the previous Welcome message to avoid duplicates
+    # delete the previous welcome message to avoid duplicates
     from app.handlers.start import last_welcome_messages, send_main_menu
     welcome_msg_id = last_welcome_messages.get(message.from_user.id)
     if welcome_msg_id:

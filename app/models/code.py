@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from app.models.user import User
 
 
+# store hashed email verification codes and retry state
 class EmailVerificationCode(Base):
     __tablename__ = "email_verification_codes"
     __table_args__ = (

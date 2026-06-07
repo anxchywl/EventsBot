@@ -26,6 +26,7 @@ logger = logging.getLogger("app.web.routers.admin")
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 
+# delete a review by event id and user id
 @router.delete("/reviews/{event_id}/{user_id}", response_model=ActionResponse)
 async def admin_delete_review(
     event_id: int = Path(..., ge=1),
@@ -52,6 +53,7 @@ async def admin_delete_review(
     return ActionResponse(ok=True, message="Review deleted successfully by admin.")
 
 
+# delete a review from the global feed by token
 @router.delete("/reviews/by-token/{public_token}/{user_id}", response_model=ActionResponse)
 async def admin_delete_review_by_token(
     public_token: str,
@@ -82,12 +84,14 @@ async def admin_delete_review_by_token(
 from pydantic import BaseModel, Field, field_validator
 from typing import Any
 
+# shape aggregate admin dashboard stats
 class AdminStatsResponse(BaseModel):
     total_bot_users: int
     total_miniapp_users: int
     total_nu_accounts: int
     total_blocked: int
 
+# shape user rows for admin moderation
 class AdminUserItem(BaseModel):
     id: int
     telegram_id: int
@@ -103,6 +107,7 @@ class AdminUserItem(BaseModel):
     registered_date: str
     last_active_date: str | None
 
+# shape audit log rows for admin review
 class AuditLogItem(BaseModel):
     id: int
     actor_id: int | None
@@ -112,6 +117,7 @@ class AuditLogItem(BaseModel):
     created_at: str
     metadata_json: Any | None
 
+# shape connected group setup status rows
 class ConnectedGroupItem(BaseModel):
     id: int
     telegram_chat_id: int
@@ -130,16 +136,19 @@ class ConnectedGroupItem(BaseModel):
     dashboard_message_id: int | None
     setup_message_id: int | None
 
+# shape connected group totals
 class ConnectedGroupsSummary(BaseModel):
     total_groups: int
     active: int
     setup_required: int
     missing_permissions: int
 
+# return groups with summary metadata
 class ConnectedGroupsResponse(BaseModel):
     summary: ConnectedGroupsSummary
     groups: list[ConnectedGroupItem]
 
+# validate admin block requests
 class BlockUserRequest(BaseModel):
     email: str = Field(min_length=3, max_length=255)
     reason: str | None = Field(default=None, max_length=255)
@@ -160,6 +169,7 @@ class BlockUserRequest(BaseModel):
         reason = value.strip()
         return reason or None
 
+# aggregate user and review counts for admins
 @router.get("/stats", response_model=AdminStatsResponse)
 async def get_admin_stats(
     admin: User = Depends(require_admin_or_moderator),
@@ -178,6 +188,7 @@ async def get_admin_stats(
     )
 
 
+# list telegram groups managed by the bot
 @router.get("/connected-groups", response_model=ConnectedGroupsResponse)
 async def list_connected_groups(
     q: str | None = Query(default=None, max_length=100),
@@ -248,6 +259,7 @@ async def list_connected_groups(
     )
 
 
+# serialize one connected telegram group
 def _connected_group_item(chat: Chat) -> ConnectedGroupItem:
     permissions = chat.permissions_status or {}
     return ConnectedGroupItem(
@@ -270,6 +282,7 @@ def _connected_group_item(chat: Chat) -> ConnectedGroupItem:
     )
 
 
+# cache bot identity for permission checks
 def _current_bot_id() -> int | None:
     token = get_settings().bot_token.get_secret_value()
     bot_id, _, _ = token.partition(":")
@@ -278,6 +291,7 @@ def _current_bot_id() -> int | None:
     except ValueError:
         return None
 
+# prevent a user from auth-protected actions
 @router.post("/users/block", response_model=ActionResponse)
 async def block_user(
     payload: BlockUserRequest,
@@ -306,6 +320,7 @@ async def block_user(
     await session.commit()
     return ActionResponse(ok=True, message=f"User {payload.email} blocked successfully.")
 
+# restore a blocked user account
 @router.post("/users/unblock", response_model=ActionResponse)
 async def unblock_user(
     payload: BlockUserRequest,
@@ -332,6 +347,7 @@ async def unblock_user(
     await session.commit()
     return ActionResponse(ok=True, message=f"User {payload.email} unblocked successfully.")
 
+# list verified users for admin search
 @router.get("/users", response_model=list[AdminUserItem])
 async def list_users(
     limit: int = Query(100, ge=1, le=500),
@@ -377,6 +393,7 @@ async def list_users(
     ]
 
 
+# list recent admin audit entries
 @router.get("/audit-logs", response_model=list[AuditLogItem])
 async def list_audit_logs(
     limit: int = Query(50, ge=1, le=200),

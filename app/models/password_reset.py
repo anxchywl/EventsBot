@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from app.models.user import User
 
 
+# store hashed password reset codes and retry state
 class PasswordResetCode(Base):
     """Stores hashed password reset codes for NU email accounts.
 
@@ -42,23 +43,23 @@ class PasswordResetCode(Base):
         nullable=False,
     )
 
-    # SHA-256 hex digest of the 6-digit code — never store the plain value.
+    # store only a hash of the emailed code
     code_hash: Mapped[str] = mapped_column(String(64), nullable=False)
 
-    # How many wrong guesses have been made against this code.
+    # lock the code after repeated wrong guesses
     attempts_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
-    # When the code stops being valid.
+    # expire stale reset attempts
     expires_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )
 
-    # Earliest time the user is allowed to request a new code (60-second cooldown).
+    # throttle resend requests per user
     resend_available_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )
 
-    # Set to the timestamp when the code was successfully consumed.
+    # prevent the same code from resetting twice
     used_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True, default=None
     )

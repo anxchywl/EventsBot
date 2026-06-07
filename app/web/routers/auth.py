@@ -61,14 +61,17 @@ _RESET_VERIFY_LIMIT = 20
 _RESET_VERIFY_WINDOW = timedelta(minutes=15)
 
 
+# generate 6digit code
 def generate_6digit_code() -> str:
     return "".join(secrets.choice("0123456789") for _ in range(6))
 
 
+# hash code
 def hash_code(code: str) -> str:
     return hashlib.sha256(code.encode()).hexdigest()
 
 
+# client ip
 def _client_ip(request: Request) -> str:
     forwarded = request.headers.get("x-forwarded-for", "")
     if forwarded:
@@ -76,10 +79,12 @@ def _client_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
+# rate limit key
 def _rate_limit_key(prefix: str, request: Request, email: str) -> str:
     return f"{prefix}:{_client_ip(request)}:{email[:255]}"
 
 
+# rate limited
 def _rate_limited(key: str, limit: int, window: timedelta, now: datetime) -> bool:
     cutoff = now - window
     hits = [ts for ts in _RESET_RATE_LIMITS.get(key, []) if ts > cutoff]
@@ -91,9 +96,10 @@ def _rate_limited(key: str, limit: int, window: timedelta, now: datetime) -> boo
     return False
 
 
+# get unique nickname
 async def get_unique_nickname(session: AsyncSession, base: str) -> str:
     """Generates a unique nickname by appending digits if necessary."""
-    # Clean nickname base
+    # clean nickname base
     clean = re.sub(r"[^a-zA-Z0-9_.]", "", base)[:20]
     if not clean:
         clean = "user"
@@ -111,6 +117,7 @@ async def get_unique_nickname(session: AsyncSession, base: str) -> str:
 import re
 
 
+# start email verification for a telegram user
 @router.post("/register", response_model=ActionResponse)
 async def register(
     payload: UserRegisterRequest,
@@ -119,7 +126,7 @@ async def register(
     x_language: str | None = Header(default="en", alias="X-Language"),
     x_theme: str | None = Header(default="light", alias="X-Theme"),
 ) -> ActionResponse:
-    # 1. Validate email domain
+    # 1. validate email domain
     email = payload.email.strip().lower()
     email_parts = email.split("@")
     if len(email_parts) != 2 or email_parts[1] != "nu.edu.kz":
@@ -128,41 +135,41 @@ async def register(
             detail="Only @nu.edu.kz addresses"
         )
 
-    # 2. Check password format
+    # 2. check password format
     pwd_err = validate_password_format(payload.password)
     if pwd_err:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=pwd_err)
 
-    # 3. Check if email is already verified by another account
+    # 3. check if email is already verified by another account
     stmt = select(User).where(User.email == email, User.is_verified == True)
     existing_verified = await session.execute(stmt)
     if existing_verified.scalar_one_or_none():
-        # OWASP: Return generic success to prevent account enumeration
+        # owasp: return generic success to prevent account enumeration
         settings = get_settings()
         return ActionResponse(
             ok=True,
             message=f"Verification code sent to {email}. Code expires in {settings.email_code_ttl_minutes} minutes."
         )
 
-    # Get or create current user corresponding to this Telegram ID
+    # get or create current user corresponding to this telegram id
     user = await upsert_miniapp_user(session, miniapp_user)
 
-    # Update unverified user registration details
+    # update unverified user registration details
     user.email = email
     user.password_hash = hash_password(payload.password)
     user.is_verified = False
 
-    # 4. Generate & Send 6-digit code
+    # 4. generate & send 6-digit code
     code = generate_6digit_code()
     settings = get_settings()
     expires_at = datetime.now(UTC) + timedelta(minutes=settings.email_code_ttl_minutes)
 
-    # Invalidate older codes for this user
+    # invalidate older codes for this user
     await session.execute(
         delete(EmailVerificationCode).where(EmailVerificationCode.user_id == user.id)
     )
 
-    # Save new code
+    # save new code
     db_code = EmailVerificationCode(
         user_id=user.id,
         email=email,
@@ -172,7 +179,7 @@ async def register(
     session.add(db_code)
     await session.flush()
 
-    # Send the email dispatch with language pref and theme
+    # send the email dispatch with language pref and theme
     send_verification_email(email, code, lang=x_language, theme=x_theme)
 
     await session.commit()
@@ -182,6 +189,7 @@ async def register(
     )
 
 
+# complete email verification and refresh profile data
 @router.post("/verify", response_model=AuthResponse)
 async def verify(
     payload: UserVerifyRequest,
@@ -199,7 +207,7 @@ async def verify(
 
     user = await upsert_miniapp_user(session, miniapp_user)
 
-    # Retrieve code
+    # retrieve code
     stmt = select(EmailVerificationCode).where(
         EmailVerificationCode.user_id == user.id,
         EmailVerificationCode.email == email
@@ -213,7 +221,7 @@ async def verify(
             detail="No verification code found for this email. Please request a new code."
         )
 
-    # Check attempts
+    # check attempts
     if db_code.attempts >= 5:
         await session.execute(
             delete(EmailVerificationCode).where(EmailVerificationCode.id == db_code.id)
@@ -224,9 +232,9 @@ async def verify(
             detail="Too many failed verification attempts. Please request a new code."
         )
 
-    # Check expiry
+    # check expiry
     now_utc = datetime.now(UTC)
-    # Ensure expires_at is timezone-aware
+    # ensure expires_at is timezone-aware
     expires_at = db_code.expires_at
     if expires_at.tzinfo is None:
         expires_at = expires_at.replace(tzinfo=UTC)
@@ -241,7 +249,7 @@ async def verify(
             detail="Verification code has expired. Please request a new code."
         )
 
-    # Verify code
+    # verify code
     hashed_input = hash_code(code_input)
     if not hmac.compare_digest(db_code.code_hash, hashed_input):
         db_code.attempts += 1
@@ -251,22 +259,22 @@ async def verify(
             detail=f"Invalid verification code. Attempts remaining: {5 - db_code.attempts}."
         )
 
-    # Verification successful!
+    # verification successful
     user.is_verified = True
     
-    # Generate public nickname if not set
+    # generate public nickname if not set
     if not user.nickname:
         base = email.split("@")[0]
         user.nickname = await get_unique_nickname(session, base)
 
-    # Clean up verification code
+    # clean up verification code
     await session.execute(
         delete(EmailVerificationCode).where(EmailVerificationCode.id == db_code.id)
     )
 
     await session.commit()
 
-    # Return updated session JWT token and user info
+    # return updated session jwt token and user info
     return AuthResponse(
         token=create_session_token(miniapp_user),
         user={
@@ -284,6 +292,7 @@ async def verify(
     )
 
 
+# resend verification code within cooldown limits
 @router.post("/resend", response_model=ActionResponse)
 async def resend(
     payload: UserResendRequest,
@@ -295,7 +304,7 @@ async def resend(
     email = payload.email.strip().lower()
     user = await upsert_miniapp_user(session, miniapp_user)
 
-    # Enforce 60 seconds resend cooldown
+    # enforce 60 seconds resend cooldown
     stmt = select(EmailVerificationCode).where(EmailVerificationCode.user_id == user.id)
     result = await session.execute(stmt)
     existing_code = result.scalar_one_or_none()
@@ -313,12 +322,12 @@ async def resend(
                 detail=f"Please wait {int(cooldown - elapsed)} seconds before requesting a new code."
             )
 
-    # Invalidate old codes
+    # invalidate old codes
     await session.execute(
         delete(EmailVerificationCode).where(EmailVerificationCode.user_id == user.id)
     )
 
-    # Generate & Send new code
+    # generate & send new code
     code = generate_6digit_code()
     settings = get_settings()
     expires_at = datetime.now(UTC) + timedelta(minutes=settings.email_code_ttl_minutes)
@@ -341,6 +350,7 @@ async def resend(
     )
 
 
+# move guest social data onto the verified account
 async def merge_friend_records(
     session: AsyncSession,
     *,
@@ -430,6 +440,7 @@ async def merge_friend_records(
             await session.delete(guest_privacy)
 
 
+# link a verified email account to the current telegram user
 @router.post("/login", response_model=AuthResponse)
 async def login(
     payload: UserLoginRequest,
@@ -438,7 +449,7 @@ async def login(
 ) -> AuthResponse:
     email = payload.email.strip().lower()
     
-    # 1. Fetch the verified user by email
+    # 1. fetch the verified user by email
     stmt = select(User).where(User.email == email, User.is_verified == True)
     result = await session.execute(stmt)
     verified_user = result.scalar_one_or_none()
@@ -449,14 +460,14 @@ async def login(
             detail="Invalid email or password."
         )
 
-    # 2. Verify password
+    # 2. verify password
     if not verify_password(payload.password, verified_user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid email or password."
         )
 
-    # 3. Check if the user is blocked
+    # 3. check if the user is blocked
     settings = get_settings()
     is_admin = miniapp_user.id in settings.admin_ids
     if verified_user.is_blocked and not is_admin:
@@ -465,13 +476,13 @@ async def login(
             detail="Your account has been blocked."
         )
 
-    # 4. Link verified email account to current Telegram ID!
+    # 4. link verified email account to current telegram id
     current_guest_user = await upsert_miniapp_user(session, miniapp_user)
 
     if current_guest_user.id != verified_user.id:
-        # Merge guest account details (favorites, reminders, ratings, comments) into the verified user!
+        # merge guest account details (favorites, reminders, ratings, comments) into the verified user
         
-        # 1. Favorites: delete duplicates from guest first
+        # 1. favorites: delete duplicates from guest first
         existing_favs_stmt = select(Favorite.event_id).where(Favorite.user_id == verified_user.id)
         existing_favs_res = await session.execute(existing_favs_stmt)
         verified_fav_event_ids = set(existing_favs_res.scalars().all())
@@ -486,7 +497,7 @@ async def login(
             .values(user_id=verified_user.id)
         )
 
-        # 2. Reminders: delete duplicates from guest first
+        # 2. reminders: delete duplicates from guest first
         existing_rems_stmt = select(Reminder.event_id, Reminder.offset_minutes).where(Reminder.user_id == verified_user.id)
         existing_rems_res = await session.execute(existing_rems_stmt)
         verified_rem_tuples = set(existing_rems_res.all())
@@ -505,7 +516,7 @@ async def login(
             .values(user_id=verified_user.id)
         )
 
-        # 3. Ratings: delete duplicates from guest first
+        # 3. ratings: delete duplicates from guest first
         existing_ratings_stmt = select(Rating.event_id).where(Rating.user_id == verified_user.id)
         existing_ratings_res = await session.execute(existing_ratings_stmt)
         verified_rating_event_ids = set(existing_ratings_res.scalars().all())
@@ -520,14 +531,14 @@ async def login(
             .values(user_id=verified_user.id)
         )
 
-        # 4. Comments: no unique constraints, safe to merge
+        # 4. comments: no unique constraints, safe to merge
         await session.execute(
             update(Comment)
             .where(Comment.user_id == current_guest_user.id)
             .values(user_id=verified_user.id)
         )
 
-        # 5. Events: Merge created events and approvals
+        # 5. events: merge created events and approvals
         await session.execute(
             update(Event)
             .where(Event.creator_user_id == current_guest_user.id)
@@ -539,28 +550,28 @@ async def login(
             .values(approved_by_user_id=verified_user.id)
         )
 
-        # 6. Clubs: Merge owned clubs
+        # 6. clubs: merge owned clubs
         await session.execute(
             update(Club)
             .where(Club.owner_user_id == current_guest_user.id)
             .values(owner_user_id=verified_user.id)
         )
 
-        # 7. EventAnalytics: Merge interactions
+        # 7. eventanalytics: merge interactions
         await session.execute(
             update(EventAnalytics)
             .where(EventAnalytics.user_id == current_guest_user.id)
             .values(user_id=verified_user.id)
         )
 
-        # 8. ModerationLog: Merge logs
+        # 8. moderationlog: merge logs
         await session.execute(
             update(ModerationLog)
             .where(ModerationLog.moderator_user_id == current_guest_user.id)
             .values(moderator_user_id=verified_user.id)
         )
 
-        # 9. Chats: Merge created chats
+        # 9. chats: merge created chats
         await session.execute(
             update(Chat)
             .where(Chat.created_by_user_id == current_guest_user.id)
@@ -573,14 +584,14 @@ async def login(
             verified_user_id=verified_user.id,
         )
 
-        # Delete the guest user record A to make room for changing telegram_id
+        # delete the guest user record a to make room for changing telegram_id
         await session.delete(current_guest_user)
         await session.flush()
 
-        # Update verified user's telegram ID
+        # update verified user's telegram id
         verified_user.telegram_id = miniapp_user.id
         
-        # Sync current metadata
+        # sync current metadata
         verified_user.username = miniapp_user.username
         verified_user.first_name = miniapp_user.first_name
         verified_user.last_name = miniapp_user.last_name
@@ -606,6 +617,7 @@ async def login(
     )
 
 
+# get profile
 @router.get("/profile", response_model=ProfileResponse)
 async def get_profile(
     miniapp_user: MiniAppUser = Depends(require_current_miniapp_user),
@@ -618,7 +630,7 @@ async def get_profile(
             detail="Verification required to view profile."
         )
 
-    # Fetch comments and ratings
+    # fetch comments and ratings
     from sqlalchemy.orm import selectinload
     stmt = select(User).where(User.id == user.id).options(
         selectinload(User.comments).selectinload(Comment.event),
@@ -626,7 +638,7 @@ async def get_profile(
     )
     user_loaded = (await session.execute(stmt)).scalar_one()
 
-    # Map ratings and comments by event_id for merging
+    # map ratings and comments by event_id for merging
     merged: dict[int, dict] = {}
     for r in user_loaded.ratings:
         if not r.event or r.event.status != "approved":
@@ -672,6 +684,7 @@ async def get_profile(
     )
 
 
+# update nickname
 @router.put("/profile/nickname", response_model=ActionResponse)
 async def update_nickname(
     payload: NicknameRequest,
@@ -680,7 +693,7 @@ async def update_nickname(
 ) -> ActionResponse:
     nickname = payload.nickname.strip()
 
-    # Validate nickname format
+    # validate nickname format
     err = validate_nickname_format(nickname)
     if err:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=err)
@@ -692,7 +705,7 @@ async def update_nickname(
             detail="Verification required."
         )
 
-    # Check if nickname is already taken by another verified user
+    # check if nickname is already taken by another verified user
     stmt = select(User).where(User.nickname == nickname, User.is_verified == True, User.id != user.id)
     existing = await session.execute(stmt)
     if existing.scalar_one_or_none():
@@ -714,6 +727,7 @@ async def update_nickname(
     return ActionResponse(ok=True, message="Nickname updated successfully.")
 
 
+# unlink the web session from telegram identity
 @router.post("/profile/logout", response_model=ActionResponse)
 async def logout(
     miniapp_user: MiniAppUser = Depends(require_current_miniapp_user),
@@ -723,23 +737,23 @@ async def logout(
     result = await session.execute(stmt)
     user = result.scalar_one_or_none()
     if user and user.is_verified:
-        # Unlink by setting telegram_id to negative value (since it is NOT NULL and UNIQUE)
+        # unlink by setting telegram_id to negative value (since it is not null and unique)
         user.telegram_id = -user.telegram_id
         await session.commit()
     return ActionResponse(ok=True, message="Successfully logged out.")
 
 
-# ──────────────────────────────────────────────
-# Forgot-password flow  (OWASP-compliant)
-# ──────────────────────────────────────────────
 
-# Generic message always returned from /request so email addresses
-# (and domain restrictions) are never disclosed to the caller.
+# forgot-password flow avoids account enumeration
+
+
+# keep reset responses generic so emails and domain rules are not leaked
 _GENERIC_RESET_MSG = "If this email exists, a reset code has been sent."
 _GENERIC_INVALID_MSG = "Invalid or expired code."
 _GENERIC_TOO_MANY_MSG = "Too many attempts. Try again later."
 
 
+# start reset flow without revealing account existence
 @router.post("/forgot-password/request", response_model=ActionResponse)
 async def forgot_password_request(
     payload: ForgotPasswordRequestBody,
@@ -769,24 +783,24 @@ async def forgot_password_request(
             detail=_GENERIC_TOO_MANY_MSG,
         )
 
-    # Silently ignore non-NU addresses (never reveal this restriction).
+    # hide domain policy from callers
     if not email.endswith("@nu.edu.kz"):
         return ActionResponse(ok=True, message=_GENERIC_RESET_MSG)
 
-    # Validate basic structure without revealing details.
+    # reject malformed email without changing the response shape
     if len(email) > 255 or "@" not in email:
         return ActionResponse(ok=True, message=_GENERIC_RESET_MSG)
 
-    # Look up the verified account.
+    # look up the verified account
     stmt = select(User).where(User.email == email, User.is_verified == True)
     result = await session.execute(stmt)
     user = result.scalar_one_or_none()
 
-    # No account → return generic OK (no enumeration).
+    # hide whether the account exists
     if not user:
         return ActionResponse(ok=True, message=_GENERIC_RESET_MSG)
 
-    # Check resend cooldown – look up any existing code for this user.
+    # enforce per-account resend cooldown
     stmt_existing = select(PasswordResetCode).where(
         PasswordResetCode.user_id == user.id
     ).order_by(PasswordResetCode.created_at.desc()).limit(1)
@@ -799,10 +813,10 @@ async def forgot_password_request(
             resend_at = resend_at.replace(tzinfo=UTC)
         if now_utc < resend_at:
             logger.info("Password reset resend cooldown hit for user_id=%s", user.id)
-            # Rate-limited by email cooldown — still return a generic 200.
+            # preserve the same external response during cooldown
             return ActionResponse(ok=True, message=_GENERIC_RESET_MSG)
 
-    # Generate a new 6-digit code and hash it.
+    # hash the email code before storage
     code = generate_6digit_code()
     code_hash = hash_code(code)
 
@@ -810,7 +824,7 @@ async def forgot_password_request(
     expires_at = now_utc + timedelta(minutes=settings.email_code_ttl_minutes)
     resend_available_at = now_utc + timedelta(seconds=settings.email_resend_cooldown_seconds)
 
-    # Invalidate any previous reset code for this user.
+    # keep only one active reset code per user
     await session.execute(
         delete(PasswordResetCode).where(PasswordResetCode.user_id == user.id)
     )
@@ -825,8 +839,7 @@ async def forgot_password_request(
     session.add(db_code)
     await session.commit()
 
-    # Send email in a background thread so the HTTP response is not blocked.
-    # NOTE: the plain code must NEVER be logged here – only passed to the mailer.
+    # pass the plain code only to the mailer
     threading.Thread(
         target=send_password_reset_email,
         args=(email, code),
@@ -836,6 +849,7 @@ async def forgot_password_request(
     return ActionResponse(ok=True, message=_GENERIC_RESET_MSG)
 
 
+# verify reset code without consuming it
 @router.post("/forgot-password/verify", response_model=ActionResponse)
 async def forgot_password_verify(
     payload: ForgotPasswordVerifyBody,
@@ -864,14 +878,14 @@ async def forgot_password_verify(
             detail=_GENERIC_TOO_MANY_MSG,
         )
 
-    # Validate input format early.
+    # reject malformed input before querying reset state
     if len(email) > 255 or len(code_input) != 6 or not code_input.isdigit():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=_GENERIC_INVALID_MSG,
         )
 
-    # Generic response for unknown emails.
+    # avoid revealing whether the email is registered
     stmt = select(User).where(User.email == email, User.is_verified == True)
     result = await session.execute(stmt)
     user = result.scalar_one_or_none()
@@ -894,14 +908,14 @@ async def forgot_password_verify(
             detail=_GENERIC_INVALID_MSG,
         )
 
-    # Check attempt count BEFORE verifying the hash.
+    # stop brute-force attempts before hash comparison
     if db_code.attempts_count >= 5:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail=_GENERIC_TOO_MANY_MSG,
         )
 
-    # Check expiry.
+    # reject expired reset codes
     expires_at = db_code.expires_at
     if expires_at.tzinfo is None:
         expires_at = expires_at.replace(tzinfo=UTC)
@@ -911,7 +925,7 @@ async def forgot_password_verify(
             detail=_GENERIC_INVALID_MSG,
         )
 
-    # Timing-safe comparison.
+    # compare hashes without timing leaks
     hashed_input = hash_code(code_input)
     if not hmac.compare_digest(db_code.code_hash, hashed_input):
         db_code.attempts_count += 1
@@ -921,10 +935,11 @@ async def forgot_password_verify(
             detail=_GENERIC_INVALID_MSG,
         )
 
-    # Code is valid — do NOT consume it here; that happens in /reset.
+    # leave consumption to the final reset step
     return ActionResponse(ok=True, message="Code verified.")
 
 
+# consume reset code and replace the password
 @router.post("/forgot-password/reset", response_model=ActionResponse)
 async def forgot_password_reset(
     payload: ForgotPasswordResetBody,
@@ -938,7 +953,7 @@ async def forgot_password_reset(
     """
     email = payload.email.strip().lower()
     code_input = payload.code.strip()
-    new_password = payload.new_password  # intentionally no .strip() here
+    new_password = payload.new_password  # preserve whitespace for explicit validation
     now_utc = datetime.now(UTC)
 
     if _rate_limited(
@@ -953,26 +968,26 @@ async def forgot_password_reset(
             detail=_GENERIC_TOO_MANY_MSG,
         )
 
-    # Reject leading/trailing whitespace in the new password.
+    # reject accidental whitespace without silently changing the password
     if new_password != new_password.strip():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Password must not start or end with spaces.",
         )
 
-    # Validate input format.
+    # reject malformed input before querying reset state
     if len(email) > 255 or len(code_input) != 6 or not code_input.isdigit():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=_GENERIC_INVALID_MSG,
         )
 
-    # Validate password strength (8–128 chars).
+    # reuse the normal password rules
     pwd_err = validate_password_format(new_password)
     if pwd_err:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=pwd_err)
 
-    # Look up the verified account.
+    # look up the verified account
     stmt = select(User).where(User.email == email, User.is_verified == True)
     result = await session.execute(stmt)
     user = result.scalar_one_or_none()
@@ -982,7 +997,7 @@ async def forgot_password_reset(
             detail=_GENERIC_INVALID_MSG,
         )
 
-    # Retrieve the active (unused, non-expired) reset code.
+    # only unused reset codes can complete password changes
     stmt_code = select(PasswordResetCode).where(
         PasswordResetCode.user_id == user.id,
         PasswordResetCode.used_at == None,  # noqa: E711
@@ -996,14 +1011,14 @@ async def forgot_password_reset(
             detail=_GENERIC_INVALID_MSG,
         )
 
-    # Enforce attempt cap.
+    # stop brute-force attempts before hash comparison
     if db_code.attempts_count >= 5:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail=_GENERIC_TOO_MANY_MSG,
         )
 
-    # Check expiry.
+    # reject expired reset codes
     expires_at = db_code.expires_at
     if expires_at.tzinfo is None:
         expires_at = expires_at.replace(tzinfo=UTC)
@@ -1013,7 +1028,7 @@ async def forgot_password_reset(
             detail=_GENERIC_INVALID_MSG,
         )
 
-    # Timing-safe code comparison.
+    # compare hashes without timing leaks
     hashed_input = hash_code(code_input)
     if not hmac.compare_digest(db_code.code_hash, hashed_input):
         db_code.attempts_count += 1
@@ -1023,14 +1038,14 @@ async def forgot_password_reset(
             detail=_GENERIC_INVALID_MSG,
         )
 
-    # Atomically: update password + mark code as used.
+    # update password and consume the code in one transaction
     user.password_hash = hash_password(new_password)
     db_code.used_at = now_utc
     
-    # Invalidate active miniapp sessions by unlinking the telegram_id
+    # invalidate active miniapp sessions after password reset
     user.telegram_id = -abs(user.telegram_id)
 
-    # Flush both writes before committing so they go out together.
+    # flush both writes before committing together
     await session.flush()
     await session.commit()
 

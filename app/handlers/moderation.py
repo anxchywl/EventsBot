@@ -41,6 +41,7 @@ def get_moderation_keyboard(event_id: int):
 
 
 # sends pending events to moderators
+# cmd moderate
 @router.message(Command("moderate"))
 async def cmd_moderate(message: Message, session: AsyncSession):
     settings = get_settings()
@@ -94,6 +95,7 @@ async def cmd_moderate(message: Message, session: AsyncSession):
 
 
 # approves an event or update draft
+# process approve
 @router.callback_query(F.data.startswith("mod_approve_"))
 async def process_approve(callback: CallbackQuery, session: AsyncSession, bot: Bot):
     from app.config import get_settings
@@ -162,7 +164,7 @@ async def process_approve(callback: CallbackQuery, session: AsyncSession, bot: B
         metadata_json={"is_update": is_update, "original_event_id": event_id}
     ))
 
-    # commit the status change first — publishing errors must not roll this back
+    # commit the status change first publishing errors must not roll this back
     await session.commit()
 
     # re-load target_event cleanly after commit so relationships are fresh
@@ -195,6 +197,7 @@ def _get_moderation_reason_keyboard():
 
 
 # asks for a rejection reason
+# process reject button
 @router.callback_query(F.data.startswith("mod_reject_"))
 async def process_reject_button(callback: CallbackQuery, state: FSMContext):
     event_id = int(callback.data.split("_")[2])
@@ -208,6 +211,7 @@ async def process_reject_button(callback: CallbackQuery, state: FSMContext):
 
 
 # asks for requested changes
+# process changes button
 @router.callback_query(F.data.startswith("mod_changes_"))
 async def process_changes_button(callback: CallbackQuery, state: FSMContext):
     event_id = int(callback.data.split("_")[2])
@@ -221,6 +225,7 @@ async def process_changes_button(callback: CallbackQuery, state: FSMContext):
 
 
 # handles back navigation from rejection reason prompt
+# handle reject back
 @router.message(ModerationState.waiting_for_rejection_reason, F.text.in_({"Back", "Back to Menu"}))
 async def handle_reject_back(message: Message, state: FSMContext, session: AsyncSession):
     from aiogram.types import ReplyKeyboardRemove
@@ -240,6 +245,7 @@ async def handle_reject_back(message: Message, state: FSMContext, session: Async
 
 
 # records a rejection reason
+# process rejection reason
 @router.message(ModerationState.waiting_for_rejection_reason, F.text)
 async def process_rejection_reason(
     message: Message, state: FSMContext, session: AsyncSession
@@ -277,7 +283,7 @@ async def process_rejection_reason(
         parent = await get_event_by_id(session, event.parent_event_id)
 
     if is_update and parent:
-        # Delete the draft event row so only the parent event remains APPROVED
+        # delete the draft event row so only the parent event remains approved
         await session.delete(event)
         await enqueue_event_sync(
             session,
@@ -333,6 +339,7 @@ async def process_rejection_reason(
 
 
 # handles back navigation from changes reason prompt
+# handle changes back
 @router.message(ModerationState.waiting_for_changes_reason, F.text.in_({"Back", "Back to Menu"}))
 async def handle_changes_back(message: Message, state: FSMContext, session: AsyncSession):
     from aiogram.types import ReplyKeyboardRemove
@@ -352,6 +359,7 @@ async def handle_changes_back(message: Message, state: FSMContext, session: Asyn
 
 
 # records a changes-request reason
+# process changes reason
 @router.message(ModerationState.waiting_for_changes_reason, F.text)
 async def process_changes_reason(
     message: Message, state: FSMContext, session: AsyncSession

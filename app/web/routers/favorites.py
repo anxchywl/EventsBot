@@ -26,6 +26,7 @@ import time
 
 _FAVORITE_RATE_LIMITS: dict[str, list[float]] = {}
 
+# limit favorite toggles in memory
 def _check_rate_limit(request: Request, user_id: int, limit: int, window_seconds: int) -> None:
     now = time.time()
     cutoff = now - window_seconds
@@ -38,13 +39,14 @@ def _check_rate_limit(request: Request, user_id: int, limit: int, window_seconds
     hits.append(now)
     _FAVORITE_RATE_LIMITS[key] = hits
 
-    # Prevent memory leaks by pruning stale keys when dict grows large
+    # prevent memory leaks by pruning stale keys when dict grows large
     if len(_FAVORITE_RATE_LIMITS) > 10000:
         for k in list(_FAVORITE_RATE_LIMITS.keys()):
             _FAVORITE_RATE_LIMITS[k] = [ts for ts in _FAVORITE_RATE_LIMITS[k] if ts > cutoff]
             if not _FAVORITE_RATE_LIMITS[k]:
                 del _FAVORITE_RATE_LIMITS[k]
 
+# list saved events for the current user
 @router.get("/api/favorites", response_model=list[EventListItem])
 async def list_favorites(
     limit: int = Query(100, ge=1, le=200),
@@ -58,6 +60,7 @@ async def list_favorites(
     return await event_list_items(session, events, user=user)
 
 
+# save one event and refresh related counts
 @router.post("/api/events/{public_token}/favorite", response_model=FavoriteResponse)
 async def favorite_event(
     public_token: str,
@@ -98,6 +101,7 @@ async def favorite_event(
     return FavoriteResponse(is_favorite=True)
 
 
+# remove one saved event and refresh related counts
 @router.delete("/api/events/{public_token}/favorite", response_model=FavoriteResponse)
 async def unfavorite_event(
     public_token: str,

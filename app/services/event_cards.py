@@ -20,6 +20,7 @@ from app.services.telegram_links import (
 PHOTO_CAPTION_LIMIT = 1024
 
 
+# trim escaped descriptions without splitting html entities
 def escape_and_fit_description(raw_description: str, render_text, *, limit: int = PHOTO_CAPTION_LIMIT) -> str:
     escaped_description = html.escape(raw_description or "")
     if len(render_text(escaped_description)) <= limit:
@@ -40,6 +41,7 @@ def escape_and_fit_description(raw_description: str, render_text, *, limit: int 
     return best
 
 
+# render telegram-safe event card text
 def format_event_card_text(event: Event, *, caption_safe: bool = False) -> str:
     title = html.escape(event.title)
     location = html.escape(event.location)
@@ -67,6 +69,7 @@ def format_event_card_text(event: Event, *, caption_safe: bool = False) -> str:
     return render_text(description)
 
 
+# build deep-link and registration actions for event cards
 def build_event_page_keyboard(
     event: Event,
     *,
@@ -105,6 +108,7 @@ def build_event_page_keyboard(
     return builder.as_markup()
 
 
+# prefer mini app links when they are configured
 def build_event_share_url(event: Event, *, bot_username: str | None) -> str | None:
     settings = get_settings()
     deep_link = build_telegram_miniapp_direct_link(
@@ -124,6 +128,7 @@ def build_event_share_url(event: Event, *, bot_username: str | None) -> str | No
     return build_telegram_text_share_link(text=event.title, url=deep_link)
 
 
+# keep dashboard event lines compact for telegram messages
 def render_dashboard_event_line(
     event: Event,
     *,
@@ -158,6 +163,7 @@ def render_dashboard_event_line(
     return f"<i>{time_text}</i> - {title_html}, {location}"
 
 
+# render owned events with management links
 def render_private_events_list(
     events: list[Event],
     *,

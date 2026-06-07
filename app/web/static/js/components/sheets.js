@@ -3,7 +3,7 @@ import { formatReminderOffset, t, translateError } from "../i18n.js?v=20260608-a
 
 const MAX_REMINDERS = 3;
 
-// ─── Public API ──────────────────────────────────────────────────────────────
+// expose reminder sheet controls
 
 export function openReminderSheet({ event, onSubmit }) {
   closeSheet();
@@ -15,13 +15,13 @@ export function openReminderSheet({ event, onSubmit }) {
   document.body.append(node);
   refreshReminderInputs(node);
 
-  // wire up segmented timer inputs
+  // keep segmented timer inputs synchronized
   const segs = node.querySelectorAll(".timer-seg");
   segs.forEach((seg, i) => wireSegment(seg, i, segs));
 
   requestAnimationFrame(() => {
     node.classList.add("open");
-    // auto-focus first segment after animation settles
+    // wait for sheet animation before focusing inputs
     setTimeout(() => segs[0]?.focus(), 220);
   });
 
@@ -31,7 +31,6 @@ export function openReminderSheet({ event, onSubmit }) {
       return;
     }
 
-    // remove existing reminder
     const removeBtn = e.target.closest("[data-reminder-remove]");
     if (removeBtn) {
       const id = removeBtn.dataset.reminderRemove;
@@ -42,7 +41,6 @@ export function openReminderSheet({ event, onSubmit }) {
       return;
     }
 
-    // save new reminder
     if (e.target.closest("[data-sheet-save]")) {
       await handleSave(node, event, onSubmit);
       return;
@@ -56,6 +54,7 @@ export function openReminderSheet({ event, onSubmit }) {
   });
 }
 
+// close reminder sheet and clear transient state
 export function closeSheet() {
   const current = document.querySelector(".reminder-sheet-backdrop");
   if (!current) return;
@@ -66,7 +65,7 @@ export function closeSheet() {
   window.setTimeout(() => current.remove(), 220);
 }
 
-// ─── Sheet HTML ───────────────────────────────────────────────────────────────
+// build reminder sheet markup
 
 function buildSheet(event) {
   const atLimit = (event?.reminder_offsets?.length ?? 0) >= MAX_REMINDERS;
@@ -146,6 +145,7 @@ function buildSheet(event) {
   `;
 }
 
+// render one preset reminder option
 function presetButton(minutes, label, disabled) {
   return `
     <button class="preset-chip" type="button" data-preset-minutes="${minutes}" ${disabled ? "disabled" : ""}>
@@ -154,6 +154,7 @@ function presetButton(minutes, label, disabled) {
   `;
 }
 
+// render existing reminders for the event
 function buildReminderStack(event) {
   const ids = event?.reminder_ids ?? [];
   const offsets = event?.reminder_offsets ?? [];
@@ -174,11 +175,13 @@ function buildReminderStack(event) {
   `;
 }
 
+// update reminder list after changes
 function refreshReminderStack(node) {
   const stack = node.querySelector("[data-reminder-stack]");
   if (stack && !stack.querySelector(".reminder-chip")) stack.remove();
 }
 
+// reset custom reminder inputs after save
 function refreshReminderInputs(node) {
   const atLimit = node.querySelectorAll(".reminder-chip").length >= MAX_REMINDERS;
   node.querySelector(".timer-wrap")?.classList.toggle("timer-disabled", atLimit);
@@ -192,7 +195,7 @@ function refreshReminderInputs(node) {
   if (!atLimit) clearError(node);
 }
 
-// ─── Segmented Input Logic ────────────────────────────────────────────────────
+// keep custom day hour minute inputs valid
 
 function wireSegment(seg, index, allSegs) {
   seg.addEventListener("keydown", (e) => {
@@ -214,24 +217,21 @@ function wireSegment(seg, index, allSegs) {
       e.preventDefault();
       return;
     }
-    // block non-numeric except control keys
     if (!/^[0-9]$/.test(e.key) && !["Backspace", "Delete", "Tab", "ArrowLeft", "ArrowRight"].includes(e.key)) {
       e.preventDefault();
     }
   });
 
   seg.addEventListener("input", () => {
-    // strip non-digits
     seg.value = seg.value.replace(/\D/g, "");
 
     const max = Number(seg.dataset.max);
     const val = Number(seg.value);
 
-    // immediately clamp first digit if it would make any 2-digit number exceed max
+    // clamp impossible two-digit values early
     if (seg.value.length === 1) {
       const maxFirstDigit = Math.floor(max / 10);
       if (val > maxFirstDigit) {
-        // pad and clamp, then advance
         seg.value = String(Math.min(val, max)).padStart(2, "0");
         advanceFocus(index, allSegs);
         return;
@@ -249,13 +249,13 @@ function wireSegment(seg, index, allSegs) {
   seg.addEventListener("paste", (e) => {
     e.preventDefault();
     const text = (e.clipboardData || window.clipboardData).getData("text");
-    // accept only digits from paste
     const digits = text.replace(/\D/g, "").slice(0, 2);
     seg.value = digits;
     seg.dispatchEvent(new Event("input"));
   });
 }
 
+// move focus to the next timer segment
 function advanceFocus(index, allSegs) {
   if (index < allSegs.length - 1) {
     allSegs[index + 1].focus();
@@ -263,7 +263,7 @@ function advanceFocus(index, allSegs) {
   }
 }
 
-// ─── Save Logic ───────────────────────────────────────────────────────────────
+// persist reminder changes from the sheet
 
 function readOffset(node) {
   const dd = Number(node.querySelector("[data-seg='dd']")?.value || 0);
@@ -272,6 +272,7 @@ function readOffset(node) {
   return dd * 1440 + hh * 60 + mm;
 }
 
+// convert total minutes back into segmented inputs
 function writeOffset(node, minutes) {
   const days = Math.floor(minutes / 1440);
   const hours = Math.floor((minutes % 1440) / 60);
@@ -286,15 +287,17 @@ function writeOffset(node, minutes) {
   node.querySelector("[data-seg='mm']")?.focus();
 }
 
+// animate sheet validation errors
 function showError(node, msg) {
   const el = node.querySelector("[data-error]");
   if (!el) return;
   el.textContent = msg;
   el.classList.remove("timer-error-shake");
-  void el.offsetWidth; // trigger reflow for re-animation
+  void el.offsetWidth; // restart error animation
   el.classList.add("timer-error-shake");
 }
 
+// clear sheet validation errors
 function clearError(node) {
   const el = node.querySelector("[data-error]");
   if (el) {
@@ -303,6 +306,7 @@ function clearError(node) {
   }
 }
 
+// validate and save custom reminder offsets
 async function handleSave(node, event, onSubmit) {
   clearError(node);
   const offset = readOffset(node);
@@ -321,7 +325,6 @@ async function handleSave(node, event, onSubmit) {
 
   try {
     await onSubmit(offset > 0 ? offset : null, deletedReminderIds);
-    // success: close sheet
     closeSheet();
   } catch (err) {
     const msg = translateError(err?.message) || t("invalidReminder");

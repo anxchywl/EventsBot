@@ -39,13 +39,12 @@ MAX_RATE_LIMIT_KEYS = 20_000
 
 from contextlib import asynccontextmanager
 
+# open and close shared web resources around app lifetime
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # startup
     from app.web.sync_listener import start_event_cache_invalidation_listener
     app.state.event_cache_listener_task = start_event_cache_invalidation_listener()
     yield
-    # shutdown
     task = getattr(app.state, "event_cache_listener_task", None)
     if task:
         task.cancel()
@@ -54,9 +53,9 @@ async def lifespan(app: FastAPI):
 web_app = FastAPI(
     title="Events Bot Mini App",
     lifespan=lifespan,
-    docs_url=None,     # Disable Swagger UI in production
-    redoc_url=None,    # Disable ReDoc in production
-    openapi_url=None,  # Disable OpenAPI schema endpoint
+    docs_url=None,     # disable swagger ui in production
+    redoc_url=None,    # disable redoc in production
+    openapi_url=None,  # disable openapi schema endpoint
 )
 web_app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 web_app.include_router(events_router)
@@ -70,26 +69,28 @@ web_app.include_router(ratings_router)
 web_app.include_router(admin_router)
 
 
+# set browser security headers for the mini app
 @web_app.middleware("http")
 async def security_headers(request: Request, call_next):
     response = await call_next(request)
     
-    # Add Global Security Headers
+    # restrict framing to telegram clients
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     response.headers["Content-Security-Policy"] = "frame-ancestors https://*.telegram.org https://*.telegram.me;"
     
-    # Add strong caching headers for static assets
+    # cache static assets aggressively after versioned urls
     if request.url.path.startswith("/static/"):
         response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
         
     return response
 
 
+# protect auth and realtime endpoints from burst traffic
 @web_app.middleware("http")
 async def rate_limit(request: Request, call_next):
     if request.url.path.startswith("/api/"):
-        # Max request body size: 150KB
+        # reject oversized auth and review payloads early
         content_length = request.headers.get("content-length")
         if content_length and int(content_length) > 150_000:
             return JSONResponse(
@@ -111,7 +112,7 @@ async def rate_limit(request: Request, call_next):
         if len(rate_limits) > MAX_RATE_LIMIT_KEYS:
             _prune_rate_limits(now)
 
-        # 1. Registration Rate Limit (Max 5 attempts / 15 mins)
+        # rate limit registration attempts per email and ip
         if request.url.path == "/api/auth/register":
             reg_key = f"reg:{key}"
             reg_hits = [ts for ts in rate_limits.get(reg_key, []) if now - ts < 900]
@@ -123,7 +124,7 @@ async def rate_limit(request: Request, call_next):
             reg_hits.append(now)
             rate_limits[reg_key] = reg_hits
 
-        # 2. Login Rate Limit (Max 5 attempts / 15 mins)
+        # rate limit login attempts per email and ip
         elif request.url.path == "/api/auth/login":
             login_key = f"login:{key}"
             login_hits = [ts for ts in rate_limits.get(login_key, []) if now - ts < 900]
@@ -135,7 +136,7 @@ async def rate_limit(request: Request, call_next):
             login_hits.append(now)
             rate_limits[login_key] = login_hits
 
-        # 3. Code Resend Rate Limit (Max 3 attempts / 5 mins)
+        # rate limit verification resend attempts
         elif request.url.path == "/api/auth/resend":
             resend_key = f"resend:{key}"
             resend_hits = [ts for ts in rate_limits.get(resend_key, []) if now - ts < 300]
@@ -147,7 +148,7 @@ async def rate_limit(request: Request, call_next):
             resend_hits.append(now)
             rate_limits[resend_key] = resend_hits
 
-        # 4. Verification Rate Limit (Max 10 attempts / 5 mins)
+        # rate limit verification guesses
         elif request.url.path == "/api/auth/verify":
             verify_key = f"verify:{key}"
             verify_hits = [ts for ts in rate_limits.get(verify_key, []) if now - ts < 300]
@@ -159,7 +160,7 @@ async def rate_limit(request: Request, call_next):
             verify_hits.append(now)
             rate_limits[verify_key] = verify_hits
 
-        # 5. Password Reset Rate Limit (Max 10 attempts / 15 mins)
+        # rate limit reset flow attempts by email and ip
         elif request.url.path.startswith("/api/auth/forgot-password/"):
             reset_key = f"reset:{key}"
             reset_hits = [ts for ts in rate_limits.get(reset_key, []) if now - ts < 900]
@@ -171,7 +172,7 @@ async def rate_limit(request: Request, call_next):
             reset_hits.append(now)
             rate_limits[reset_key] = reset_hits
 
-        # 6. SSE Connections Rate Limit (Max 15 connections / 1 minute)
+        # rate limit realtime connection churn
         elif request.url.path in {"/api/events/review-updates", "/api/events/updates"}:
             sse_key = f"sse:{key}"
             sse_hits = [ts for ts in rate_limits.get(sse_key, []) if now - ts < 60]
@@ -184,7 +185,7 @@ async def rate_limit(request: Request, call_next):
             rate_limits[sse_key] = sse_hits
 
         if request.url.path != "/api/auth/session":
-            # General API rate limiting fallback
+            # protect remaining api routes from bursts
             hits = [ts for ts in rate_limits.get(key, []) if now - ts < 60]
             if key.startswith("user:"):
                 limit = 180 if request.method not in {"GET", "HEAD", "OPTIONS"} else 600
@@ -200,6 +201,7 @@ async def rate_limit(request: Request, call_next):
     return await call_next(request)
 
 
+# drop old rate limit buckets before they grow unbounded
 def _prune_rate_limits(now: float) -> None:
     cutoff = now - 900
     stale_keys = [
@@ -217,16 +219,19 @@ def _prune_rate_limits(now: float) -> None:
         rate_limits.pop(key, None)
 
 
+# expose a minimal health probe
 @web_app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+# avoid noisy favicon 404s
 @web_app.get("/favicon.ico", include_in_schema=False)
 async def favicon() -> FileResponse:
     return FileResponse(STATIC_DIR / "images" / "default-banner.jpg")
 
 
+# exchange telegram init data for a signed session
 @web_app.post("/api/auth/session", response_model=AuthResponse)
 async def create_session(
     payload: AuthRequest,
@@ -252,21 +257,25 @@ async def create_session(
     )
 
 
+# serve the mini app shell
 @web_app.get("/")
 async def index() -> FileResponse:
     return _index_response()
 
 
+# serve the app shell for event deep links
 @web_app.get("/events/{public_token}")
 async def event_page(public_token: str) -> FileResponse:
     return _index_response()
 
 
+# serve the app shell for friend invite links
 @web_app.get("/friends/invite/{token}")
 async def friend_invite_page(token: str) -> FileResponse:
     return _index_response()
 
 
+# disable caching for the html app shell
 def _index_response() -> FileResponse:
     return FileResponse(
         STATIC_DIR / "index.html",

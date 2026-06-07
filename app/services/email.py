@@ -37,6 +37,7 @@ TEMPLATES = {
 }
 
 
+# send localized verification emails for account signup
 def send_verification_email(email: str, code: str, lang: str = "en", theme: str = "light") -> None:
     """
     Sends a dynamically styled 6-digit verification code email.
@@ -47,7 +48,6 @@ def send_verification_email(email: str, code: str, lang: str = "en", theme: str 
     settings = get_settings()
     ttl = settings.email_code_ttl_minutes
 
-    # Resolve active language
     lang_code = (lang or "en").lower()[:2]
     if lang_code not in TEMPLATES:
         lang_code = "en"
@@ -55,7 +55,7 @@ def send_verification_email(email: str, code: str, lang: str = "en", theme: str 
     t = TEMPLATES[lang_code]
     subject = t["subject"]
 
-    # Plain text fallback
+    # include plaintext for clients that block html email
     body_text = (
         f"{t['hello']}\n\n"
         f"{t['intro']}\n\n"
@@ -66,7 +66,7 @@ def send_verification_email(email: str, code: str, lang: str = "en", theme: str 
         f"NU Events Team"
     )
 
-    # Style variables based strictly on the app's theme parameter
+    # mirror the mini app theme in verification emails
     is_dark = (theme or "light").lower() == "dark"
     if is_dark:
         card_bg = "#ffffff"
@@ -89,7 +89,6 @@ def send_verification_email(email: str, code: str, lang: str = "en", theme: str 
         muted_text_color = "#94a3b8"
         warning_border = "#f1f5f9"
 
-    # HTML Email Design
     body_html = f"""<!DOCTYPE html>
 <html>
 <head>
@@ -211,7 +210,7 @@ def send_verification_email(email: str, code: str, lang: str = "en", theme: str 
 </html>
 """
 
-    # Local development debug log output
+    # print emails locally when smtp is disabled
     if settings.email_host == "console" or settings.email_host is None:
         logger.info(
             f"\n==========================================================\n"
@@ -223,7 +222,6 @@ def send_verification_email(email: str, code: str, lang: str = "en", theme: str 
         )
         return
 
-    # Real SMTP delivery
     try:
         msg = EmailMessage()
         msg.set_content(body_text)
@@ -261,9 +259,9 @@ def send_verification_email(email: str, code: str, lang: str = "en", theme: str 
         raise RuntimeError("Failed to send verification email due to SMTP error") from e
 
 
-# ──────────────────────────────────────────────────────────────
-# Password reset email
-# ──────────────────────────────────────────────────────────────
+
+# send password reset emails with neutral styling
+
 
 RESET_TEMPLATES = {
     "en": {
@@ -296,6 +294,7 @@ RESET_TEMPLATES = {
 }
 
 
+# send password reset emails without depending on app theme
 def send_password_reset_email(email: str, code: str, lang: str = "en") -> None:
     """
     Sends a styled password reset code email.
@@ -321,7 +320,7 @@ def send_password_reset_email(email: str, code: str, lang: str = "en") -> None:
         f"NU Events Team"
     )
 
-    # Always use the purple/indigo gradient for reset emails (neutral appearance).
+    # keep reset emails visually neutral across themes
     card_bg = "#ffffff"
     card_border = "#e2e8f0"
     text_color = "#1e293b"

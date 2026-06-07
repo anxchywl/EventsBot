@@ -21,6 +21,7 @@ const TIME_OF_DAY_OPTIONS = [
   { value: "night", label: "night" },
 ];
 
+// show event filter sheet
 export function openFilterSheet({ type, onChange }) {
   closeFilterSheet();
   document.documentElement.classList.add("sheet-open");
@@ -32,6 +33,7 @@ export function openFilterSheet({ type, onChange }) {
   requestAnimationFrame(() => node.classList.add("open"));
 }
 
+// dismiss filter sheet and reset drag state
 export function closeFilterSheet() {
   const current = document.querySelector(".filter-sheet-backdrop");
   if (!current) return;
@@ -42,6 +44,7 @@ export function closeFilterSheet() {
   window.setTimeout(() => current.remove(), 220);
 }
 
+// build filter sheet markup for one filter type
 function buildSheet(type) {
   return `
     <section class="bottom-sheet filter-sheet" role="dialog" aria-modal="true" data-filter-sheet="${escapeAttr(type)}">
@@ -54,6 +57,7 @@ function buildSheet(type) {
   `;
 }
 
+// translate filter sheet titles
 function sheetTitle(type) {
   if (type === "sorting") return t("sorting");
   if (type === "relevance") return t("relevance");
@@ -63,6 +67,7 @@ function sheetTitle(type) {
   return t("organizers");
 }
 
+// render filter options for the selected type
 function sheetBody(type) {
   if (type === "sorting") {
     return SORT_GROUPS.map(([label, options]) => `
@@ -82,6 +87,7 @@ function sheetBody(type) {
   return multiSelectBody(type);
 }
 
+// render one selectable filter option
 function optionButton(kind, value, label, active) {
   return `
     <button class="filter-option ${active ? "active" : ""}" type="button" data-filter-set="${kind}" data-value="${escapeAttr(value)}">
@@ -91,6 +97,7 @@ function optionButton(kind, value, label, active) {
   `;
 }
 
+// render multi-select options with current state
 function multiSelectBody(type) {
   const values = state.eventFilters[type] || [];
   const options = type === "timeOfDay" ? TIME_OF_DAY_OPTIONS : (state.eventFilterOptions[type] || []);
@@ -114,6 +121,7 @@ function multiSelectBody(type) {
   `;
 }
 
+// bind filter sheet controls to state updates
 function wireSheet(node, type, onChange) {
   node.addEventListener("click", (event) => {
     if (event.target === node) {
@@ -144,9 +152,9 @@ function wireSheet(node, type, onChange) {
   const searchInput = node.querySelector("[data-filter-search]");
   if (searchInput) {
     searchInput.addEventListener("input", (event) => {
-      // Sanitize in real-time (max 100 length, no SQL/script chars)
+      // reject unsafe search characters while typing
       let val = event.target.value.slice(0, 100).replace(/[<>&"'/`\\;]/g, "");
-      // Do not accept leading spaces, and collapse multiple consecutive spaces to a single space
+      // normalize search spacing before saving state
       val = val.replace(/^\s+/, "").replace(/\s{2,}/g, " ");
       event.target.value = val;
 
@@ -157,7 +165,7 @@ function wireSheet(node, type, onChange) {
     });
 
     searchInput.addEventListener("blur", (event) => {
-      // Strip any trailing spaces on focus out / blur
+      // trim search text after editing ends
       let val = event.target.value.trim();
       event.target.value = val;
       const query = val.toLowerCase();
@@ -170,6 +178,7 @@ function wireSheet(node, type, onChange) {
   wireDragClose(node);
 }
 
+// close filter sheet from drag gestures
 function wireDragClose(node) {
   const sheet = node.querySelector(".bottom-sheet");
   if (!sheet) return;

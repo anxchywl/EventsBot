@@ -13,6 +13,7 @@ from app.models.rating import Rating
 from app.models.user import User
 
 
+# delete review data and invalidate derived caches
 async def permanently_delete_review(
     session: AsyncSession,
     *,
@@ -109,6 +110,7 @@ async def permanently_delete_review(
     }
 
 
+# resolve review ownership from verified or telegram identity
 async def _resolve_review_user_id(
     session: AsyncSession,
     *,
@@ -131,6 +133,7 @@ async def _resolve_review_user_id(
     return None
 
 
+# return a stable result when no review existed
 def _not_deleted_result(event: Event, *, target_user_id: int | None = None) -> dict[str, Any]:
     return {
         "deleted": False,
@@ -142,6 +145,7 @@ def _not_deleted_result(event: Event, *, target_user_id: int | None = None) -> d
     }
 
 
+# combine rating aggregates with current user review state
 async def event_rating_summary(session: AsyncSession, event_id: int) -> dict[str, Any]:
     rows = (
         await session.execute(
@@ -194,6 +198,7 @@ async def event_rating_summary(session: AsyncSession, event_id: int) -> dict[str
     }
 
 
+# clear cached event data after review changes
 def invalidate_review_caches() -> None:
     from app.web.routers.events import event_cache
 

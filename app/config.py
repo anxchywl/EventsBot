@@ -47,7 +47,7 @@ class Settings(BaseSettings):
                 except Exception:
                     pass
             try:
-                # Strip brackets just in case JSON parsing failed but brackets exist
+                # strip brackets just in case json parsing failed but brackets exist
                 clean_val = val.lstrip("[").rstrip("]")
                 return [int(x.strip()) for x in clean_val.split(",") if x.strip()]
             except ValueError as exc:
@@ -82,6 +82,7 @@ class Settings(BaseSettings):
 
 
 # returns cached application settings
+# get settings
 @lru_cache
 def get_settings() -> Settings:
     return Settings()

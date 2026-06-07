@@ -4,6 +4,7 @@ import asyncio
 from collections.abc import Iterable
 
 
+# delete messages fast
 async def delete_messages_fast(
     bot,
     chat_id: int,

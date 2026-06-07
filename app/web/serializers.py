@@ -25,6 +25,7 @@ from app.web.schemas import EventDetail, EventListItem, ReviewDetail
 PALETTE_KEYS = ("aurora", "sunset", "mint", "violet", "sky", "rose")
 
 
+# serialize one event for list screens
 async def event_list_item(
     session: AsyncSession,
     event: Event,
@@ -60,6 +61,7 @@ async def event_list_item(
     )
 
 
+# serialize event lists with optional user context
 async def event_list_items(
     session: AsyncSession,
     events: list[Event],
@@ -96,6 +98,7 @@ async def event_list_items(
     ]
 
 
+# serialize event detail with reviews and friend context
 async def event_detail(
     session: AsyncSession,
     event: Event,
@@ -108,19 +111,17 @@ async def event_detail(
     favorite = await is_event_favorite(session, user, event.id)
     reminder_ids, reminder_offsets = await user_reminder_details(session, user, event.id)
 
-    # Fetch ratings
     stmt_ratings = select(Rating).where(Rating.event_id == event.id, Rating.deleted_at.is_(None)).options(selectinload(Rating.user))
     ratings = (await session.execute(stmt_ratings)).scalars().all()
     verified_ratings = [r for r in ratings if r.user.is_verified]
     rating_count = len(verified_ratings)
     average_rating = sum(r.score for r in verified_ratings) / rating_count if rating_count > 0 else None
 
-    # Fetch comments
     stmt_comments = select(Comment).where(Comment.event_id == event.id, Comment.deleted_at.is_(None)).options(selectinload(Comment.user))
     comments = (await session.execute(stmt_comments)).scalars().all()
     verified_comments = [c for c in comments if c.user.is_verified]
 
-    # Merge ratings and comments by user_id
+    # merge one user rating and comment into one review row
     can_delete_all = False
     if user is not None and effective_web_role(user, abs(user.telegram_id)) in ("admin", "moderator"):
         can_delete_all = True
@@ -189,6 +190,7 @@ async def event_detail(
     )
 
 
+# count saved events as lightweight attendance signal
 async def attendee_count(session: AsyncSession, event_id: int) -> int:
     registered = await session.scalar(
         select(func.count(func.distinct(User.telegram_id)))
@@ -202,6 +204,7 @@ async def attendee_count(session: AsyncSession, event_id: int) -> int:
     return int(registered or 0)
 
 
+# batch attendance counts for event lists
 async def get_attendee_counts(
     session: AsyncSession,
     event_ids: list[int],
@@ -224,6 +227,7 @@ async def get_attendee_counts(
     return counts
 
 
+# batch reminder counts for event lists
 async def get_reminder_counts(
     session: AsyncSession,
     user: User | None,
@@ -242,6 +246,7 @@ async def get_reminder_counts(
     return {event_id: int(count) for event_id, count in result.all()}
 
 
+# batch rating aggregates for event lists
 async def rating_summaries(session: AsyncSession, event_ids: list[int]) -> dict[int, tuple[float | None, int]]:
     if not event_ids:
         return {}
@@ -261,6 +266,7 @@ async def rating_summaries(session: AsyncSession, event_ids: list[int]) -> dict[
     return summaries
 
 
+# load current user reminder offsets by event
 async def user_reminder_offsets(
     session: AsyncSession,
     user: User | None,
@@ -280,6 +286,7 @@ async def user_reminder_offsets(
     return list(result.scalars().all())
 
 
+# load current user reminder metadata by event
 async def user_reminder_details(
     session: AsyncSession,
     user: User | None,
@@ -300,6 +307,7 @@ async def user_reminder_details(
     return [row[0] for row in rows], [row[1] for row in rows]
 
 
+# version cover urls so cached images refresh
 def event_cover_url(event: Event) -> str | None:
     if not event.poster_file_id:
         return None
@@ -307,6 +315,7 @@ def event_cover_url(event: Event) -> str | None:
     return f"/api/events/{event.public_token}/cover?{version}"
 
 
+# treat past events as ended for list badges
 def is_event_ended(event: Event) -> bool:
     try:
         tz = ZoneInfo(event.timezone)
@@ -316,10 +325,12 @@ def is_event_ended(event: Event) -> bool:
     return event_dt + timedelta(hours=2) < datetime.now(tz)
 
 
+# hide archived events from normal active views
 def is_event_archived(event: Event) -> bool:
     return event.status == EventStatus.ARCHIVED.value
 
 
+# choose stable fallback cover colors per event
 def palette_key(token: str) -> str:
     total = sum(ord(char) for char in token)
     return PALETTE_KEYS[total % len(PALETTE_KEYS)]

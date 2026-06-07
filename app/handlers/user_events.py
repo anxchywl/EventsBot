@@ -22,6 +22,7 @@ router = Router()
 
 
 # opens the current user's events list via callback
+# process my events
 @router.callback_query(F.data == "my_events")
 @router.callback_query(F.data == "my_events_back")
 async def process_my_events(callback: CallbackQuery, session: AsyncSession, state: FSMContext):
@@ -29,6 +30,7 @@ async def process_my_events(callback: CallbackQuery, session: AsyncSession, stat
 
 
 # opens the current user's events list via message
+# process my events message
 @router.message(F.text == "My Events", F.chat.type == "private")
 async def process_my_events_message(message: Message, session: AsyncSession, state: FSMContext):
     await cleanup_main_menu_warnings(message, state)
@@ -143,6 +145,7 @@ async def show_my_events(
     )
 
 
+# delete manage temp messages
 async def _delete_manage_temp_messages(state: FSMContext, bot: Bot, chat_id: int):
     data = await state.get_data()
     temp_ids = data.get("manage_temp_msg_ids") or []
@@ -150,6 +153,7 @@ async def _delete_manage_temp_messages(state: FSMContext, bot: Bot, chat_id: int
     await state.update_data(manage_temp_msg_ids=[])
 
 
+# process manage edit
 @router.message(F.text == "Edit", F.chat.type == "private")
 async def process_manage_edit(
     message: Message, state: FSMContext, session: AsyncSession
@@ -171,6 +175,7 @@ async def process_manage_edit(
     )
 
 
+# process manage delete
 @router.message(F.text == "Delete", F.chat.type == "private")
 async def process_manage_delete(
     message: Message, state: FSMContext, session: AsyncSession, bot: Bot
@@ -198,6 +203,7 @@ async def process_manage_delete(
     )
 
 
+# process confirm delete text
 @router.message(F.text == "Yes, Delete", F.chat.type == "private")
 async def process_confirm_delete_text(
     message: Message, state: FSMContext, session: AsyncSession, bot: Bot
@@ -212,7 +218,7 @@ async def process_confirm_delete_text(
     if success:
         await session.commit()
         
-        # Clean up delete-workflow messages
+        # clean up delete-workflow messages
         msg_ids = [
             data.get("manage_event_msg_id"),
             data.get("delete_command_msg_id"),
@@ -233,6 +239,7 @@ async def process_confirm_delete_text(
         await message.answer("Error deleting event or event not found.")
 
 
+# process cancel delete text
 @router.message(F.text == "Cancel", F.chat.type == "private")
 async def process_cancel_delete_text(
     message: Message, state: FSMContext, session: AsyncSession
@@ -248,7 +255,7 @@ async def process_cancel_delete_text(
 
     event = await get_event_by_id(session, event_id)
     if event:
-        # Clean up delete-workflow and original event card messages
+        # clean up delete-workflow and original event card messages
         msg_ids = [
             data.get("manage_event_msg_id"),
             data.get("delete_command_msg_id"),
@@ -266,6 +273,7 @@ async def process_cancel_delete_text(
             await send_manage_event_message(message, event, state=state, cleanup_previous=False)
 
 
+# process back to my events
 @router.message(F.text == "Back to My Events", F.chat.type == "private")
 async def process_back_to_my_events(
     message: Message, state: FSMContext, session: AsyncSession
@@ -273,13 +281,13 @@ async def process_back_to_my_events(
     await _delete_manage_temp_messages(state, message.bot, message.chat.id)
     data = await state.get_data()
     
-    # 1. Delete the event card message
+    # 1. delete the event card message
     msg_id = data.get("manage_event_msg_id")
     
-    # 2. Delete the user's event selection message
+    # 2. delete the user's event selection message
     selection_msg_id = data.get("my_events_selection_msg_id")
 
-    # 3. Delete the original "Choose the event" message
+    # 3. delete the original "choose the event" message
     choose_msg_id = data.get("my_events_choose_msg_id")
 
     import logging
@@ -295,6 +303,7 @@ async def process_back_to_my_events(
     await show_my_events(message, session, state=state, answer=False)
 
 
+# process my events selection
 @router.message(F.text, ~F.text.in_(["Back to Menu", "Back to My Events", "Edit", "Delete", "Cancel", "Yes, Delete", "⚙️ Admin Panel", "Admin Panel"]), F.chat.type == "private")
 async def process_my_events_selection(
     message: Message, state: FSMContext, session: AsyncSession
@@ -302,7 +311,7 @@ async def process_my_events_selection(
     data = await state.get_data()
     if not data.get("my_events_mode"):
         if data.get("manage_event_id"):
-            # User typed something wrong while viewing the event details page!
+            # user typed something wrong while viewing the event details page
             sent = await message.answer("Please use the keyboard buttons below to manage the event. Direct messages are not supported here.")
             temp_ids = list(data.get("manage_temp_msg_ids", []))
             temp_ids.extend([message.message_id, sent.message_id])
@@ -312,7 +321,7 @@ async def process_my_events_selection(
     event_map = data.get("my_events_event_map") or {}
     event_id = event_map.get(message.text)
     if not event_id:
-        # User typed something wrong while choosing the event!
+        # user typed something wrong while choosing the event
         sent = await message.answer("Please choose an event from the keyboard list or click Back to Menu.")
         temp_ids = list(data.get("manage_temp_msg_ids", []))
         temp_ids.extend([message.message_id, sent.message_id])
@@ -338,6 +347,7 @@ async def process_my_events_selection(
     await send_manage_event_message(message, event, state=state)
 
 
+# send manage event message
 async def send_manage_event_message(
     message: Message,
     event,
@@ -398,6 +408,7 @@ async def send_manage_event_message(
 
 
 # shows management actions for one user event
+# process manage event
 @router.callback_query(F.data.startswith("manage_event_"))
 async def process_manage_event(callback: CallbackQuery, session: AsyncSession):
     event_id = int(callback.data.split("_")[2])
@@ -443,6 +454,7 @@ async def process_manage_event(callback: CallbackQuery, session: AsyncSession):
 
 
 # forwards edit requests to the edit flow
+# process edit event
 @router.callback_query(F.data.startswith("edit_event_"))
 async def process_edit_event(
     callback: CallbackQuery, state: FSMContext, session: AsyncSession
@@ -453,6 +465,7 @@ async def process_edit_event(
 
 
 # asks the user to confirm event deletion
+# process delete event
 @router.callback_query(F.data.startswith("delete_event_"))
 async def process_delete_event(callback: CallbackQuery, session: AsyncSession):
     event_id = int(callback.data.split("_")[2])
@@ -481,6 +494,7 @@ async def process_delete_event(callback: CallbackQuery, session: AsyncSession):
 
 
 # deletes the event after confirmation
+# process confirm delete
 @router.callback_query(F.data.startswith("confirm_delete_"))
 async def process_confirm_delete(
     callback: CallbackQuery, session: AsyncSession, bot: Bot
@@ -511,6 +525,7 @@ async def process_confirm_delete(
 
 
 # shows favorite events from the main menu via callback
+# process menu favorites
 @router.callback_query(F.data == "menu_favorites")
 async def process_menu_favorites(
     callback: CallbackQuery, session: AsyncSession, bot: Bot
@@ -519,6 +534,7 @@ async def process_menu_favorites(
 
 
 # shows favorite events from the main menu via message
+# process menu favorites message
 @router.message(F.text == "Favorites", F.chat.type == "private")
 async def process_menu_favorites_message(
     message: Message, session: AsyncSession, bot: Bot
@@ -526,6 +542,7 @@ async def process_menu_favorites_message(
     await show_favorites(message, session, bot)
 
 
+# show favorites
 async def show_favorites(
     event_obj: Message | CallbackQuery, session: AsyncSession, bot: Bot
 ):
@@ -576,11 +593,13 @@ async def show_favorites(
 
 
 # answers unfinished menu items
+# process menu coming soon
 @router.callback_query(F.data == "menu_calendar")
 async def process_menu_coming_soon(callback: CallbackQuery):
     await callback.answer("This feature is coming soon!", show_alert=True)
 
 
+# process menu coming soon message
 @router.message(F.text == "Calendar", F.chat.type == "private")
 async def process_menu_coming_soon_message(message: Message):
     await message.answer("This feature is coming soon!")

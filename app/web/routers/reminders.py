@@ -25,6 +25,7 @@ import time
 
 _REMINDER_RATE_LIMITS: dict[str, list[float]] = {}
 
+# limit reminder changes in memory
 def _check_rate_limit(request: Request, user_id: int, limit: int, window_seconds: int) -> None:
     now = time.time()
     cutoff = now - window_seconds
@@ -37,7 +38,7 @@ def _check_rate_limit(request: Request, user_id: int, limit: int, window_seconds
     hits.append(now)
     _REMINDER_RATE_LIMITS[key] = hits
 
-    # Prevent memory leaks by pruning stale keys when dict grows large
+    # prevent memory leaks by pruning stale keys when dict grows large
     if len(_REMINDER_RATE_LIMITS) > 10000:
         for k in list(_REMINDER_RATE_LIMITS.keys()):
             _REMINDER_RATE_LIMITS[k] = [ts for ts in _REMINDER_RATE_LIMITS[k] if ts > cutoff]
@@ -45,6 +46,7 @@ def _check_rate_limit(request: Request, user_id: int, limit: int, window_seconds
                 del _REMINDER_RATE_LIMITS[k]
 
 
+# group scheduled reminders by event
 @router.get("/api/reminders", response_model=list[ReminderGroup])
 async def list_reminders(
     limit: int = Query(100, ge=1, le=200),
@@ -64,6 +66,7 @@ async def list_reminders(
     ]
 
 
+# create or replace one event reminder
 @router.post("/api/events/{public_token}/reminders", response_model=ActionResponse)
 async def create_reminder(
     public_token: str,
@@ -89,6 +92,7 @@ async def create_reminder(
     return ActionResponse(message="Reminder set.")
 
 
+# delete a reminder owned by the current user
 @router.delete("/api/reminders/{reminder_id}", response_model=ActionResponse)
 async def delete_reminder(
     reminder_id: int,
@@ -106,6 +110,7 @@ async def delete_reminder(
     return ActionResponse(message="Reminder removed.")
 
 
+# serialize reminder metadata for the mini app
 async def _reminder_item(
     session: AsyncSession,
     reminder: Reminder,

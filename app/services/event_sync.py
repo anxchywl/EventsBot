@@ -38,18 +38,22 @@ MAX_ATTEMPTS = 5
 POLL_SECONDS = 5.0
 
 
+# mark recoverable delivery failures from telegram
 class EventSyncDeliveryError(RuntimeError):
     pass
 
 
+# convert sqlalchemy asyncpg urls for raw asyncpg connections
 def asyncpg_database_url(database_url: str) -> str:
     return database_url.replace("postgresql+asyncpg://", "postgresql://", 1)
 
 
+# serialize sync work per event across workers
 async def acquire_event_lock(session: AsyncSession, event_id: int) -> None:
     await session.execute(text("SELECT pg_advisory_xact_lock(:lock_id)"), {"lock_id": int(event_id)})
 
 
+# freeze event data before queued sync delivery
 async def capture_event_snapshot(
     session: AsyncSession,
     event_id: int,
@@ -84,6 +88,7 @@ async def capture_event_snapshot(
     }
 
 
+# queue a sync job after moderation or event changes
 async def enqueue_event_sync(
     session: AsyncSession,
     *,
@@ -110,6 +115,7 @@ async def enqueue_event_sync(
     return job
 
 
+# expose sync progress for frontend cache invalidation
 async def latest_completed_sync_version(session: AsyncSession) -> dict[str, Any]:
     row = (
         await session.execute(
@@ -125,6 +131,7 @@ async def latest_completed_sync_version(session: AsyncSession) -> dict[str, Any]
     }
 
 
+# wake workers when postgres emits sync notifications
 async def listen_for_event_sync_notifications(
     database_url: str,
     callback,
@@ -155,6 +162,7 @@ async def listen_for_event_sync_notifications(
             await asyncio.sleep(3)
 
 
+# process event sync jobs without blocking bot handlers
 class EventSyncWorker:
     def __init__(self, bot: "Bot", session_factory: "async_sessionmaker") -> None:
         self._bot = bot
@@ -342,6 +350,7 @@ class EventSyncWorker:
                 logger.warning("failed to delete detail message chat=%s message=%s: %s", telegram_chat_id, message_id, exc)
 
 
+# claim one pending sync job without racing other workers
 async def _claim_next_job(session: AsyncSession) -> EventSyncJob | None:
     result = await session.execute(
         select(EventSyncJob)
@@ -362,6 +371,7 @@ async def _claim_next_job(session: AsyncSession) -> EventSyncJob | None:
     return job
 
 
+# persist failed sync attempts for retry visibility
 async def _mark_job_failed(session: AsyncSession, job: EventSyncJob, exc: Exception) -> None:
     job.status = "failed"
     job.last_error = str(exc)
@@ -369,6 +379,7 @@ async def _mark_job_failed(session: AsyncSession, job: EventSyncJob, exc: Except
     await session.flush()
 
 
+# notify listeners after a sync job commits
 async def _notify_sync_completed(session: AsyncSession, job: EventSyncJob) -> None:
     await session.execute(
         text("SELECT pg_notify(:channel, :payload)"),
@@ -379,6 +390,7 @@ async def _notify_sync_completed(session: AsyncSession, job: EventSyncJob) -> No
     )
 
 
+# read target chat ids from an immutable job snapshot
 def _snapshot_chat_ids(snapshot: dict[str, Any]) -> set[int]:
     return {
         int(item["chat_id"])
@@ -387,6 +399,7 @@ def _snapshot_chat_ids(snapshot: dict[str, Any]) -> set[int]:
     }
 
 
+# find chats subscribed to the event category
 async def _matching_chats(session: AsyncSession, event: Event) -> list[Chat]:
     result = await session.execute(
         select(Chat)
@@ -402,6 +415,7 @@ async def _matching_chats(session: AsyncSession, event: Event) -> list[Chat]:
     return list(result.scalars().all())
 
 
+# index existing detail messages by chat for reconciliation
 async def _detail_messages_by_chat(session: AsyncSession, event_id: int) -> dict[int, EventDetailMessage]:
     result = await session.execute(
         select(EventDetailMessage)
@@ -411,6 +425,7 @@ async def _detail_messages_by_chat(session: AsyncSession, event_id: int) -> dict
     return {detail.chat_id: detail for detail in result.scalars().all()}
 
 
+# remove stale telegram detail messages best effort
 async def _delete_detail_message(bot: "Bot", detail: EventDetailMessage) -> None:
     if not detail.chat:
         return
@@ -432,6 +447,7 @@ async def _delete_detail_message(bot: "Bot", detail: EventDetailMessage) -> None
         )
 
 
+# create or update a telegram detail message safely
 async def _upsert_detail_message(
     bot: "Bot",
     event: Event,
@@ -529,6 +545,7 @@ async def _upsert_detail_message(
     logger.info("created detail message event=%s chat=%s message=%s", event.id, chat.id, sent.message_id)
 
 
+# queue dashboard refreshes after detail message changes
 async def _schedule_dashboard_refresh(chat_ids: set[int]) -> None:
     if not chat_ids:
         return

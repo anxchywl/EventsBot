@@ -37,6 +37,7 @@ _WHITESPACE_RE = re.compile(r"\s+")
 
 _RATING_RATE_LIMITS: dict[str, list[float]] = {}
 
+# limit review actions in memory
 def _check_rate_limit(request: Request, user_id: int, limit: int, window_seconds: int) -> None:
     import time
     now = time.time()
@@ -50,7 +51,7 @@ def _check_rate_limit(request: Request, user_id: int, limit: int, window_seconds
     hits.append(now)
     _RATING_RATE_LIMITS[key] = hits
 
-    # Prevent memory leaks by pruning stale keys when dict grows large
+    # prevent memory leaks by pruning stale keys when dict grows large
     if len(_RATING_RATE_LIMITS) > 10000:
         for k in list(_RATING_RATE_LIMITS.keys()):
             _RATING_RATE_LIMITS[k] = [ts for ts in _RATING_RATE_LIMITS[k] if ts > cutoff]
@@ -58,6 +59,7 @@ def _check_rate_limit(request: Request, user_id: int, limit: int, window_seconds
                 del _RATING_RATE_LIMITS[k]
 
 
+# upsert rating and comment for one verified user
 @router.post("/{public_token}/reviews", response_model=ActionResponse)
 async def submit_review(
     public_token: str,
@@ -77,16 +79,14 @@ async def submit_review(
     content = None
 
     if content_raw is not None and content_raw != "":
-        # Check if empty or consisting only of spaces
         if not content_raw.strip():
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Comments consisting only of spaces are invalid."
             )
         
-        # Clean hidden formatting / control characters (Cc, Cf, Cs, Co, Cn)
+        # strip hidden unicode formatting before storing comments
         cleaned = _CONTROL_CHARS_RE.sub('', content_raw)
-        # Normalize consecutive spaces, tabs, and newlines to a single space
         cleaned = _WHITESPACE_RE.sub(' ', cleaned).strip()
         
         if not cleaned:
@@ -101,7 +101,7 @@ async def submit_review(
                 detail="Comment cannot exceed 256 characters."
             )
         
-        # Script protection extra check
+        # reject script-like content after normalization
         if "<script" in cleaned.lower() or "javascript:" in cleaned.lower():
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -116,7 +116,6 @@ async def submit_review(
             detail="Must provide either a rating score or a comment."
         )
 
-    # 1. Handle Rating
     if score is not None:
         stmt = select(Rating).where(Rating.user_id == user.id, Rating.event_id == event.id)
         existing_rating = (await session.execute(stmt)).scalar_one_or_none()
@@ -129,7 +128,6 @@ async def submit_review(
             db_rating = Rating(user_id=user.id, event_id=event.id, score=score)
             session.add(db_rating)
 
-    # 2. Handle Comment
     if content:
         stmt = select(Comment).where(Comment.user_id == user.id, Comment.event_id == event.id)
         existing_comment = (await session.execute(stmt)).scalar_one_or_none()
@@ -147,6 +145,7 @@ async def submit_review(
     return ActionResponse(ok=True, message="Review submitted successfully.")
 
 
+# delete the current user review for one event
 @router.delete("/{public_token}/reviews", response_model=ActionResponse)
 async def delete_review(
     public_token: str,
@@ -158,11 +157,9 @@ async def delete_review(
     if not event or event.status != EventStatus.APPROVED.value:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
 
-    # Delete rating
     await session.execute(
         delete(Rating).where(Rating.user_id == user.id, Rating.event_id == event.id)
     )
-    # Delete comment
     await session.execute(
         delete(Comment).where(Comment.user_id == user.id, Comment.event_id == event.id)
     )
@@ -172,6 +169,7 @@ async def delete_review(
     return ActionResponse(ok=True, message="Review deleted successfully.")
 
 
+# list merged ratings and comments for an event
 @router.get("/{public_token}/reviews", response_model=list[ReviewDetail])
 async def list_reviews(
     public_token: str,
@@ -189,11 +187,9 @@ async def list_reviews(
     if miniapp_user:
         current_db_user = await upsert_miniapp_user(session, miniapp_user)
 
-    # Fetch ratings
     stmt = select(Rating).where(Rating.event_id == event.id, Rating.deleted_at.is_(None)).options(selectinload(Rating.user))
     ratings = (await session.execute(stmt)).scalars().all()
 
-    # Fetch comments
     stmt = select(Comment).where(Comment.event_id == event.id, Comment.deleted_at.is_(None)).options(selectinload(Comment.user))
     comments = (await session.execute(stmt)).scalars().all()
 
@@ -203,10 +199,9 @@ async def list_reviews(
         if current_role in ("admin", "moderator"):
             can_delete_all = True
 
-    # Merge ratings and comments by user_id
+    # merge one user rating and comment into one review row
     user_map: dict[int, dict] = {}
     
-    # Process ratings
     for r in ratings:
         if not r.user.is_verified:
             continue
@@ -223,7 +218,6 @@ async def list_reviews(
             "user_id": r.user_id if can_delete_all else None,
         }
 
-    # Process comments
     for c in comments:
         if not c.user.is_verified:
             continue
@@ -244,13 +238,14 @@ async def list_reviews(
                 "user_id": c.user_id if can_delete_all else None,
             }
 
-    # Sort reviews so the current user's review is first, followed by newest
+    # keep the current user review visible first
     reviews = list(user_map.values())
     reviews.sort(key=lambda x: (not x["is_own"], x["created_at"]), reverse=True)
 
     return [ReviewDetail(**val) for val in reviews[offset : offset + limit]]
 
 
+# list recent verified reviews across events
 @router.get("/reviews/feed", response_model=list[FeedReviewDetail])
 async def list_global_reviews_feed(
     limit: int = Query(20, ge=1, le=50),
@@ -264,7 +259,6 @@ async def list_global_reviews_feed(
         current_db_user = await upsert_miniapp_user(session, miniapp_user)
         can_delete_all = effective_web_role(current_db_user, miniapp_user.id) in ("admin", "moderator")
 
-    # Query 20 most recent comments and ratings from verified users
     stmt_comments = (
         select(Comment)
         .join(Comment.user)
@@ -289,7 +283,7 @@ async def list_global_reviews_feed(
     )
     ratings = (await session.execute(stmt_ratings)).scalars().all()
 
-    # Merge ratings and comments by (user_id, event_id)
+    # merge each user and event into one feed review row
     feed_map = {}
     for r in ratings:
         key = (r.user_id, r.event_id)
@@ -328,12 +322,12 @@ async def list_global_reviews_feed(
                 "rating_id": None,
             }
 
-    # Sort merged list by created_at desc, limit 20
     feed = list(feed_map.values())
     feed.sort(key=lambda x: x["created_at"], reverse=True)
     return [FeedReviewDetail(**val) for val in feed[:limit]]
 
 
+# allow admins to remove reviews by event token
 @router.delete("/admin/{public_token}/reviews/{target_user_id}", response_model=ActionResponse)
 async def admin_delete_review(
     public_token: str,

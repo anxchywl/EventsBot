@@ -6,10 +6,9 @@ from app.web.schemas import EventDetail, ReviewDetail, FriendUserSummary
 
 class ValidationTest(unittest.TestCase):
     def test_schema_string_lengths(self):
-        # EventDetail over length limits
         try:
             EventDetail(
-                token="t" * 65,  # Max 64
+                token="t" * 65,
                 title="A",
                 description="B",
                 date="C",
@@ -25,11 +24,10 @@ class ValidationTest(unittest.TestCase):
         except ValidationError:
             pass
 
-        # ReviewDetail
         try:
             ReviewDetail(
                 nickname="user",
-                content="A" * 1025,  # Max 1024
+                content="A" * 1025,
                 score=3,
                 created_at="2023-01-01T12:00:00Z"
             )
@@ -37,11 +35,10 @@ class ValidationTest(unittest.TestCase):
         except ValidationError:
             pass
 
-        # FriendUserSummary
         try:
             FriendUserSummary(
                 id=1,
-                nickname="N" * 65,  # Max 64
+                nickname="N" * 65,
                 avatar={"initials": "AB"}
             )
             self.fail("Expected ValidationError for over-length nickname")

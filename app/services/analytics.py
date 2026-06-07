@@ -11,6 +11,7 @@ from app.models.user import User
 logger = logging.getLogger(__name__)
 
 
+# record one event interaction for analytics
 async def record_event_action(
     session: AsyncSession,
     *,
@@ -42,6 +43,7 @@ async def record_event_action(
     )
 
 
+# record event interaction after resolving public ids
 async def record_event_action_by_ids(
     session: AsyncSession,
     *,

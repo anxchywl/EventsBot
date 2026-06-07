@@ -177,6 +177,7 @@ async def create_or_update_dashboard_message(
     return dashboard_message
 
 
+# pin dashboard message silently
 async def pin_dashboard_message_silently(
     bot: Bot,
     chat: Chat,

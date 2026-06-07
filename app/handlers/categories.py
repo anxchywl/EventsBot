@@ -68,6 +68,7 @@ def get_category_settings_keyboard(categories: list, enabled_ids: set):
     return builder.as_markup()
 
 
+# load category selection
 async def load_category_selection(
     session: AsyncSession,
     chat_id: int,
@@ -89,6 +90,7 @@ async def load_category_selection(
     return categories, enabled_ids
 
 
+# show category chooser message
 async def show_category_chooser_message(
     bot: Bot,
     chat_id: int,
@@ -104,6 +106,7 @@ async def show_category_chooser_message(
     )
 
 
+# enabled ids from markup
 def enabled_ids_from_markup(callback: CallbackQuery) -> set[int]:
     enabled_ids: set[int] = set()
     if not callback.message or not callback.message.reply_markup:
@@ -123,6 +126,7 @@ def enabled_ids_from_markup(callback: CallbackQuery) -> set[int]:
     return enabled_ids
 
 
+# save category selection
 async def save_category_selection(
     session: AsyncSession,
     chat_id: int,
@@ -151,6 +155,7 @@ async def save_category_selection(
 
 
 # enters category management via command
+# cmd categories
 @router.message(Command("categories"))
 async def cmd_categories(
     message: Message, state: FSMContext, session: AsyncSession, bot: Bot
@@ -183,6 +188,7 @@ async def cmd_categories(
 
 
 # finalizes and saves category changes
+# process categories done
 @router.callback_query(F.data == "categories_done", CategoryStates.editing)
 async def process_categories_done(
     callback: CallbackQuery, state: FSMContext, session: AsyncSession, bot: Bot
@@ -232,7 +238,7 @@ async def process_categories_done(
                 
                 await session.commit()
 
-                # Automatically create or update the dashboard immediately
+                # automatically create or update the dashboard immediately
                 await create_or_update_dashboard_message(session=session, bot=bot, chat=chat)
                 await session.commit()
 
@@ -269,6 +275,7 @@ async def process_categories_done(
 
 
 # toggles category selection in state
+# process toggle category
 @router.callback_query(F.data.startswith("toggle_cat_"), CategoryStates.editing)
 async def process_toggle_category(callback: CallbackQuery, state: FSMContext, bot: Bot):
     # verify permission before toggling
@@ -307,6 +314,7 @@ async def process_toggle_category(callback: CallbackQuery, state: FSMContext, bo
     await callback.answer()
 
 
+# process categories done without state
 @router.callback_query(F.data == "categories_done")
 async def process_categories_done_without_state(
     callback: CallbackQuery, session: AsyncSession, bot: Bot
@@ -349,6 +357,7 @@ async def process_categories_done_without_state(
     await callback.answer("Settings saved.")
 
 
+# process toggle category without state
 @router.callback_query(F.data.startswith("toggle_cat_"))
 async def process_toggle_category_without_state(
     callback: CallbackQuery, session: AsyncSession, bot: Bot

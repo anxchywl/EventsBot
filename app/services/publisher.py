@@ -19,7 +19,7 @@ from app.services.telegram_delivery import (
 logger = logging.getLogger(__name__)
 
 
-# publishes an approved event to all matching chats
+# publish approved events to matching telegram chats
 async def publish_approved_event(session: AsyncSession, bot: Bot, event: Event) -> None:
     logger.info(f"publishing event {event.id} to category {event.category_id}")
 
@@ -41,9 +41,9 @@ async def publish_approved_event(session: AsyncSession, bot: Bot, event: Event) 
     bot_user = await bot.get_me()
     affected_chat_ids: set[int] = set()
 
-    # create or refresh detail messages in each chat with Telegram-safe pacing
+    # pace telegram delivery while refreshing each chat detail message
     for chat in chats:
-        # cache scalar values immediately — avoids lazy loads in error handlers
+        # cache scalar values immediately avoids lazy loads in error handlers
         chat_id = chat.id
         telegram_chat_id = chat.telegram_chat_id
         chat_username = chat.username
@@ -142,7 +142,7 @@ async def publish_approved_event(session: AsyncSession, bot: Bot, event: Event) 
                     )
                 )
 
-                # note: do NOT access event.detail_messages — it is not eagerly loaded
+                # note: do not access event.detail_messages it is not eagerly loaded
                 # and would trigger a lazy async load, crashing the loop
 
             except Exception as e:
@@ -163,7 +163,7 @@ async def publish_approved_event(session: AsyncSession, bot: Bot, event: Event) 
 
     await session.flush()
 
-    # signal the dashboard bus to refresh affected chats (debounced, non-blocking)
+    # refresh dashboards asynchronously after message delivery
     if affected_chat_ids:
         try:
             from app.services.dashboard_bus import get_bus
@@ -173,12 +173,12 @@ async def publish_approved_event(session: AsyncSession, bot: Bot, event: Event) 
             pass
 
 
-# formats the event detail message body
+# format event detail text for telegram html
 def format_event_detail_text(event: Event) -> str:
     return format_event_card_text(event, caption_safe=bool(event.poster_file_id))
 
 
-# builds actions shown below event details
+# build event detail actions for telegram users
 def get_event_detail_keyboard(
     event: Event, *, bot_username: str | None = None
 ) -> InlineKeyboardMarkup:

@@ -19,6 +19,7 @@ router = Router()
 
 
 # toggles the current event as a favorite
+# process favorite
 @router.callback_query(F.data.startswith("fav_"))
 async def process_favorite(callback: CallbackQuery, session: AsyncSession):
     event_id = int(callback.data.split("_")[1])
@@ -34,6 +35,7 @@ async def process_favorite(callback: CallbackQuery, session: AsyncSession):
 
 
 # shows reminder timing choices
+# process remind options
 @router.callback_query(F.data.startswith("remind_opt_"))
 async def process_remind_options(callback: CallbackQuery):
     event_id = int(callback.data.split("_")[2])
@@ -49,12 +51,14 @@ async def process_remind_options(callback: CallbackQuery):
 
 
 # cancels reminder setup
+# process remind cancel
 @router.callback_query(F.data == "remind_cancel")
 async def process_remind_cancel(callback: CallbackQuery, session: AsyncSession):
     await callback.answer("Cancelled reminder setup.")
 
 
 # saves the selected reminder timing
+# process remind set
 @router.callback_query(F.data.startswith("remind_set_"))
 async def process_remind_set(callback: CallbackQuery, session: AsyncSession):
     parts = callback.data.split("_")
@@ -77,6 +81,7 @@ async def process_remind_set(callback: CallbackQuery, session: AsyncSession):
 
 
 # lists favorite events in private chat
+# cmd favorites
 @router.message(Command("favorites"))
 async def cmd_favorites(message: Message, session: AsyncSession, bot: Bot):
     user = await upsert_user_from_telegram(session, message.from_user)

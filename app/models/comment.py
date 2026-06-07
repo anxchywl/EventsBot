@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from app.models.user import User
 
 
+# store event review comments
 class Comment(Base):
     __tablename__ = "comments"
     __table_args__ = (

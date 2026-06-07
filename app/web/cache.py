@@ -4,6 +4,7 @@ import time
 from typing import Any
 
 
+# cache small api payloads with expiry
 class TTLCache:
     def __init__(self, ttl_seconds: int = 30, max_items: int | None = None) -> None:
         self.ttl_seconds = ttl_seconds

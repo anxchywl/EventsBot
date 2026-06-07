@@ -2,6 +2,7 @@ import { controls, coverStyle, escapeAttr, escapeHtml, eventRow, nav, status } f
 import { t } from "../i18n.js?v=20260608-auth-v7";
 import { state } from "../state.js?v=20260608-auth-v7";
 
+// format date headers for grouped events
 export function formatGroupDate(dateStr, lang) {
   const date = new Date(`${dateStr}T00:00:00`);
   if (isNaN(date.getTime())) return dateStr;
@@ -15,6 +16,7 @@ export function formatGroupDate(dateStr, lang) {
 import { renderCalendarInner } from "./calendar.js?v=20260608-auth-v7";
 import { renderProfileInner } from "./ratings.js?v=20260608-auth-v7";
 
+// render the main event feed screen
 export function renderMenu(events) {
   const isProfile = state.route === "profile";
   const isCalendar = !isProfile && state.calendarMode;
@@ -51,15 +53,16 @@ export function renderMenu(events) {
   `;
 }
 
+// match events against coarse day-part filters
 function matchesTimeOfDay(eventTime, timeRanges) {
   if (!eventTime) return false;
   const [h, m] = eventTime.split(":").map(Number);
   const mins = h * 60 + (m || 0);
 
-  const morningStart = 6 * 60; // 06:00
-  const afternoonStart = 12 * 60; // 12:00
-  const eveningStart = 17 * 60; // 17:00
-  const nightStart = 22 * 60; // 22:00
+  const morningStart = 6 * 60;
+  const afternoonStart = 12 * 60;
+  const eveningStart = 17 * 60;
+  const nightStart = 22 * 60;
 
   return timeRanges.some(range => {
     if (range === "morning") {
@@ -78,6 +81,7 @@ function matchesTimeOfDay(eventTime, timeRanges) {
   });
 }
 
+// render filtered events grouped by day
 export function renderEventResults(events) {
   const query = state.eventSearch.query.trim().toLowerCase();
   let sortedEvents = query
@@ -135,6 +139,7 @@ export function renderEventResults(events) {
   }).join("");
 }
 
+// render active filter and search controls
 export function renderFilterBar() {
   const filters = state.eventFilters;
   const categoryCount = filters.categories.length;
@@ -161,6 +166,7 @@ export function renderFilterBar() {
   `;
 }
 
+// render compact search control
 function searchFilterButton() {
   return `
     <button class="filter-chip filter-chip-icon" type="button" data-action="event-search-open" aria-label="${escapeAttr(t("search"))}">
@@ -171,6 +177,7 @@ function searchFilterButton() {
   `;
 }
 
+// keep search field value synced with state
 function renderSearchField() {
   return `
     <div class="event-search-control">
@@ -183,6 +190,7 @@ function renderSearchField() {
   `;
 }
 
+// render sort mode control
 function sortFilterButton(active) {
   return `
     <button class="filter-chip filter-chip-icon ${active ? "active" : ""}" type="button" data-filter-open="sorting" aria-label="${escapeAttr(t("sorting"))}">
@@ -193,6 +201,7 @@ function sortFilterButton(active) {
   `;
 }
 
+// render multi-value filter control
 function filterButton(filter, label, count, active) {
   return `
     <button class="filter-chip ${active ? "active" : ""}" type="button" data-filter-open="${filter}">
@@ -202,6 +211,7 @@ function filterButton(filter, label, count, active) {
   `;
 }
 
+// render saved-events filter control
 function favoriteFilterButton(active) {
   return `
     <button class="filter-chip filter-chip-icon favorite-filter-chip ${active ? "active" : ""}" type="button" data-action="favorite-filter-toggle" aria-label="${escapeAttr(t("favorites"))}">
@@ -212,6 +222,7 @@ function favoriteFilterButton(active) {
   `;
 }
 
+// translate sort mode labels
 export function sortLabel(sort) {
   const labels = {
     time_asc: t("nearestFirst"),
@@ -224,6 +235,7 @@ export function sortLabel(sort) {
   return labels[sort] || labels.time_asc;
 }
 
+// translate relevance filter labels
 export function relevanceLabel(relevance) {
   const labels = {
     active: t("active"),
@@ -233,6 +245,7 @@ export function relevanceLabel(relevance) {
   return labels[relevance] || labels.active;
 }
 
+// render empty states for feed filters
 export function renderPlaceholder(active) {
   return `
     <div class="screen" data-route="${active}">

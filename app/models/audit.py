@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from app.models.user import User
 
 
+# record admin actions for later review
 class AuditLog(Base):
     __tablename__ = "audit_logs"
     __table_args__ = (
@@ -27,8 +28,8 @@ class AuditLog(Base):
     action: Mapped[str] = mapped_column(String(255), nullable=False)
     target_type: Mapped[str | None] = mapped_column(String(255), nullable=True)
     target_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    # Using JSON since sqlite supports it and postgresql supports JSONB. 
-    # For a real Postgres app, JSONB is better, but JSON works across dialects.
+    # using json since sqlite supports it and postgresql supports jsonb
+    # for a real postgres app, jsonb is better, but json works across dialects
     metadata_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
@@ -40,6 +41,7 @@ class AuditLog(Base):
     actor: Mapped[User | None] = relationship(foreign_keys=[actor_user_id])
 
 
+# record user activity for audit trails
 class UserActivityLog(Base):
     __tablename__ = "user_activity_logs"
     __table_args__ = (

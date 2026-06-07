@@ -5,11 +5,12 @@ import { t } from "../i18n.js?v=20260608-auth-v7";
 import { state } from "../state.js?v=20260608-auth-v7";
 import { haptic } from "../telegram.js?v=20260608-auth-v7";
 
-const MONTH_RANGE = 12; // -12 to +12 = 25 months
+const MONTH_RANGE = 12;
 const monthGridCache = new Map();
 let activeAbortController = null;
 let favoriteRequestToken = "";
 
+// hide archived events from calendar activity
 export function isEventArchived(event) {
   if (event.is_archived || event.is_ended) return true;
   const now = new Date();
@@ -25,6 +26,7 @@ export function isEventArchived(event) {
   return false;
 }
 
+// detect events happening today
 export function isEventLive(event) {
   if (event.is_archived || event.is_ended) return false;
   const now = new Date();
@@ -38,10 +40,12 @@ export function isEventLive(event) {
   return now >= eventStart && now <= eventEnd;
 }
 
+// highlight events with stronger engagement
 function isEventTrending(event) {
   return event.is_trending || (event.attendee_count && event.attendee_count > 15);
 }
 
+// build stable keys for calendar event updates
 function eventSignature(events) {
   return events
     .map((event) => [
@@ -55,28 +59,34 @@ function eventSignature(events) {
     .join("|");
 }
 
+// build a stable month cache key
 function monthKey(date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
 }
 
+// compare dates using local calendar days
 function localDateKey(date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
+// parse event date strings safely
 function parseDate(value) {
   const date = new Date(value || Date.now());
   return Number.isNaN(date.getTime()) ? new Date() : date;
 }
 
+// create a date for a calendar month offset
 function monthDate(dateStr, offset = 0) {
   const date = parseDate(dateStr);
   return new Date(date.getFullYear(), date.getMonth() + offset, 1);
 }
 
+// serialize calendar months for data attributes
 function monthIso(dateStr, offset = 0) {
   return monthDate(dateStr, offset).toISOString();
 }
 
+// format month titles for the calendar
 function formatMonth(date) {
   return new Intl.DateTimeFormat(state.lang || "en", {
     month: "long",
@@ -84,12 +94,14 @@ function formatMonth(date) {
   }).format(date);
 }
 
+// collect visible events for one calendar day
 function eventsForDay(events, dateStr) {
   return events
     .filter((event) => event.date === dateStr)
     .sort((a, b) => (a.time || "").localeCompare(b.time || ""));
 }
 
+// render one month of calendar cells
 function renderMonthGrid(events, date) {
   const signature = eventSignature(events);
   const cacheKey = `${monthKey(date)}:${state.lang}:${signature}`;
@@ -168,6 +180,7 @@ function renderMonthGrid(events, date) {
   return html;
 }
 
+// localize compact weekday labels
 function shortWeekDays() {
   const isMondayFirst = state.lang === "ru" || state.lang === "kk";
   const base = isMondayFirst ? new Date(2026, 1, 2) : new Date(2026, 1, 1);
@@ -178,6 +191,7 @@ function shortWeekDays() {
   });
 }
 
+// label selected days with relative text
 function dayLabel(dateStr, count) {
   const date = new Date(`${dateStr}T00:00:00`);
   const formatted = new Intl.DateTimeFormat(state.lang || "en", {
@@ -188,6 +202,7 @@ function dayLabel(dateStr, count) {
   return count ? `${formatted}, ${count} ${count === 1 ? "event" : "events"}` : formatted;
 }
 
+// render calendar panels around the selected month
 export function renderCalendarInner(events) {
   const currentDate = new Date();
   state.calendarState.currentDate = currentDate.toISOString();
@@ -216,6 +231,7 @@ export function renderCalendarInner(events) {
   return html;
 }
 
+// wire calendar swipes and day taps
 export function attachCalendarInteractions() {
   activeAbortController?.abort();
   activeAbortController = new AbortController();
@@ -279,6 +295,7 @@ export function attachCalendarInteractions() {
   }
 }
 
+// keep neighboring month panels in sync
 export function refreshCalendarMonthPanels({ forceVisible = false } = {}) {
   monthGridCache.clear();
   const scrollContainer = document.querySelector("[data-calendar-scroll]");
@@ -303,6 +320,7 @@ export function refreshCalendarMonthPanels({ forceVisible = false } = {}) {
   }
 }
 
+// show events for a selected calendar day
 function showDayPreviewBottomSheet(dateStr, events) {
   closeDayPreview();
   document.documentElement.classList.add("sheet-open");
@@ -339,6 +357,7 @@ function showDayPreviewBottomSheet(dateStr, events) {
   backdrop.addEventListener("click", handlePreviewClick);
 }
 
+// render one event in the day preview
 function renderPopupEvent(event) {
   const isArchived = isEventArchived(event);
   const isLive = isEventLive(event);
@@ -362,6 +381,7 @@ function renderPopupEvent(event) {
   `;
 }
 
+// route preview clicks to event details or favorite toggles
 async function handlePreviewClick(event) {
   if (event.target === event.currentTarget || event.target.closest("[data-day-preview-close]")) {
     closeDayPreview();
@@ -402,6 +422,7 @@ async function handlePreviewClick(event) {
   }
 }
 
+// toggle favorite state from the day preview
 async function togglePreviewFavorite(button) {
   const token = button.dataset.calendarEventFavorite;
   const targetEvent = state.events.find((item) => item.token === token);
@@ -433,6 +454,7 @@ async function togglePreviewFavorite(button) {
   }
 }
 
+// close the selected-day bottom sheet
 function closeDayPreview() {
   const current = document.getElementById("dayPreviewBackdrop");
   if (!current) return;

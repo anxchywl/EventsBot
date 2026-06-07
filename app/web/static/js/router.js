@@ -56,6 +56,7 @@ import { renderAuthSection, renderRatingsTab, renderForgotPasswordCard, renderPr
 
 const app = document.getElementById("app");
 
+// close admin dialog
 function closeAdminDialog() {
   const existing = document.getElementById("admin-action-modal");
   if (existing) {
@@ -66,6 +67,7 @@ function closeAdminDialog() {
   }
 }
 
+// create admin dialog
 function createAdminDialog({ title, description, textarea = false, placeholder = "", confirmText = "Confirm", cancelText = "Cancel" }) {
   closeAdminDialog();
   document.documentElement.classList.add("sheet-open");
@@ -155,6 +157,7 @@ function createAdminDialog({ title, description, textarea = false, placeholder =
   });
 }
 
+// close confirm sheet
 function closeConfirmSheet() {
   const current = document.querySelector(".confirm-sheet-backdrop");
   if (!current) return;
@@ -165,6 +168,7 @@ function closeConfirmSheet() {
   window.setTimeout(() => current.remove(), 220);
 }
 
+// open confirm sheet
 function openConfirmSheet({ title, description, confirmText = t("deleteBtn"), cancelText = t("cancel"), danger = false }) {
   closeConfirmSheet();
   document.documentElement.classList.add("sheet-open");
@@ -202,6 +206,7 @@ function openConfirmSheet({ title, description, confirmText = t("deleteBtn"), ca
   });
 }
 
+// close admin group filter sheet
 function closeAdminGroupFilterSheet() {
   const current = document.querySelector(".admin-group-filter-backdrop");
   if (!current) return;
@@ -212,6 +217,7 @@ function closeAdminGroupFilterSheet() {
   window.setTimeout(() => current.remove(), 220);
 }
 
+// open admin group filter sheet
 function openAdminGroupFilterSheet(type) {
   closeAdminGroupFilterSheet();
   const options = type === "sort"
@@ -274,6 +280,7 @@ function openAdminGroupFilterSheet(type) {
   requestAnimationFrame(() => node.classList.add("open"));
 }
 
+// escape sheet html
 function escapeSheetHtml(value) {
   return String(value ?? "").replace(/[&<>"']/g, (char) => ({
     "&": "&amp;",
@@ -284,10 +291,12 @@ function escapeSheetHtml(value) {
   }[char]));
 }
 
+// escape sheet attr
 function escapeSheetAttr(value) {
   return escapeSheetHtml(value).replace(/`/g, "&#96;");
 }
 
+// refresh admin stats
 async function refreshAdminStats() {
   try {
     state.adminStats = await fetchAdminStats();
@@ -309,6 +318,7 @@ async function refreshAdminStats() {
   });
 }
 
+// refresh connected groups
 async function refreshConnectedGroups({ preserveControls = true } = {}) {
   if (state.route !== "admin") {
     return;
@@ -353,6 +363,7 @@ async function refreshConnectedGroups({ preserveControls = true } = {}) {
   }
 }
 
+// current admin group filters
 function currentAdminGroupFilters() {
   const q = app.querySelector("#admin-group-search")?.value?.trim() || state.adminGroupFilters?.q || "";
   const status = app.querySelector("[data-admin-group-filter-open='status']")?.dataset.value || state.adminGroupFilters?.status || "all";
@@ -361,6 +372,7 @@ function currentAdminGroupFilters() {
   return state.adminGroupFilters;
 }
 
+// restore admin group controls
 function restoreAdminGroupControls(filters = state.adminGroupFilters || {}) {
   const search = app.querySelector("#admin-group-search");
   const status = app.querySelector("[data-admin-group-filter-open='status']");
@@ -374,6 +386,7 @@ function restoreAdminGroupControls(filters = state.adminGroupFilters || {}) {
   if (sortLabel) sortLabel.textContent = adminSortLabel(filters.sort || "newest");
 }
 
+// start admin groups polling
 function startAdminGroupsPolling() {
   window.clearInterval(adminGroupsPollTimer);
   adminGroupsPollTimer = window.setInterval(() => {
@@ -381,21 +394,22 @@ function startAdminGroupsPolling() {
   }, 5000);
 }
 
+// stop admin groups polling
 function stopAdminGroupsPolling() {
   window.clearInterval(adminGroupsPollTimer);
   adminGroupsPollTimer = null;
 }
 
 let backHandler = async () => {
-  // Always navigate to events menu, bypassing early return checks
+  // always navigate to events menu, bypassing early return checks
   if (state.route === "events" && state.token === "") {
-    return; // Already on events menu, no need to navigate
+    return; // already on events menu, no need to navigate
   }
   try {
     await navigate("events", { direction: "back", quiet: false });
   } catch (error) {
     console.error("Back button navigation failed:", error);
-    // Force fallback navigation
+    // force fallback navigation
     state.route = "events";
     state.token = "";
     state.calendarMode = false;
@@ -414,11 +428,12 @@ let reviewUpdatesSource = null;
 let miniappUpdatesSource = null;
 let friendSearchTimer = null;
 
-// Snapshot of the events menu DOM — saved when leaving for an event page,
-// restored instantly when coming back so the transition is invisible.
+// snapshot of the events menu dom saved when leaving for an event page
+// restored instantly when coming back so the transition is invisible
 let cachedMenuHTML = null;
 
 
+// start router listeners and initial render
 export async function boot() {
   setLang(state.lang);
   setTheme(state.theme || currentTheme());
@@ -450,7 +465,7 @@ export async function boot() {
   app.addEventListener("focusout", (e) => {
     onFocusOut(e);
     if (e.target.closest("#auth-profile-container input")) {
-      // Small timeout to allow focus to transfer to another input without flickering the nav bar
+      // small timeout to allow focus to transfer to another input without flickering the nav bar
       setTimeout(() => {
         if (!document.activeElement || !document.activeElement.closest("#auth-profile-container input")) {
           document.documentElement.classList.remove("auth-focusing");
@@ -471,12 +486,14 @@ export async function boot() {
   startMiniappUpdates();
 }
 
+// start event sync polling
 function startEventSyncPolling() {
   window.clearInterval(eventSyncPollTimer);
   eventSyncPollTimer = window.setInterval(checkEventSyncVersion, 5000);
   checkEventSyncVersion().catch(() => null);
 }
 
+// check event sync version
 async function checkEventSyncVersion() {
   const payload = await fetchEventSyncVersion();
   const version = Number(payload?.version || 0);
@@ -491,6 +508,7 @@ async function checkEventSyncVersion() {
   await refreshAfterExternalEventSync();
 }
 
+// start review updates
 function startReviewUpdates() {
   if (!window.EventSource || reviewUpdatesSource) return;
   reviewUpdatesSource = new EventSource("/api/events/review-updates");
@@ -498,7 +516,7 @@ function startReviewUpdates() {
     try {
       handleReviewDeleted(JSON.parse(event.data || "{}")).catch(() => null);
     } catch {
-      // Ignore malformed realtime payloads; the next fetch still returns fresh data.
+      // ignore malformed realtime payloads; the next fetch still returns fresh data
     }
   });
   reviewUpdatesSource.onerror = () => {
@@ -508,6 +526,7 @@ function startReviewUpdates() {
   };
 }
 
+// start miniapp updates
 function startMiniappUpdates() {
   if (!window.EventSource || miniappUpdatesSource || !state.session) return;
   miniappUpdatesSource = new EventSource(`/api/events/updates?token=${encodeURIComponent(state.session)}`);
@@ -525,7 +544,7 @@ function startMiniappUpdates() {
       try {
         handleMiniappRealtime(eventName, JSON.parse(event.data || "{}")).catch(() => null);
       } catch {
-        // Ignore malformed realtime payloads; normal API reads remain authoritative.
+        // ignore malformed realtime payloads; normal api reads remain authoritative
       }
     });
   });
@@ -536,10 +555,11 @@ function startMiniappUpdates() {
   };
 }
 
+// apply realtime mini app updates without full refresh
 async function handleMiniappRealtime(eventName, payload) {
   if (eventName === "favorite_changed" && state.route === "event" && state.currentEvent?.token === payload.event_token) {
-    // Soft update only — the optimistic toggle already updated the button visually.
-    // Avoid a full re-render which causes a jarring flash.
+    // soft update only the optimistic toggle already updated the button visually
+    // avoid a full re-render which causes a jarring flash
     const newFav = Boolean(payload.is_favorite);
     if (state.currentEvent) state.currentEvent.is_favorite = newFav;
     syncFavoriteState(payload.event_token, newFav);
@@ -560,6 +580,7 @@ async function handleMiniappRealtime(eventName, payload) {
   }
 }
 
+// refresh social state after realtime friend events
 async function refreshFriendsState({ rerenderProfile = false } = {}) {
   if (!state.user?.is_verified) {
     return;
@@ -577,6 +598,7 @@ async function refreshFriendsState({ rerenderProfile = false } = {}) {
   }
 }
 
+// remove deleted reviews from cached state
 async function handleReviewDeleted(payload) {
   const token = payload?.event_token;
   const targetUserId = String(payload?.target_user_id || "");
@@ -609,6 +631,7 @@ async function handleReviewDeleted(payload) {
   }
 }
 
+// remove deleted reviews from local event data
 function applyDeletedReviewToCachedState(payload) {
   const token = payload?.event_token;
   const targetUserId = String(payload?.target_user_id || "");
@@ -635,6 +658,7 @@ function applyDeletedReviewToCachedState(payload) {
   }
 }
 
+// refresh cached events after sync notifications
 async function refreshAfterExternalEventSync() {
   cachedMenuHTML = null;
   state.eventFilterOptionsLoaded = false;
@@ -662,6 +686,7 @@ async function refreshAfterExternalEventSync() {
   }
 }
 
+// hide bottom nav while form inputs are focused
 function installKeyboardOverlayNav() {
   const viewport = window.visualViewport;
   if (!viewport) {
@@ -690,6 +715,7 @@ function installKeyboardOverlayNav() {
   updateKeyboardOffset();
 }
 
+// parse hash route into app state
 function routeFromLocation() {
   const searchParams = new URLSearchParams(window.location.search);
   if (searchParams.get("route") === "admin") {
@@ -747,6 +773,7 @@ function routeFromLocation() {
   return { route: "events", token: "" };
 }
 
+// reject unsafe event tokens from routes
 function sanitizeEventToken(value) {
   const token = String(value || "").trim();
   if (/^[0-9a-fA-F-]{36}$/.test(token)) {
@@ -758,16 +785,19 @@ function sanitizeEventToken(value) {
   return "";
 }
 
+// reject unsafe invite tokens from routes
 function sanitizeInviteToken(value) {
   const token = String(value || "").trim();
   return /^[A-Za-z0-9_-]{32,256}$/.test(token) ? token : "";
 }
 
+// load from location
 async function loadFromLocation() {
   const next = routeFromLocation();
   await navigate(next.route, { token: next.token, replaceHash: false });
 }
 
+// change route with cached transitions
 async function navigate(route, options = {}) {
   if (route === "ratings") {
     route = "profile";
@@ -782,17 +812,17 @@ async function navigate(route, options = {}) {
 
 
 
-  // Pre-fetch data for the next route BEFORE starting the view transition.
-  // This ensures the DOM swap inside startViewTransition is near-instant,
+  // pre-fetch data for the next route before starting the view transition
+  // this ensures the dom swap inside startviewtransition is near-instant
   // preventing a visual gap where the old page has exited but the new one
-  // hasn't yet appeared (caused by awaiting a network request inside the callback).
+  // hasn't yet appeared (caused by awaiting a network request inside the callback)
   let prefetchedEvent = null;
   let prefetchedReminders = null;
   let prefetchedEvents = null;
   let shouldRefreshEventsAfterNavigation = false;
 
-  // Going events → event: snapshot the current menu DOM for instant restore later.
-  // Only save if the DOM actually has a fully-rendered events screen (not a loading screen).
+  // going events → event: snapshot the current menu dom for instant restore later
+  // only save if the dom actually has a fully-rendered events screen (not a loading screen)
   if (prevRoute === "events" && route === "event") {
     const eventsScreen = app.querySelector('[data-route="events"]');
     if (eventsScreen) {
@@ -800,7 +830,7 @@ async function navigate(route, options = {}) {
     }
   }
 
-  // Going back event → events: restore from snapshot — no fetch, no re-render.
+  // going back event → events: restore from snapshot no fetch, no re-render
   const restoringFromCache = prevRoute === "event" && route === "events" && cachedMenuHTML !== null;
 
   const returningFromEventWithLocalEvents = prevRoute === "event" && route === "events" && state.events.length > 0;
@@ -825,7 +855,7 @@ async function navigate(route, options = {}) {
         prefetchedEvents = await fetchEvents({ ...state.eventFilters, relevance: "all" });
       }
     } catch (_) {
-      // Pre-fetch failed — renderRoute will handle the error gracefully
+      // pre-fetch failed renderroute will handle the error gracefully
     }
   }
 
@@ -840,7 +870,7 @@ async function navigate(route, options = {}) {
     } else if (route === "events") {
       state.calendarMode = false;
     }
-    // Update HTML element's data attribute for CSS-based visibility control
+    // update html element's data attribute for css-based visibility control
     document.documentElement.setAttribute("data-current-route", route);
     if (route !== "events" && route !== "calendar") {
       window.clearTimeout(searchCloseTimer);
@@ -848,27 +878,27 @@ async function navigate(route, options = {}) {
       state.eventSearch.query = "";
       document.documentElement.classList.remove("event-searching", "event-search-closing");
     }
-    // Show back button on all routes except main events/calendar views
-    // Back button always navigates to events menu
+    // show back button on all routes except main events/calendar views
+    // back button always navigates to events menu
     const isMainView = route === "events" || route === "calendar";
     configureBackButton(!isMainView, backHandler);
 
     if (restoringFromCache) {
-      // Restore the events menu DOM from cache — synchronous, no network, no flicker.
-      // Inject `no-enter` into the HTML string BEFORE parsing so CSS animations
-      // (slideDown, slideUp, eventListRise, etc.) never fire on the restored nodes.
+      // restore the events menu dom from cache synchronous, no network, no flicker
+      // inject `no-enter` into the html string before parsing so css animations
+      // (slidedown, slideup, eventlistrise, etc.) never fire on the restored nodes
       let suppressNavScroll = true;
       if (!app) {
         console.error("App element not found during cache restoration");
         throw new Error("App element not found");
       }
       
-      // Validate cached menu exists and contains a screen element
+      // validate cached menu exists and contains a screen element
       if (!cachedMenuHTML || !cachedMenuHTML.includes('<div class="screen')) {
         console.warn("Cached menu HTML is invalid, forcing fresh render");
         restoringFromCache = false;
         cachedMenuHTML = null;
-        // Fall through to normal rendering below
+        // fall through to normal rendering below
       } else {
         app.innerHTML = cachedMenuHTML.replace(/(<div class="screen)/, '$1 no-enter');
 
@@ -893,8 +923,8 @@ async function navigate(route, options = {}) {
       }
     }
 
-    // Normal rendering (not from cache, or cache was invalid)
-    // Inject pre-fetched data into state so renderRoute skips the network call
+    // normal rendering (not from cache, or cache was invalid)
+    // inject pre-fetched data into state so renderroute skips the network call
     if (prefetchedEvent !== null) {
       state.currentEvent = prefetchedEvent;
     } else if (prefetchedEvents !== null) {
@@ -902,7 +932,7 @@ async function navigate(route, options = {}) {
     }
     await renderRoute({ quiet: options.quiet ?? isTopLevelRoute(route), prefetched: true });
     if (options.keepScroll) {
-      // Do not reset scroll
+      // do not reset scroll
     } else if (route === "events" || route === "calendar") {
       restoreScroll(route);
     } else {
@@ -919,18 +949,18 @@ async function navigate(route, options = {}) {
   const isBack = options.direction === "back" ||
     (isTopLevelRoute(prevRoute) && isTopLevelRoute(targetRoute) && getRouteIndex(targetRoute) < getRouteIndex(prevRoute));
 
-  // When restoring from cache, skip the View Transitions API entirely.
-  // startViewTransition hides the real DOM during its animation and replaces it
-  // with pseudo-element snapshots — when animation ends the real DOM re-appears,
-  // causing the visible flash on date/section panels. A direct synchronous swap is
-  // completely invisible to the user.
+  // when restoring from cache, skip the view transitions api entirely
+  // startviewtransition hides the real dom during its animation and replaces it
+  // with pseudo-element snapshots when animation ends the real dom re-appears
+  // causing the visible flash on date/section panels. a direct synchronous swap is
+  // completely invisible to the user
   if (restoringFromCache) {
     await performNavigation();
     
-    // Sync badges from state.events to the restored cached DOM instantly
+    // sync badges from state.events to the restored cached dom instantly
     state.events.forEach(item => setEventRowFavoriteBadge(item.token, item.is_favorite));
     
-    // If in favoritesOnly mode, remove rows that are no longer favorites
+    // if in favoritesonly mode, remove rows that are no longer favorites
     if (state.eventFilters.favoritesOnly) {
       app.querySelectorAll("[data-event-token]").forEach((row) => {
         const token = row.dataset.eventToken;
@@ -1020,7 +1050,7 @@ async function navigate(route, options = {}) {
       await performNavigation();
     } catch (error) {
       console.error("Error during navigation:", error);
-      // Attempt to at least update the route attribute even if something failed
+      // attempt to at least update the route attribute even if something failed
       document.documentElement.setAttribute("data-current-route", route);
     }
   });
@@ -1036,20 +1066,23 @@ async function navigate(route, options = {}) {
   }
 }
 
+// get route index
 function getRouteIndex(route) {
   const order = ["events", "calendar", "ratings", "reminders", "admin", "profile"];
   return order.indexOf(route);
 }
 
+// is top level route
 function isTopLevelRoute(route) {
   return ["events", "calendar", "ratings", "reminders", "admin", "profile"].includes(route);
 }
 
 
 
+// render the current route from state
 async function renderRoute({ quiet = false, prefetched = false } = {}) {
-  // If data was pre-fetched before the view transition, skip loading screen & network calls
-  // so the DOM swap is synchronous and the animation is perfectly smooth.
+  // if data was pre-fetched before the view transition, skip loading screen & network calls
+  // so the dom swap is synchronous and the animation is perfectly smooth
   const useCache = prefetched &&
     ((state.route === "event" && state.currentEvent !== undefined) ||
       (state.route === "reminders" && state.reminders !== undefined) ||
@@ -1068,7 +1101,7 @@ async function renderRoute({ quiet = false, prefetched = false } = {}) {
         return;
       }
       if (!useCache) {
-        // Optimistically render skeleton if we don't have the event yet
+        // optimistically render skeleton if we don't have the event yet
         if (!quiet) {
           app.innerHTML = renderEventSkeleton(state.token);
         }
@@ -1100,7 +1133,7 @@ async function renderRoute({ quiet = false, prefetched = false } = {}) {
         await authenticate().catch(() => null);
       }
       if (!state.user || !state.user.is_verified) {
-        // Not logged in — redirect to events and show the login popup sheet
+        // not logged in redirect to events and show the login popup sheet
         state.route = "events";
         document.documentElement.setAttribute("data-current-route", "events");
         if (!state.events || state.events.length === 0) {
@@ -1176,6 +1209,7 @@ async function renderRoute({ quiet = false, prefetched = false } = {}) {
   }
 }
 
+// render current state without navigation
 function renderCurrent({ quiet = false } = {}) {
   const filterBar = app.querySelector(".filter-bar");
   const filterScroll = filterBar ? filterBar.scrollLeft : 0;
@@ -1187,7 +1221,7 @@ function renderCurrent({ quiet = false } = {}) {
   }
   if (state.route === "profile") {
     if (!state.user || !state.user.is_verified) {
-      // Not logged in — stay on events and show the auth sheet
+      // not logged in stay on events and show the auth sheet
       state.route = "events";
       document.documentElement.setAttribute("data-current-route", "events");
       app.innerHTML = renderMenu(state.events || []);
@@ -1228,6 +1262,7 @@ function renderCurrent({ quiet = false } = {}) {
   }
 }
 
+// apply quiet render
 function applyQuietRender(quiet) {
   if (!quiet) {
     startCountdowns(app);
@@ -1237,6 +1272,7 @@ function applyQuietRender(quiet) {
   startCountdowns(app);
 }
 
+// sync hash
 function syncHash(route, token) {
   const target = route === "events"
     ? eventsHash()
@@ -1250,6 +1286,7 @@ function syncHash(route, token) {
   }
 }
 
+// render invite state before the user can send a request
 function renderFriendInviteScreen(payload = {}) {
   const inviter = payload.inviter;
   const stateName = payload.state || "not_found";
@@ -1294,6 +1331,7 @@ function renderFriendInviteScreen(payload = {}) {
   `;
 }
 
+// render compact friend avatars for event cards
 function renderInlineFriendAvatar(friend = {}) {
   const avatar = friend.avatar || {};
   const initials = escapeSheetHtml(avatar.initials || "NU");
@@ -1308,18 +1346,19 @@ function renderInlineFriendAvatar(friend = {}) {
   return `<span class="friend-avatar large initials">${initials}</span>`;
 }
 
+// render event preserving favorite
 function renderEventPreservingFavorite() {
-  // Snapshot the current favorite button's visual state before re-render.
+  // snapshot the current favorite button's visual state before re-render
   const currentButton = app.querySelector(".event-screen [data-action='favorite']");
   const wasFavorite = currentButton
     ? currentButton.classList.contains("active")
     : Boolean(state.currentEvent?.is_favorite);
 
-  // Re-render the event HTML.
+  // re-render the event html
   app.innerHTML = renderEvent(state.currentEvent);
 
-  // Patch the freshly-created button in-place — never move detached DOM nodes
-  // back into the tree, which can fire color transitions when no-transitions is lifted.
+  // patch the freshly-created button in-place never move detached dom nodes
+  // back into the tree, which can fire color transitions when no-transitions is lifted
   const nextButton = app.querySelector(".event-screen [data-action='favorite']");
   if (nextButton) {
     nextButton.classList.toggle("active", wasFavorite);
@@ -1330,6 +1369,7 @@ function renderEventPreservingFavorite() {
   initEventReviewsHandlers();
 }
 
+// events hash
 function eventsHash() {
   const params = new URLSearchParams();
   const filters = state.eventFilters;
@@ -1344,6 +1384,7 @@ function eventsHash() {
   return query ? `#/?${query}` : "#/";
 }
 
+// hydrate filters from params
 function hydrateFiltersFromParams(params) {
   if (![...params.keys()].length) {
     return;
@@ -1360,10 +1401,12 @@ function hydrateFiltersFromParams(params) {
   }));
 }
 
+// split param
 function splitParam(value) {
   return String(value || "").split(",").map((item) => item.trim()).filter(Boolean);
 }
 
+// ensure event filter options
 async function ensureEventFilterOptions() {
   if (state.eventFilterOptionsLoaded) {
     return;
@@ -1377,6 +1420,7 @@ async function ensureEventFilterOptions() {
   state.eventFilterOptionsLoaded = true;
 }
 
+// update event filters
 function updateEventFilters(patch) {
   setEventFilters({ ...state.eventFilters, ...patch });
   cachedMenuHTML = null;
@@ -1414,6 +1458,7 @@ function updateEventFilters(patch) {
   }, 180);
 }
 
+// refresh events after navigation
 function refreshEventsAfterNavigation() {
   if (favoriteRequests.size) {
     pendingEventsRefreshAfterFavorite = true;
@@ -1422,6 +1467,7 @@ function refreshEventsAfterNavigation() {
   refreshEventsList({ animate: true });
 }
 
+// refresh events list
 async function refreshEventsList({ animate = false } = {}) {
   if (state.route !== "events" && state.route !== "calendar") {
     return;
@@ -1438,6 +1484,7 @@ async function refreshEventsList({ animate = false } = {}) {
   }
 }
 
+// open event search
 function openEventSearch() {
   window.clearTimeout(searchCloseTimer);
   state.eventSearch.active = true;
@@ -1451,6 +1498,7 @@ function openEventSearch() {
   });
 }
 
+// close event search
 function closeEventSearch() {
   state.eventSearch.active = false;
   state.eventSearch.query = "";
@@ -1463,6 +1511,7 @@ function closeEventSearch() {
   }, 340);
 }
 
+// patch events filter bar
 function patchEventsFilterBar() {
   const current = app.querySelector(".filter-bar-shell");
   if (current) {
@@ -1478,6 +1527,7 @@ function patchEventsFilterBar() {
   }
 }
 
+// patch events list
 function patchEventsList({ quiet = false, animate = false } = {}) {
   const region = app.querySelector("[data-events-list-region]");
   if (!region) {
@@ -1501,6 +1551,7 @@ function patchEventsList({ quiet = false, animate = false } = {}) {
   startCountdowns(app);
 }
 
+// on pointer down
 function onPointerDown(event) {
   if (!event.target.closest("[data-action='theme'], [data-action='lang'], [data-action='reminder'], [data-action='share']")) {
     return;
@@ -1509,12 +1560,14 @@ function onPointerDown(event) {
   haptic("impact");
 }
 
+// haptic impact fallback
 function hapticImpactFallback() {
   if (Date.now() - lastDirectHapticAt > 260) {
     haptic("impact");
   }
 }
 
+// on click
 async function onClick(event) {
   const theme = event.target.closest("[data-action='theme']");
   if (theme) {
@@ -1721,7 +1774,7 @@ async function onClick(event) {
     favoriteRequests.add(token);
     favoriteRemove.disabled = true;
     
-    // Optimistic UI update
+    // optimistic ui update
     const eventItem = state.events.find((item) => item.token === token);
     if (eventItem) {
       eventItem.is_favorite = false;
@@ -1782,6 +1835,7 @@ async function onClick(event) {
   }
 }
 
+// trigger control animation
 function triggerControlAnimation(element, className) {
   element.classList.remove(className);
   void element.offsetWidth;
@@ -1789,10 +1843,11 @@ function triggerControlAnimation(element, className) {
   window.setTimeout(() => element.classList.remove(className), 520);
 }
 
+// on input
 function onInput(event) {
   const adminSearch = event.target.closest("#admin-user-search");
   if (adminSearch) {
-    // Sanitize in real-time (max 100 length, no SQL/script chars, no extra spaces)
+    // sanitize in real-time (max 100 length, no sql/script chars, no extra spaces)
     let val = adminSearch.value.slice(0, 100).replace(/[<>&"'/`\\;]/g, "");
     val = val.replace(/^\s+/, "").replace(/\s{2,}/g, " ");
     adminSearch.value = val;
@@ -1830,7 +1885,7 @@ function onInput(event) {
   if (!searchInput) {
     return;
   }
-  // Sanitize in real-time (max 100 length, no SQL/script chars, no extra spaces)
+  // sanitize in real-time (max 100 length, no sql/script chars, no extra spaces)
   let val = searchInput.value.slice(0, 100).replace(/[<>&"'/`\\;]/g, "");
   val = val.replace(/^\s+/, "").replace(/\s{2,}/g, " ");
   searchInput.value = val;
@@ -1838,6 +1893,7 @@ function onInput(event) {
   patchEventsList({ quiet: true });
 }
 
+// on focus out
 async function onFocusOut(event) {
   const searchInput = event.target.closest("[data-event-search-input]");
   if (searchInput) {
@@ -1878,6 +1934,7 @@ async function onFocusOut(event) {
   }
 }
 
+// handle event action
 async function handleEventAction(action, element) {
   if (action === "admin-block-user") {
     const email = element.dataset.email;
@@ -1968,7 +2025,7 @@ async function handleEventAction(action, element) {
         try {
           state.currentEvent = await fetchEvent(event.token);
         } catch {
-          // Reminder changes are already saved; keep the current page stable if refresh fails.
+          // reminder changes are already saved; keep the current page stable if refresh fails
         }
       },
     });
@@ -2053,6 +2110,7 @@ async function handleEventAction(action, element) {
 
 }
 
+// set event attendee count
 function setEventAttendeeCount(token, count) {
   const normalized = Math.max(0, Number(count) || 0);
   const apply = (item) => {
@@ -2075,6 +2133,7 @@ function setEventAttendeeCount(token, count) {
   }
 }
 
+// copy share text with browser fallbacks
 async function copyText(value) {
   if (!value) {
     return;
@@ -2094,6 +2153,7 @@ async function copyText(value) {
   input.remove();
 }
 
+// toggle favorite
 async function toggleFavorite(event) {
   if (favoriteRequests.has(event.token)) {
     return;
@@ -2115,9 +2175,9 @@ async function toggleFavorite(event) {
         state.events = state.events.filter((item) => item.token !== event.token);
       }
     }
-    // We intentionally DO NOT nullify cachedMenuHTML here.
-    // This allows the back navigation to instantly restore the menu from cache.
-    // The navigation code will dynamically patch the badges and remove unfavorited items.
+    // we intentionally do not nullify cachedmenuhtml here
+    // this allows the back navigation to instantly restore the menu from cache
+    // the navigation code will dynamically patch the badges and remove unfavorited items
     haptic("success");
   } catch (error) {
     event.is_favorite = previous;
@@ -2135,6 +2195,7 @@ async function toggleFavorite(event) {
   }
 }
 
+// sync favorite state
 function syncFavoriteState(token, isFavorite) {
   const apply = (item) => {
     if (item?.token === token) {
@@ -2150,6 +2211,7 @@ function syncFavoriteState(token, isFavorite) {
   state.currentEvent?.related_events?.forEach(apply);
 }
 
+// set event row favorite badge
 function setEventRowFavoriteBadge(token, isFavorite) {
   app.querySelectorAll("[data-event-token]").forEach((row) => {
     if (row.dataset.eventToken !== token) {
@@ -2172,6 +2234,7 @@ function setEventRowFavoriteBadge(token, isFavorite) {
   });
 }
 
+// set favorite button state
 function setFavoriteButtonState(isFavorite, animate) {
   const button = app.querySelector("[data-action='favorite']");
   if (!button) {
@@ -2185,6 +2248,7 @@ function setFavoriteButtonState(isFavorite, animate) {
   }
 }
 
+// set favorite button loading
 function setFavoriteButtonLoading(loading) {
   const button = app.querySelector("[data-action='favorite']");
   if (!button) {
@@ -2194,6 +2258,7 @@ function setFavoriteButtonLoading(loading) {
   button.classList.toggle("is-loading", loading);
 }
 
+// animate theme changes from the tapped control
 function runCircularTransition(event, apply) {
   if (!document.startViewTransition || !event) {
     document.documentElement.classList.add("theme-transitioning");
@@ -2235,9 +2300,9 @@ function runCircularTransition(event, apply) {
   });
 
   transition.finished.finally(() => {
-    // Remove theme-transitioning FIRST so the favorite button's inline
-    // color pin (set in renderEventPreservingFavorite) is released at the
-    // same time no-transitions is lifted — preventing any color flash.
+    // remove theme-transitioning first so the favorite button's inline
+    // color pin (set in rendereventpreservingfavorite) is released at the
+    // same time no-transitions is lifted preventing any color flash
     document.documentElement.classList.remove("theme-transitioning");
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
@@ -2264,6 +2329,7 @@ let adminSearchTimer = null;
 let adminGroupSearchTimer = null;
 let adminGroupsPollTimer = null;
 
+// start resend countdown
 function startResendCountdown() {
   window.clearInterval(resendInterval);
   resendInterval = window.setInterval(() => {
@@ -2284,6 +2350,7 @@ function startResendCountdown() {
   }, 1000);
 }
 
+// swap auth sheet contents without layout jumps
 function updateAuthSectionDOM(options = {}) {
   const app = document.querySelector(".auth-sheet-backdrop") || document.getElementById("app");
   const container = app.querySelector("#auth-profile-container");
@@ -2295,46 +2362,46 @@ function updateAuthSectionDOM(options = {}) {
   const sheet = app.querySelector(".auth-bottom-sheet");
 
   if (!options.skipTransition && sheet) {
-    // 1. Measure and lock current height to prevent instant content pop snaps
+    // 1. measure and lock current height to prevent instant content pop snaps
     const oldHeight = sheet.offsetHeight;
     sheet.style.height = `${oldHeight}px`;
     sheet.style.transition = "height 0.28s cubic-bezier(0.22, 1, 0.36, 1)";
 
-    // 2. Smoothly fade out old content first
+    // 2. smoothly fade out old content first
     container.style.transition = "opacity 0.12s ease-out, transform 0.12s ease-out";
     container.style.opacity = "0";
     container.style.transform = "translateY(-4px)";
 
     setTimeout(() => {
-      // 3. Swap the DOM content
+      // 3. swap the dom content
       container.innerHTML = newContent;
       initRatingsHandlers();
 
-      // 4. Measure new target natural height
+      // 4. measure new target natural height
       sheet.style.height = "auto";
       const newHeight = sheet.offsetHeight;
       
-      // 5. Restore back to old height temporarily
+      // 5. restore back to old height temporarily
       sheet.style.height = `${oldHeight}px`;
       
-      // Force immediate reflow/repaint
+      // force immediate reflow/repaint
       sheet.offsetHeight;
 
-      // 6. Smoothly transition the sheet height to the new container boundaries
+      // 6. smoothly transition the sheet height to the new container boundaries
       sheet.style.height = `${newHeight}px`;
 
-      // 7. Render organic slide-up and fade-in animation for the new elements
+      // 7. render organic slide-up and fade-in animation for the new elements
       container.style.transition = "opacity 0.22s cubic-bezier(0.22, 1, 0.36, 1), transform 0.22s cubic-bezier(0.22, 1, 0.36, 1)";
       container.style.opacity = "0";
       container.style.transform = "translateY(8px)";
       
-      // Force repaint on container
+      // force repaint on container
       container.offsetHeight;
       
       container.style.opacity = "1";
       container.style.transform = "translateY(0)";
 
-      // 8. Clean up inline styles once transitions complete
+      // 8. clean up inline styles once transitions complete
       setTimeout(() => {
         sheet.style.height = "auto";
         sheet.style.transition = "";
@@ -2346,6 +2413,7 @@ function updateAuthSectionDOM(options = {}) {
   }
 }
 
+// update friend search results without rerendering the sheet
 function updateFriendSearchResultsDOM() {
   const root = document.querySelector(".auth-sheet-backdrop") || document.getElementById("app");
   const results = root?.querySelector("#friend-search-results");
@@ -2357,6 +2425,7 @@ function updateFriendSearchResultsDOM() {
   initRatingsHandlers();
 }
 
+// reflect friend action state on an existing button
 async function mutateFriendButton(button, operation) {
   if (!button) return;
   const originalText = button.textContent;
@@ -2374,6 +2443,7 @@ async function mutateFriendButton(button, operation) {
   }
 }
 
+// init ratings handlers
 function initRatingsHandlers() {
   const isAuthSheetOpen = document.querySelector(".auth-sheet-backdrop") !== null;
   if (state.route !== "ratings" && state.route !== "events" && state.route !== "profile" && state.route !== "friend-invite" && !isAuthSheetOpen) return;
@@ -2757,7 +2827,7 @@ function initRatingsHandlers() {
             await navigate("friend-invite", { token: prevToken });
           } else {
             closeAuthSheet();
-            // Force a fresh events render even if we're already on that route
+            // force a fresh events render even if we're already on that route
             state.route = "";
             await navigate("events", { replaceHash: false, quiet: true, keepScroll: true });
           }
@@ -2821,7 +2891,7 @@ function initRatingsHandlers() {
           await navigate("friend-invite", { token: prevToken });
         } else {
           closeAuthSheet();
-          // Force a fresh events render even if we're already on that route
+          // force a fresh events render even if we're already on that route
           state.route = "";
           await navigate("events", { replaceHash: false, quiet: true, keepScroll: true });
         }
@@ -2850,7 +2920,7 @@ function initRatingsHandlers() {
       state.authPassword = "";
       state.authConfirmPassword = "";
       closeAuthSheet();
-      // Reset cached events and route guard so the events screen re-fetches
+      // reset cached events and route guard so the events screen re-fetches
       state.events = [];
       cachedMenuHTML = null;
       state.route = "";
@@ -2911,7 +2981,7 @@ function initRatingsHandlers() {
     };
   });
 
-  // Admin delete button for global feed
+  // admin delete button for global feed
   app.querySelectorAll("[data-admin-delete-review]").forEach((btn) => {
     btn.onclick = async (e) => {
       e.preventDefault();
@@ -2925,7 +2995,7 @@ function initRatingsHandlers() {
         adminDeleteReview(targetUserId, eventToken)
           .then(async () => {
             haptic("success");
-            // Refresh feed
+            // refresh feed
             state.prefetchedRatings = null;
             if (document.querySelector(".auth-sheet-backdrop")) {
               // if popup open, re-render auth section
@@ -2964,7 +3034,7 @@ function initRatingsHandlers() {
     };
   });
 
-  // ── Forgot password button (login tab only) ──
+  // forgot password button (login tab only)
   const forgotBtn = app.querySelector("#forgot-password-btn");
   if (forgotBtn) {
     forgotBtn.onclick = () => {
@@ -2982,6 +3052,7 @@ function initRatingsHandlers() {
 }
 
 
+// update resend cooldown without rerendering the sheet
 function startForgotResendCountdown() {
   window.clearInterval(forgotResendInterval);
   forgotResendInterval = window.setInterval(() => {
@@ -2990,7 +3061,7 @@ function startForgotResendCountdown() {
       const root = document.querySelector(".auth-sheet-backdrop") || app;
       const timerEl = root.querySelector(".resend-timer");
       if (timerEl) {
-        // Update just the timer text in-place to avoid re-render
+        // avoid rerendering while the timer ticks
         const key = t("resendAvailableIn").replace("{sec}", state.forgotResendCooldown);
         timerEl.textContent = key;
       }
@@ -3005,6 +3076,7 @@ function startForgotResendCountdown() {
   }, 1000);
 }
 
+// wire reset-password forms and cooldown state
 function initForgotPasswordHandlers() {
   const isAuthSheetOpen = document.querySelector(".auth-sheet-backdrop") !== null;
   if (state.route !== "ratings" && !isAuthSheetOpen) return;
@@ -3012,7 +3084,7 @@ function initForgotPasswordHandlers() {
 
   const root = document.querySelector(".auth-sheet-backdrop") || app;
 
-  // ── Back button (all steps) ──
+  // preserve reset state while moving backward
   const backBtn = root.querySelector("#forgot-back-btn");
   if (backBtn) {
     backBtn.onclick = () => {
@@ -3029,7 +3101,7 @@ function initForgotPasswordHandlers() {
     };
   }
 
-  // ── Step 1: Email form ──
+  // request a reset code without revealing account status
   const emailForm = root.querySelector("#forgot-email-form");
   if (emailForm) {
     const emailInput = root.querySelector("#forgot-email-field");
@@ -3092,7 +3164,7 @@ function initForgotPasswordHandlers() {
     };
   }
 
-  // ── Step 2: Code form ──
+  // verify the code before accepting a new password
   const codeForm = root.querySelector("#forgot-code-form");
   if (codeForm) {
     const codeInput = root.querySelector("#forgot-code-field");
@@ -3133,12 +3205,12 @@ function initForgotPasswordHandlers() {
       }
     };
 
-    // Start the countdown if still ticking
+    // resume cooldown after sheet rerenders
     if (state.forgotResendCooldown > 0) {
       startForgotResendCountdown();
     }
 
-    // Resend button
+    // keep resend attempts behind the cooldown
     const resendBtn = root.querySelector("#forgot-resend-btn");
     if (resendBtn) {
       resendBtn.onclick = async () => {
@@ -3166,10 +3238,10 @@ function initForgotPasswordHandlers() {
     }
   }
 
-  // ── Step 3: New password form ──
+  // consume the code only when the new password is submitted
   const resetForm = root.querySelector("#forgot-reset-form");
   if (resetForm) {
-    // Password visibility toggle (reuses existing .toggle-pass pattern)
+    // reuse the same password visibility control pattern
     resetForm.querySelectorAll(".toggle-pass").forEach(btn => {
       btn.onclick = () => {
         haptic("light");
@@ -3182,7 +3254,7 @@ function initForgotPasswordHandlers() {
       };
     });
 
-    // Sanitize new password field — no injection chars, no leading/trailing spaces, max 64
+    // reject risky password characters before submit
     const newPwdInput = root.querySelector("#forgot-newpwd-field");
     if (newPwdInput) {
       newPwdInput.onkeydown = (e) => {
@@ -3206,7 +3278,7 @@ function initForgotPasswordHandlers() {
       };
     }
 
-    // Sanitize confirm password field — same rules
+    // keep confirmation validation aligned with the password field
     const confirmPwdInput = root.querySelector("#forgot-confirmpwd-field");
     if (confirmPwdInput) {
       confirmPwdInput.onkeydown = (e) => {
@@ -3256,18 +3328,18 @@ function initForgotPasswordHandlers() {
         await forgotPasswordReset(state.forgotEmail, state.forgotCode, newPwd);
         haptic("success");
 
-        // Reset all forgot-password state
+        // clear reset state after successful password change
         state.forgotStep = null;
         state.forgotEmail = "";
         state.forgotCode = "";
         state.forgotResendCooldown = 0;
         window.clearInterval(forgotResendInterval);
 
-        // Switch to login tab and show success message
+        // return the user to login after reset completes
         state.authMode = "login";
         updateAuthSectionDOM();
 
-        // Show a non-intrusive success banner
+        // show success without reopening the flow
         requestAnimationFrame(() => {
           const container = root.querySelector("#auth-profile-container");
           if (container) {
@@ -3291,6 +3363,7 @@ function initForgotPasswordHandlers() {
   }
 }
 
+// wire review modal and review form interactions
 function initEventReviewsHandlers() {
   const form = app.querySelector("#event-review-form");
   
@@ -3371,9 +3444,9 @@ function initEventReviewsHandlers() {
   if (commentField) {
     commentField.oninput = () => {
       let val = commentField.value;
-      // Do not allow spaces first
+      // do not allow spaces first
       val = val.replace(/^\s+/, "");
-      // Do not allow more than 1 consecutive space
+      // do not allow more than 1 consecutive space
       val = val.replace(/\s{2,}/g, " ");
       if (commentField.value !== val) {
         commentField.value = val;
@@ -3406,9 +3479,9 @@ function initEventReviewsHandlers() {
       return;
     }
 
-    // Clean hidden formatting / control characters (Cc, Cf, Cs, Co, Cn)
+    // clean hidden formatting / control characters (cc, cf, cs, co, cn)
     let cleanedContent = rawContent.replace(/[\u200b-\u200d\uFEFF\u200e\u200f\u202a-\u202e\u0000-\u001f\u007f-\u009f]/g, "");
-    // Compress consecutive spaces, tabs, and newlines to a single space
+    // compress consecutive spaces, tabs, and newlines to a single space
     cleanedContent = cleanedContent.replace(/\s+/g, " ").trim();
 
     if (cleanedContent.length > 256) {
@@ -3488,6 +3561,7 @@ function initEventReviewsHandlers() {
 
 let savedScrollY = 0;
 
+// open auth sheet and ensure guest session
 export function openAuthSheet() {
   if (!document.querySelector(".auth-sheet-backdrop")) {
     savedScrollY = window.scrollY;
@@ -3508,7 +3582,7 @@ export function openAuthSheet() {
 
   const sheet = node.querySelector(".auth-bottom-sheet");
   
-  // High-fidelity swipe/drag down to close handlers
+  // high-fidelity swipe/drag down to close handlers
   let startY = 0;
   let currentY = 0;
   let isDragging = false;
@@ -3557,14 +3631,14 @@ export function openAuthSheet() {
     if (e.target === node) closeAuthSheet();
   };
 
-  // Silently re-establish the Telegram guest session if we don't have one.
-  // This ensures the Bearer token is present when the user submits login/register,
-  // preventing the "Missing session" error from the backend.
+  // silently re-establish the telegram guest session if we don't have one
+  // this ensures the bearer token is present when the user submits login/register
+  // preventing the "missing session" error from the backend
   if (!state.session) {
     authenticate().catch(() => null);
   }
 
-  // If user is verified but the profile is not in the cache, fetch it asynchronously and re-render
+  // if user is verified but the profile is not in the cache, fetch it asynchronously and re-render
   if (state.user && state.user.is_verified && !state.cachedRatingsProfile) {
     Promise.all([
       fetchProfile(),
@@ -3583,6 +3657,7 @@ export function openAuthSheet() {
   });
 }
 
+// close auth sheet and restore page chrome
 export function closeAuthSheet() {
   const current = document.querySelector(".auth-sheet-backdrop");
   if (!current) return;

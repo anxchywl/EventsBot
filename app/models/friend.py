@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from app.models.user import User
 
 
+# store one canonical row per friendship pair
 class Friendship(Base):
     __tablename__ = "friendships"
     __table_args__ = (
@@ -46,6 +47,7 @@ class Friendship(Base):
     friend_user: Mapped[User] = relationship(foreign_keys=[friend_user_id])
 
 
+# store directional requests before friendship creation
 class FriendRequest(TimestampMixin, Base):
     __tablename__ = "friend_requests"
     __table_args__ = (
@@ -79,6 +81,7 @@ class FriendRequest(TimestampMixin, Base):
     invite: Mapped[FriendInvite | None] = relationship(back_populates="requests")
 
 
+# store hashed invite links with expiry and revoke state
 class FriendInvite(TimestampMixin, Base):
     __tablename__ = "friend_invites"
     __table_args__ = (
@@ -98,6 +101,7 @@ class FriendInvite(TimestampMixin, Base):
     requests: Mapped[list[FriendRequest]] = relationship(back_populates="invite")
 
 
+# store friend visibility and contact preferences
 class PrivacySettings(TimestampMixin, Base):
     __tablename__ = "privacy_settings"
     __table_args__ = (

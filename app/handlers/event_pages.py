@@ -28,6 +28,7 @@ router = Router(name="event_pages")
 UNAVAILABLE_TEXT = "Event no longer available."
 
 
+# send event page from token
 async def send_event_page_from_token(
     message: Message,
     session: AsyncSession,
@@ -42,7 +43,7 @@ async def send_event_page_from_token(
         await message.answer(UNAVAILABLE_TEXT)
         return
 
-    # Set chat menu button to custom event page Mini App url
+    # set chat menu button to custom event page mini app url
     settings = get_settings()
     miniapp_url = build_miniapp_event_url(
         miniapp_base_url=settings.miniapp_base_url,
@@ -79,6 +80,7 @@ async def send_event_page_from_token(
     await session.commit()
 
 
+# send event page message
 async def send_event_page_message(
     message: Message,
     event: Event,
@@ -102,6 +104,7 @@ async def send_event_page_message(
         await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
 
 
+# process event reminder options
 @router.callback_query(F.data.startswith("er_"))
 async def process_event_reminder_options(
     callback: CallbackQuery, session: AsyncSession
@@ -133,6 +136,7 @@ async def process_event_reminder_options(
     await callback.answer()
 
 
+# process event reminder set
 @router.callback_query(F.data.startswith("ert_"))
 async def process_event_reminder_set(
     callback: CallbackQuery, session: AsyncSession
@@ -153,6 +157,7 @@ async def process_event_reminder_set(
     await callback.answer(message, show_alert=True)
 
 
+# process event share
 @router.callback_query(F.data.startswith("es_"))
 async def process_event_share(callback: CallbackQuery, session: AsyncSession, bot: Bot):
     public_token = callback.data.removeprefix("es_")
@@ -190,6 +195,7 @@ async def process_event_share(callback: CallbackQuery, session: AsyncSession, bo
     await callback.answer()
 
 
+# process events back
 @router.callback_query(F.data == "events_back")
 async def process_events_back(callback: CallbackQuery, session: AsyncSession, bot: Bot):
     bot_user = await bot.get_me()
@@ -201,6 +207,7 @@ async def process_events_back(callback: CallbackQuery, session: AsyncSession, bo
     await callback.answer()
 
 
+# process event page open
 @router.callback_query(F.data.startswith("ev_"))
 async def process_event_page_open(
     callback: CallbackQuery, session: AsyncSession, bot: Bot

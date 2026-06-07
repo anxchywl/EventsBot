@@ -13,6 +13,7 @@ from app.models.favorite import Favorite
 from app.models.user import User
 
 
+# check whether the user saved an event
 async def is_event_favorite(session: AsyncSession, user: User | None, event_id: int) -> bool:
     if not user:
         return False
@@ -25,6 +26,7 @@ async def is_event_favorite(session: AsyncSession, user: User | None, event_id: 
     return favorite_id is not None
 
 
+# fetch favorite ids for bulk event decoration
 async def get_favorite_event_ids(
     session: AsyncSession,
     user: User | None,
@@ -41,6 +43,7 @@ async def get_favorite_event_ids(
     return set(result.scalars().all())
 
 
+# create favorite without duplicating rows
 async def add_favorite(session: AsyncSession, user: User, event: Event) -> bool:
     if await is_event_favorite(session, user, event.id):
         return False
@@ -54,6 +57,7 @@ async def add_favorite(session: AsyncSession, user: User, event: Event) -> bool:
         return False
 
 
+# delete favorite if it exists
 async def remove_favorite(session: AsyncSession, user: User, event: Event) -> bool:
     result = await session.execute(
         delete(Favorite)
@@ -63,6 +67,7 @@ async def remove_favorite(session: AsyncSession, user: User, event: Event) -> bo
     return result.scalar_one_or_none() is not None
 
 
+# load upcoming favorites for the user profile
 async def get_user_favorite_events(session: AsyncSession, user: User, limit: int, offset: int, today: date) -> Sequence[Event]:
     result = await session.execute(
         select(Event)

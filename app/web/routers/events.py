@@ -53,6 +53,7 @@ FILTER_VALUE_MAX_LEN = 100
 _PUBLIC_TOKEN_RE = re.compile(r"^(event_)?[0-9a-fA-F-]{36}$")
 
 
+# reject malformed event tokens before database lookup
 def validate_public_token(public_token: str) -> str:
     token = public_token.strip()
     if not _PUBLIC_TOKEN_RE.fullmatch(token):
@@ -60,6 +61,7 @@ def validate_public_token(public_token: str) -> str:
     return token
 
 
+# list approved events with user-specific decorations
 @router.get("", response_model=list[EventListItem])
 async def list_events(
     sort: str = Query("time_asc", max_length=32),
@@ -108,6 +110,7 @@ async def list_events(
     return data
 
 
+# expose filter options for the mini app
 @router.get("/filters", response_model=EventFiltersResponse)
 async def event_filters(
     session: AsyncSession = Depends(get_session),
@@ -160,6 +163,7 @@ async def event_filters(
     )
 
 
+# report the latest completed event sync version
 @router.get("/sync-version")
 async def event_sync_version(
     session: AsyncSession = Depends(get_session),
@@ -167,6 +171,7 @@ async def event_sync_version(
     return await latest_completed_sync_version(session)
 
 
+# stream review deletion updates to connected clients
 @router.get("/review-updates")
 async def review_updates() -> StreamingResponse:
     async def stream():
@@ -174,12 +179,12 @@ async def review_updates() -> StreamingResponse:
         iterator = subscribe_miniapp_events()
         while True:
             try:
-                # Wait for next event or timeout for keep-alive ping
+                # wait for next event or timeout for keep-alive ping
                 message = await asyncio.wait_for(anext(iterator), timeout=15.0)
                 yield f"event: {message['type']}\n"
                 yield f"data: {json.dumps(message)}\n\n"
             except asyncio.TimeoutError:
-                # Send a comment ping to keep connection alive and detect drops
+                # send a comment ping to keep connection alive and detect drops
                 yield ": ping\n\n"
             except StopAsyncIteration:
                 break
@@ -195,6 +200,7 @@ async def review_updates() -> StreamingResponse:
     )
 
 
+# stream mini app updates with keepalive pings
 @router.get("/updates")
 async def miniapp_updates(
     token: str = Query(..., min_length=1, max_length=4096),
@@ -230,6 +236,7 @@ async def miniapp_updates(
     )
 
 
+# load one approved event by public token
 @router.get("/{public_token}", response_model=EventDetail)
 async def event_detail(
     public_token: str,
@@ -264,6 +271,7 @@ async def event_detail(
     return data
 
 
+# record registration intent before redirecting users
 @router.post("/{public_token}/register", response_model=RegisterResponse)
 async def register_event_click(
     public_token: str,
@@ -311,6 +319,7 @@ async def register_event_click(
     return RegisterResponse(attendee_count=int(count or 0))
 
 
+# recommend nearby approved events from the same category
 async def _related_events(session: AsyncSession, event: Event) -> list[Event]:
     settings = get_settings()
     today = datetime.now(ZoneInfo(settings.app_timezone)).date()
@@ -329,6 +338,7 @@ async def _related_events(session: AsyncSession, event: Event) -> list[Event]:
     return list(result.scalars().all())
 
 
+# load user context when a valid session exists
 async def _optional_user(
     session: AsyncSession,
     miniapp_user: MiniAppUser | None,
@@ -338,6 +348,7 @@ async def _optional_user(
     return await upsert_miniapp_user(session, miniapp_user)
 
 
+# apply mini app filters to approved events
 async def _filtered_events(
     session: AsyncSession,
     *,
@@ -425,6 +436,7 @@ async def _filtered_events(
     return list(result.scalars().all())
 
 
+# parse comma-separated filter query values
 def _split_filter_values(value: str) -> list[str]:
     items = sorted({item.strip() for item in value.split(",") if item.strip()})
     if len(items) > MAX_FILTER_VALUES or any(len(item) > FILTER_VALUE_MAX_LEN for item in items):
@@ -432,11 +444,13 @@ def _split_filter_values(value: str) -> list[str]:
     return items
 
 
+# anchor date filters to local day boundaries
 def _today():
     settings = get_settings()
     return datetime.now(ZoneInfo(settings.app_timezone)).date()
 
 
+# choose the safest share target for one event
 async def _event_share_target(public_token: str) -> str:
     settings = get_settings()
     return build_telegram_miniapp_direct_link(
@@ -446,6 +460,7 @@ async def _event_share_target(public_token: str) -> str:
     ) or f"/events/{public_token}"
 
 
+# build public share urls from event tokens
 async def _event_share_url(event: Event) -> str:
     return build_telegram_text_share_link(
         text=event.title,

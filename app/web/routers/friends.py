@@ -61,6 +61,7 @@ _FRIEND_RATE_LIMITS: dict[str, list[float]] = {}
 _INVITE_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{32,256}$")
 
 
+# reject malformed invite tokens as expired links
 def _validate_invite_token(token: str | None) -> str:
     value = (token or "").strip()
     if not _INVITE_TOKEN_RE.fullmatch(value):
@@ -68,11 +69,13 @@ def _validate_invite_token(token: str | None) -> str:
     return value
 
 
+# rate limit by user and client host
 def _client_key(request: Request, user: User, action: str) -> str:
     host = request.client.host if request.client else "unknown"
     return f"{action}:{user.id}:{host}"
 
 
+# limit bursty social actions in memory
 def _check_rate_limit(key: str, *, limit: int, window_seconds: int) -> None:
     now = time.time()
     cutoff = now - window_seconds
@@ -83,19 +86,21 @@ def _check_rate_limit(key: str, *, limit: int, window_seconds: int) -> None:
     hits.append(now)
     _FRIEND_RATE_LIMITS[key] = hits
 
-    # Prevent memory leaks by pruning stale keys when dict grows large
+    # prevent memory leaks by pruning stale keys when dict grows large
     if len(_FRIEND_RATE_LIMITS) > 10000:
         for k in list(_FRIEND_RATE_LIMITS.keys()):
             _FRIEND_RATE_LIMITS[k] = [ts for ts in _FRIEND_RATE_LIMITS[k] if ts > cutoff]
             if not _FRIEND_RATE_LIMITS[k]:
                 del _FRIEND_RATE_LIMITS[k]
 
+# send telegram notifications without blocking the request
 def _notify_user(user: User | None, message: str) -> None:
     if user is None or not user.telegram_id or user.telegram_id < 0:
         return
     asyncio.create_task(_send_telegram_notification(user.telegram_id, message))
 
 
+# isolate bot session lifetime per background send
 async def _send_telegram_notification(telegram_id: int, message: str) -> None:
     bot = Bot(token=get_settings().bot_token.get_secret_value())
     try:
@@ -106,6 +111,7 @@ async def _send_telegram_notification(telegram_id: int, message: str) -> None:
         await bot.session.close()
 
 
+# list verified friends with public profile summaries
 @router.get("", response_model=FriendsListResponse)
 async def list_friends(
     limit: int = Query(100, ge=1, le=200),
@@ -132,6 +138,7 @@ async def list_friends(
     )
 
 
+# split pending requests into incoming and outgoing lists
 @router.get("/requests", response_model=FriendRequestsResponse)
 async def list_friend_requests(
     limit: int = Query(100, ge=1, le=200),
@@ -173,6 +180,7 @@ async def list_friend_requests(
     return FriendRequestsResponse(incoming=incoming, outgoing=outgoing)
 
 
+# create direct or invite-based friend requests
 @router.post("/requests", response_model=FriendActionResponse)
 async def send_friend_request(
     payload: FriendRequestCreate,
@@ -210,6 +218,7 @@ async def send_friend_request(
     return FriendActionResponse(ok=True, message="Friend request sent.", request_id=friend_request.id)
 
 
+# accept an incoming request and notify both users
 @router.post("/requests/{request_id}/accept", response_model=ActionResponse)
 async def accept_request(
     request_id: int = Path(..., ge=1),
@@ -240,6 +249,7 @@ async def accept_request(
     return ActionResponse(ok=True, message="Friend request accepted.")
 
 
+# decline an incoming request and notify requester
 @router.post("/requests/{request_id}/decline", response_model=ActionResponse)
 async def decline_request(
     request_id: int = Path(..., ge=1),
@@ -269,6 +279,7 @@ async def decline_request(
     return ActionResponse(ok=True, message="Friend request declined.")
 
 
+# cancel an outgoing pending request
 @router.post("/requests/{request_id}/cancel", response_model=ActionResponse)
 async def cancel_request(
     request_id: int = Path(..., ge=1),
@@ -294,6 +305,7 @@ async def cancel_request(
     return ActionResponse(ok=True, message="Friend request cancelled.")
 
 
+# remove friendship and revoke related invite links
 @router.delete("/{friend_user_id}", response_model=ActionResponse)
 async def remove_friend(
     friend_user_id: int = Path(..., ge=1),
@@ -326,6 +338,7 @@ async def remove_friend(
     return ActionResponse(ok=True, message="Friend removed.")
 
 
+# search only verified users who allow requests
 @router.get("/search", response_model=FriendSearchResponse)
 async def search_users(
     request: Request,
@@ -371,6 +384,7 @@ async def search_users(
     )
 
 
+# create shareable telegram mini app invite
 @router.post("/invites", response_model=FriendInviteResponse)
 async def create_invite(
     request: Request,
@@ -408,6 +422,7 @@ async def create_invite(
     )
 
 
+# revoke an active invite owned by the current user
 @router.delete("/invites/{invite_id}", response_model=ActionResponse)
 async def revoke_invite(
     invite_id: int = Path(..., ge=1),
@@ -423,6 +438,7 @@ async def revoke_invite(
     return ActionResponse(ok=True, message="Invite revoked.")
 
 
+# resolve invite state for anonymous or unverified users
 @router.get("/invites/{token}", response_model=FriendInviteLookupResponse)
 async def lookup_invite(
     token: str,
@@ -457,6 +473,7 @@ async def lookup_invite(
     )
 
 
+# load privacy settings with defaults
 @router.get("/settings", response_model=PrivacySettingsResponse)
 async def get_privacy_settings(
     user: User = Depends(require_verified_user),
@@ -471,6 +488,7 @@ async def get_privacy_settings(
     )
 
 
+# publish privacy changes to affected friends
 @router.put("/settings", response_model=PrivacySettingsResponse)
 async def update_privacy_settings(
     payload: PrivacySettingsUpdate,
@@ -497,6 +515,7 @@ async def update_privacy_settings(
     )
 
 
+# list friends attending an approved event
 @router.get("/events/{event_id}/friends-going", response_model=list[EventFriendGoing])
 async def event_friends(
     event_id: int = Path(..., ge=1),

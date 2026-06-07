@@ -4,15 +4,17 @@ import re
 import secrets
 
 
+# hash passwords before storage
 def hash_password(password: str) -> str:
     """Hashes a password securely using PBKDF2-HMAC-SHA256."""
     salt = secrets.token_bytes(16)
-    iterations = 600000  # OWASP recommendation for PBKDF2-HMAC-SHA256
+    iterations = 600000  # owasp recommendation for pbkdf2-hmac-sha256
     hash_bytes = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, iterations)
     # format: iterations$salt_hex$hash_hex
     return f"{iterations}${salt.hex()}${hash_bytes.hex()}"
 
 
+# compare stored password hashes without exposing timing details
 def verify_password(password: str, hashed: str) -> bool:
     """Verifies a password against a PBKDF2-HMAC-SHA256 hash."""
     if not hashed or "$" not in hashed:
@@ -30,6 +32,7 @@ def verify_password(password: str, hashed: str) -> bool:
         return False
 
 
+# enforce password rules shared by auth flows
 def validate_password_format(password: str) -> str | None:
     """
     Validates password requirements.
@@ -46,6 +49,7 @@ def validate_password_format(password: str) -> str | None:
     return None
 
 
+# enforce public nickname rules
 def validate_nickname_format(nickname: str) -> str | None:
     """
     Validates nickname requirements.
@@ -60,7 +64,7 @@ def validate_nickname_format(nickname: str) -> str | None:
     if len(nickname) > 24:
         return "Nickname must be at most 24 characters long"
     
-    # Block dangerous tags/HTML/script chars
+    # block dangerous tags/html/script chars
     if re.search(r"[<>&\"'/`]", nickname):
         return "Nickname contains invalid characters"
     return None

@@ -15,7 +15,7 @@ from app.models.enums import EventStatus, ModerationAction
 logger = logging.getLogger(__name__)
 
 
-# loads active event categories
+# load active event categories in display order
 async def get_active_categories(session: AsyncSession) -> Sequence[EventCategory]:
     result = await session.execute(
         select(EventCategory)
@@ -25,7 +25,7 @@ async def get_active_categories(session: AsyncSession) -> Sequence[EventCategory
     return result.scalars().all()
 
 
-# finds a category by id
+# find one category for form validation
 async def get_category_by_id(
     session: AsyncSession, category_id: int
 ) -> EventCategory | None:
@@ -35,13 +35,12 @@ async def get_category_by_id(
     return result.scalar_one_or_none()
 
 
-# creates a pending event and its moderation log
+# create a pending event with initial moderation history
 async def create_pending_event(
     session: AsyncSession,
     creator: User,
     event_data: dict,
 ) -> Event:
-    # build the event from collected form data
     event = Event(
         creator_user_id=creator.id,
         public_token=str(uuid4()),
@@ -58,7 +57,6 @@ async def create_pending_event(
     )
     session.add(event)
 
-    # add initial moderation log
     log = ModerationLog(
         event=event,
         action=ModerationAction.SUBMITTED.value,
@@ -69,7 +67,7 @@ async def create_pending_event(
     return event
 
 
-# loads one event with category and creator
+# load one event with relationships needed by handlers
 async def get_event_by_id(session: AsyncSession, event_id: int) -> Event | None:
     result = await session.execute(
         select(Event)
@@ -79,6 +77,7 @@ async def get_event_by_id(session: AsyncSession, event_id: int) -> Event | None:
     return result.scalar_one_or_none()
 
 
+# find an event from a public token
 async def get_event_by_public_token(
     session: AsyncSession, public_token: str
 ) -> Event | None:
@@ -91,6 +90,7 @@ async def get_event_by_public_token(
     return result.scalar_one_or_none()
 
 
+# find a public event that users may open
 async def get_available_event_by_public_token(
     session: AsyncSession, public_token: str
 ) -> Event | None:
@@ -106,6 +106,7 @@ async def get_available_event_by_public_token(
     return result.scalar_one_or_none()
 
 
+# load upcoming approved events for feeds and dashboards
 async def get_approved_upcoming_events(session: AsyncSession) -> Sequence[Event]:
     from datetime import datetime
     from zoneinfo import ZoneInfo
@@ -127,12 +128,14 @@ async def get_approved_upcoming_events(session: AsyncSession) -> Sequence[Event]
     return result.scalars().all()
 
 
+# create a public token only when missing
 def ensure_event_public_token(event: Event) -> str:
     if not event.public_token:
         event.public_token = str(uuid4())
     return event.public_token
 
 
+# normalize tokens before public lookups
 def normalize_public_token(public_token: str) -> str:
     token = public_token.strip()
     if token.startswith("event_"):
@@ -140,7 +143,7 @@ def normalize_public_token(public_token: str) -> str:
     return token
 
 
-# loads events waiting for moderation
+# load pending events for moderation queues
 async def get_pending_events(session: AsyncSession) -> Sequence[Event]:
     result = await session.execute(
         select(Event)
@@ -166,7 +169,7 @@ async def get_pending_events(session: AsyncSession) -> Sequence[Event]:
     )
 
 
-# loads events created by a user
+# load events owned by one creator
 async def get_user_events(session: AsyncSession, user_id: int) -> Sequence[Event]:
     """fetch all events created by a specific user."""
     result = await session.execute(
@@ -207,7 +210,7 @@ async def delete_event_completely(
     return True
 
 
-# updates an event status and records moderation
+# update moderation status and enqueue sync side effects
 async def update_event_status(
     session: AsyncSession,
     event_id: int,
@@ -221,7 +224,6 @@ async def update_event_status(
 
     previous_status = event.status
 
-    # set approval metadata when needed
     event.status = status.value
     if status == EventStatus.APPROVED:
         from datetime import datetime, timezone
@@ -258,11 +260,10 @@ async def update_event_status(
     session.add(log)
 
     await session.flush()
-    # re-fetch with relationships needed by callers loaded
     return await get_event_by_id(session, event.id)
 
 
-# removes the parent pending event and all its draft siblings when a new draft is submitted
+# replace a pending parent with its newest submitted draft
 async def cleanup_previous_drafts(
     session: AsyncSession, parent_event_id: int, new_draft_id: int
 ) -> None:
@@ -272,12 +273,10 @@ async def cleanup_previous_drafts(
     2. deletes the original pending event and all its other draft children
     so only the latest draft remains as the main event.
     """
-    # detach the new draft from the parent so it becomes independent
     new_draft = await session.get(Event, new_draft_id)
     if new_draft:
         new_draft.parent_event_id = None
 
-    # delete the parent event (cascade will delete any other drafts)
     parent = await session.get(Event, parent_event_id)
     if parent:
         session.delete(parent)
@@ -285,7 +284,7 @@ async def cleanup_previous_drafts(
     await session.flush()
 
 
-# deletes every other pending draft that shares the same parent as the new draft
+# keep only the newest pending draft per approved event
 async def replace_pending_drafts_for_parent(
     session: AsyncSession, parent_event_id: int, new_draft_id: int
 ) -> None:

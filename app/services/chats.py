@@ -17,11 +17,12 @@ OPTIONAL_PERMISSION_KEYS = ("can_pin_messages",)
 GROUP_CHAT_TYPES = {"group", "supergroup", "channel"}
 
 
+# use timezone-aware utc timestamps
 def utcnow() -> datetime:
     return datetime.now(UTC)
 
 
-# finds a registered chat by telegram id
+# find a registered chat by telegram id
 async def get_chat_by_telegram_id(
     session: AsyncSession,
     telegram_chat_id: int,
@@ -32,6 +33,7 @@ async def get_chat_by_telegram_id(
     return result.scalar_one_or_none()
 
 
+# remove chat data after bot leaves or cleanup runs
 async def delete_chat_by_id(session: AsyncSession, chat_id: int) -> None:
     chat = await session.get(Chat, chat_id)
     if chat is not None:
@@ -43,6 +45,7 @@ async def delete_chat_by_id(session: AsyncSession, chat_id: int) -> None:
         await session.delete(chat)
 
 
+# keep removed chats for history while disabling delivery
 async def mark_chat_inactive(session: AsyncSession, chat: Chat) -> None:
     chat.is_active = False
     chat.removed_at = utcnow()
@@ -54,6 +57,7 @@ async def mark_chat_inactive(session: AsyncSession, chat: Chat) -> None:
     )
 
 
+# remove all chat-owned records in dependency order
 async def delete_chat_data(session: AsyncSession, chat: Chat) -> None:
     await session.execute(
         delete(EventAnalytics).where(
@@ -63,7 +67,7 @@ async def delete_chat_data(session: AsyncSession, chat: Chat) -> None:
     await session.delete(chat)
 
 
-# creates or updates a telegram chat record
+# keep chat metadata synced from telegram updates
 async def register_chat(
     session: AsyncSession,
     telegram_chat: TelegramChat,
@@ -72,7 +76,6 @@ async def register_chat(
 ) -> Chat:
     chat = await get_chat_by_telegram_id(session, telegram_chat.id)
 
-    # create the chat if it is not known yet
     if chat is None:
         chat = Chat(
             telegram_chat_id=telegram_chat.id,
@@ -81,7 +84,6 @@ async def register_chat(
         )
         session.add(chat)
 
-    # refresh chat metadata from telegram
     chat.title = telegram_chat.title
     chat.username = telegram_chat.username
     chat.chat_type = getattr(telegram_chat.type, "value", telegram_chat.type)
@@ -98,6 +100,7 @@ async def register_chat(
     return chat
 
 
+# update chat activity after observed messages
 async def record_chat_activity(
     session: AsyncSession,
     telegram_chat: TelegramChat,
@@ -117,6 +120,7 @@ async def record_chat_activity(
     return chat
 
 
+# normalize telegram administrator permissions
 def permissions_from_chat_member(member, chat_type: str | None = None) -> dict:
     is_admin = member.status in {ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.CREATOR}
     can_edit_messages = bool(getattr(member, "can_edit_messages", False)) if is_admin else False
@@ -136,6 +140,7 @@ def permissions_from_chat_member(member, chat_type: str | None = None) -> dict:
     return permissions
 
 
+# summarize setup state for admin screens
 def connected_group_status(chat: Chat) -> str:
     if not chat.is_active or chat.registration_status == "inactive":
         return "inactive"
@@ -153,6 +158,7 @@ def connected_group_status(chat: Chat) -> str:
     return "active"
 
 
+# refresh chat metadata from telegram when possible
 async def sync_chat_telegram_metadata(
     session: AsyncSession,
     bot: Bot,
@@ -212,9 +218,8 @@ async def sync_chat_telegram_metadata(
     return chat
 
 
-# enables missing active categories for a chat
+# backfill new active categories for existing chats
 async def ensure_all_categories_enabled(session: AsyncSession, chat: Chat) -> None:
-    # load active categories and existing settings
     categories = (
         (
             await session.execute(
@@ -237,7 +242,6 @@ async def ensure_all_categories_enabled(session: AsyncSession, chat: Chat) -> No
         .all(),
     )
 
-    # add default settings for new categories
     for category in categories:
         if category.id not in existing_category_ids:
             session.add(
@@ -249,7 +253,7 @@ async def ensure_all_categories_enabled(session: AsyncSession, chat: Chat) -> No
             )
 
 
-# loads category settings for a chat
+# load category toggles in display order
 async def get_chat_category_settings(
     session: AsyncSession,
     chat_id: int,
@@ -264,7 +268,7 @@ async def get_chat_category_settings(
     return list(result.scalars().all())
 
 
-# toggles a category setting for a chat
+# flip one chat category subscription
 async def toggle_chat_category(
     session: AsyncSession,
     chat_id: int,

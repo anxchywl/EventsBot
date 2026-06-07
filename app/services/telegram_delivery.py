@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T")
 
 
+# retry telegram calls when flood control asks us to wait
 async def call_with_telegram_backoff(
     operation: Callable[[], Awaitable[T]],
     *,
@@ -41,12 +42,14 @@ async def call_with_telegram_backoff(
     raise RuntimeError("unreachable telegram retry state")
 
 
+# avoid sending bursts of telegram messages
 async def pause_between_telegram_deliveries() -> None:
     delay = max(0.0, get_settings().telegram_delivery_delay_seconds)
     if delay:
         await asyncio.sleep(delay)
 
 
+# detect telegram errors that mean delivery should stop
 def is_bot_removed_error(error: Exception) -> bool:
     if isinstance(error, TelegramForbiddenError):
         return True

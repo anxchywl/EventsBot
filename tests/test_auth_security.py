@@ -24,10 +24,8 @@ async def test_telegram_edit_event_ownership(mock_settings):
     from app.handlers.event_edit import start_edit_event
     from aiogram.types import CallbackQuery, User as TgUser
     
-    # Create an event owned by user 1
     event = Event(id=10, creator_user_id=1, status="approved")
     
-    # Try to edit as user 2 (not admin)
     cb = AsyncMock(spec=CallbackQuery)
     cb.from_user = TgUser(id=2, is_bot=False, first_name="test")
     cb.data = "edit_event_10"
@@ -68,7 +66,6 @@ async def test_telegram_moderation_requires_role(mock_settings):
     from app.handlers.moderation import process_approve
     from aiogram.types import CallbackQuery, User as TgUser, Message, Chat
     
-    # Not admin, not in mod chat
     cb = AsyncMock(spec=CallbackQuery)
     cb.from_user = TgUser(id=2, is_bot=False, first_name="test")
     cb.fromuser = cb.from_user

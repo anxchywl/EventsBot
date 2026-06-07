@@ -2,6 +2,7 @@ import { controls, coverStyle, escapeAttr, escapeHtml, nav, formatDisplayName } 
 import { t } from "../i18n.js?v=20260608-auth-v7";
 import { state } from "../state.js?v=20260608-auth-v7";
 
+// render profile and community review tab
 export function renderRatingsTab(profileData = null, reviewsList = []) {
   const feed = state.prefetchedRatings?.feed || reviewsList || [];
   
@@ -28,6 +29,7 @@ export function renderRatingsTab(profileData = null, reviewsList = []) {
   `;
 }
 
+// choose profile content based on auth state
 export function renderProfileInner() {
   return `
     <div id="auth-profile-container" style="padding-top: 10px;">
@@ -36,6 +38,7 @@ export function renderProfileInner() {
   `;
 }
 
+// render auth entry point or verified profile
 export function renderAuthSection(profileData = null) {
   const isVerified = state.user && state.user.is_verified;
   if (isVerified) return renderProfile(profileData);
@@ -51,8 +54,9 @@ export function renderAuthSection(profileData = null) {
   return renderAuthCard();
 }
 
+// render login and registration form state
 function renderAuthCard() {
-  const mode = state.authMode || "login"; // "login", "verify", "register"
+  const mode = state.authMode || "login";
   const email = state.authEmail || "";
   
   if (mode === "verify") {
@@ -128,6 +132,7 @@ function renderAuthCard() {
   `;
 }
 
+// render reset-password state inside the auth sheet
 export function renderForgotPasswordCard(step) {
   const forgotEmail = state.forgotEmail || "";
   const forgotCode = state.forgotCode || "";
@@ -224,6 +229,7 @@ export function renderForgotPasswordCard(step) {
   return "";
 }
 
+// render verified user profile and history
 function renderProfile(profile) {
   if (!profile) {
     return `
@@ -270,7 +276,6 @@ function renderProfile(profile) {
       ${renderPrivacySubSection()}
     </div>
 
-    <!-- History Section -->
     <div class="panel profile-history">
       <h3 class="history-title">${t("myReviewsTitle")}</h3>
       <div class="history-list">
@@ -297,6 +302,7 @@ function renderProfile(profile) {
   `;
 }
 
+// render friend list and pending social actions
 function renderFriendsSubSection() {
   const friends = state.friends?.friends || [];
   if (!friends.length) return "";
@@ -310,6 +316,7 @@ function renderFriendsSubSection() {
   `;
 }
 
+// render incoming and outgoing request controls
 function renderFriendRequestsSubSection() {
   const incoming = state.friendRequests?.incoming || [];
   const outgoing = state.friendRequests?.outgoing || [];
@@ -337,6 +344,7 @@ function renderFriendRequestsSubSection() {
   `;
 }
 
+// render friend discovery and invite tools
 function renderFriendSearchSubSection() {
   const search = state.friendSearch || {};
   
@@ -369,6 +377,7 @@ function renderFriendSearchSubSection() {
   `;
 }
 
+// render privacy controls for social visibility
 function renderPrivacySubSection() {
   const settings = state.privacySettings || {};
   return `
@@ -381,6 +390,7 @@ function renderPrivacySubSection() {
   `;
 }
 
+// render a boolean privacy preference
 function privacyToggle(key, label, checked) {
   return `
     <button class="privacy-toggle" type="button" data-privacy-key="${escapeAttr(key)}" data-checked="${checked ? "true" : "false"}" aria-pressed="${checked ? "true" : "false"}">
@@ -390,6 +400,7 @@ function privacyToggle(key, label, checked) {
   `;
 }
 
+// render one pending request with the right action
 function renderRequestRow(item, direction) {
   const friend = item.user || {};
   return `
@@ -411,6 +422,7 @@ function renderRequestRow(item, direction) {
   `;
 }
 
+// render one friend with relationship metadata
 function renderFriendRow(friend, { mode }) {
   const status = friend.relationship_status || "none";
   const canAdd = mode === "search" && status === "none";
@@ -433,6 +445,7 @@ function renderFriendRow(friend, { mode }) {
   `;
 }
 
+// render avatar image or initials fallback
 function friendAvatar(friend) {
   const avatar = friend.avatar || {};
   const initials = escapeHtml(avatar.initials || "NU");
@@ -447,6 +460,7 @@ function friendAvatar(friend) {
   return `<span class="friend-avatar initials">${initials}</span>`;
 }
 
+// render search results with request state
 export function renderFriendSearchResults() {
   const search = state.friendSearch || {};
   const results = search.results || [];
@@ -458,6 +472,7 @@ export function renderFriendSearchResults() {
   `;
 }
 
+// render recent verified reviews
 function renderGlobalReviewsFeed(reviews) {
   if (!reviews || reviews.length === 0) {
     return `
@@ -489,6 +504,7 @@ function renderGlobalReviewsFeed(reviews) {
   `).join("");
 }
 
+// format profile history dates
 function formatDate(dateStr) {
   const d = new Date(dateStr);
   if (isNaN(d.getTime())) return dateStr;

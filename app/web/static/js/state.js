@@ -70,18 +70,19 @@ export const state = {
     calendar: 0,
   },
 
-  // forgot-password flow state
-  forgotStep: null,         // null | "email" | "code" | "newpwd"
+  // reset-password state survives auth sheet rerenders
+  forgotStep: null,
   forgotEmail: "",
   forgotCode: "",
   forgotResendCooldown: 0,
 
-  // preserved error messages on language/theme toggle
+  // preserve auth errors across language and theme rerenders
   authErrorMsg: "",
   forgotErrorMsg: "",
   nicknameErrorMsg: "",
 };
 
+// provide stable defaults for route and sheet filters
 export function defaultEventFilters() {
   return {
     sort: DEFAULT_EVENT_FILTERS.sort,
@@ -94,6 +95,7 @@ export function defaultEventFilters() {
   };
 }
 
+// restore saved event filters from local storage
 export function loadEventFilters() {
   try {
     const parsed = JSON.parse(localStorage.getItem(STORED_EVENT_FILTERS) || "{}");
@@ -103,6 +105,7 @@ export function loadEventFilters() {
   }
 }
 
+// coerce persisted filter values into safe shapes
 export function normalizeEventFilters(filters = {}) {
   const next = defaultEventFilters();
   if (typeof filters.sort === "string" && filters.sort) {
@@ -119,28 +122,33 @@ export function normalizeEventFilters(filters = {}) {
   return next;
 }
 
+// persist event filters after user changes
 export function setEventFilters(filters) {
   state.eventFilters = normalizeEventFilters(filters);
   localStorage.setItem(STORED_EVENT_FILTERS, JSON.stringify(state.eventFilters));
   return state.eventFilters;
 }
 
+// remove duplicate filter values
 function uniqueStrings(values) {
   if (!Array.isArray(values)) return [];
   return [...new Set(values.map((value) => String(value || "").trim()).filter(Boolean))].sort();
 }
 
+// restrict language state to supported locales
 export function normalizeLang(value) {
   const lang = String(value || "en").slice(0, 2).toLowerCase();
   return LANGS.includes(lang) ? lang : "en";
 }
 
+// cycle language toggle in a stable order
 export function nextLang() {
   const index = LANGS.indexOf(state.lang);
   setLang(LANGS[(index + 1) % LANGS.length]);
   return state.lang;
 }
 
+// persist selected language for future sessions
 export function setLang(lang) {
   state.lang = normalizeLang(lang);
   localStorage.setItem(STORED_LANG, state.lang);
@@ -151,17 +159,20 @@ export function setLang(lang) {
   }
 }
 
+// persist selected theme and update document state
 export function setTheme(theme) {
   state.theme = theme === "dark" ? "dark" : "light";
   localStorage.setItem(STORED_THEME, state.theme);
   document.documentElement.dataset.theme = state.theme;
 }
 
+// switch between light and dark theme
 export function toggleTheme() {
   setTheme(currentTheme() === "dark" ? "light" : "dark");
   return state.theme;
 }
 
+// read the active theme from document state
 export function currentTheme() {
   if (state.theme) {
     return state.theme;
@@ -169,11 +180,13 @@ export function currentTheme() {
   return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
 
+// store signed session and user profile together
 export function setSession(token, user) {
   state.session = token || "";
   state.user = user || null;
 }
 
+// attach bearer token when a session exists
 export function authHeaders() {
   const headers = {};
   if (state.session) {
@@ -188,12 +201,14 @@ export function authHeaders() {
   return headers;
 }
 
+// preserve scroll per top-level route
 export function rememberScroll(route = state.route) {
   if (route in state.scroll) {
     state.scroll[route] = window.scrollY;
   }
 }
 
+// restore scroll after returning to a route
 export function restoreScroll(route = state.route) {
   const y = state.scroll[route] || 0;
   requestAnimationFrame(() => window.scrollTo({ top: y, behavior: "instant" }));

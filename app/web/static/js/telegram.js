@@ -2,6 +2,7 @@ import { currentTheme, setTheme } from "./state.js?v=20260608-auth-v7";
 
 export const tg = window.Telegram?.WebApp || null;
 
+// init telegram
 export function initTelegram(onThemeChange) {
   if (!tg) {
     document.documentElement.dataset.theme = currentTheme();
@@ -15,6 +16,7 @@ export function initTelegram(onThemeChange) {
   });
 }
 
+// mirror telegram theme into app state
 export function syncTheme() {
   if (!tg?.colorScheme) {
     document.documentElement.dataset.theme = currentTheme();
@@ -23,14 +25,17 @@ export function syncTheme() {
   setTheme(tg.colorScheme === "dark" ? "dark" : "light");
 }
 
+// init data
 export function initData() {
   return tg?.initData || "";
 }
 
+// start param
 export function startParam() {
   return sanitizeStartPayload(tg?.initDataUnsafe?.start_param || "");
 }
 
+// limit start payloads before routing
 export function sanitizeStartPayload(value) {
   const payload = String(value || "").trim();
   if (/^event_[0-9a-fA-F-]{36}$/.test(payload)) {
@@ -42,6 +47,7 @@ export function sanitizeStartPayload(value) {
   return "";
 }
 
+// haptic
 export function haptic(type = "selection") {
   if (type === "impact") {
     callHaptic(() => tg?.HapticFeedback?.impactOccurred?.("medium"));
@@ -69,22 +75,25 @@ export function haptic(type = "selection") {
   vibrate(10);
 }
 
+// guard haptic calls across partial telegram webviews
 function callHaptic(run) {
   try {
     run();
   } catch {
-    // Some Android WebViews expose partial Telegram haptic APIs that throw.
+    // some android webviews expose partial telegram haptic apis that throw
   }
 }
 
+// fallback to native vibration when haptics are unavailable
 function vibrate(pattern) {
   try {
     window.navigator?.vibrate?.(pattern);
   } catch {
-    // Native vibration is best-effort and unavailable in some Telegram clients.
+    // native vibration is best-effort and unavailable in some telegram clients
   }
 }
 
+// open telegram-native links through the web app bridge
 export function openTelegramLink(url) {
   if (!isSafeTelegramUrl(url)) {
     return;
@@ -96,6 +105,7 @@ export function openTelegramLink(url) {
   window.location.href = url;
 }
 
+// open safe external links through telegram when possible
 export function openLink(url) {
   if (!isSafeHttpUrl(url)) {
     return;
@@ -107,6 +117,7 @@ export function openLink(url) {
   window.open(url, "_blank", "noopener");
 }
 
+// allow only safe http links for external navigation
 function isSafeHttpUrl(url) {
   try {
     const parsed = new URL(String(url || ""), window.location.origin);
@@ -116,6 +127,7 @@ function isSafeHttpUrl(url) {
   }
 }
 
+// allow only safe telegram links
 function isSafeTelegramUrl(url) {
   try {
     const value = String(url || "");
@@ -130,17 +142,17 @@ function isSafeTelegramUrl(url) {
   }
 }
 
+// sync telegram back button state
 export function configureBackButton(visible, onClick) {
   if (!tg?.BackButton) {
     return;
   }
   try {
-    // Always try to remove previous handler first
+    // avoid duplicate telegram back handlers
     if (tg.BackButton.offClick) {
       tg.BackButton.offClick();
     }
   } catch (e) {
-    // Silently ignore errors when removing handler
   }
   
   if (visible) {
@@ -154,7 +166,6 @@ export function configureBackButton(visible, onClick) {
     try {
       tg.BackButton.hide();
     } catch (e) {
-      // Silently ignore errors when hiding
     }
   }
 }

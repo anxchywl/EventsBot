@@ -9,6 +9,7 @@ from typing import Any
 _subscribers: set[tuple[int | None, asyncio.Queue[dict[str, Any]]]] = set()
 
 
+# fan out mini app events to local subscribers
 async def publish_miniapp_event(event_type: str, payload: dict[str, Any]) -> None:
     message = {"type": event_type, **payload}
     target_user_ids = {
@@ -28,6 +29,7 @@ async def publish_miniapp_event(event_type: str, payload: dict[str, Any]) -> Non
         _subscribers.discard(subscriber)
 
 
+# notify clients after review deletion
 async def publish_review_deleted(payload: dict[str, Any]) -> None:
     public_payload = {
         key: payload[key]
@@ -45,6 +47,7 @@ async def publish_review_deleted(payload: dict[str, Any]) -> None:
     await publish_miniapp_event("review_deleted", public_payload)
 
 
+# stream mini app events as server-sent events
 async def subscribe_miniapp_events(user_id: int | None = None) -> AsyncIterator[dict[str, Any]]:
     queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=20)
     subscriber = (user_id, queue)

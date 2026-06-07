@@ -9,6 +9,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.db.base import Base, TimestampMixin
 
 
+# store queued event delivery jobs
 class EventSyncJob(TimestampMixin, Base):
     __tablename__ = "event_sync_jobs"
     __table_args__ = (

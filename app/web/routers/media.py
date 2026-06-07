@@ -24,6 +24,7 @@ import time
 
 _MEDIA_RATE_LIMITS: dict[str, list[float]] = {}
 
+# limit telegram media proxy requests
 def _check_rate_limit(request: Request, limit: int, window_seconds: int) -> None:
     now = time.time()
     cutoff = now - window_seconds
@@ -37,6 +38,7 @@ def _check_rate_limit(request: Request, limit: int, window_seconds: int) -> None
     _MEDIA_RATE_LIMITS[key] = hits
 
 
+# keep media bytes with content type metadata
 @dataclass(frozen=True)
 class CachedMedia:
     content: bytes
@@ -44,6 +46,7 @@ class CachedMedia:
     file_path: str
 
 
+# serve cached event cover images from telegram
 @router.get("/{public_token}/cover")
 async def event_cover(
     public_token: str,
@@ -65,6 +68,7 @@ async def event_cover(
     return _media_response(cached, max_age=60 * 60 * 24, immutable=True)
 
 
+# cache telegram media with size and type checks
 async def _download_telegram_file(file_id: str, label: str) -> CachedMedia:
     bot = Bot(token=get_settings().bot_token.get_secret_value())
     try:
@@ -72,7 +76,7 @@ async def _download_telegram_file(file_id: str, label: str) -> CachedMedia:
         if not file.file_path:
             raise HTTPException(status.HTTP_404_NOT_FOUND, f"{label} not found")
             
-        # Enforce 5MB size limit to prevent cache memory exhaustion
+        # cap media size before storing bytes in memory
         if file.file_size and file.file_size > 5_000_000:
             raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, f"{label} is too large to cache")
             
@@ -91,6 +95,7 @@ async def _download_telegram_file(file_id: str, label: str) -> CachedMedia:
         await bot.session.close()
 
 
+# infer image response type from telegram path
 def _image_media_type(file_path: str) -> str:
     clean = file_path.lower()
     if clean.endswith(".png"):
@@ -100,6 +105,7 @@ def _image_media_type(file_path: str) -> str:
     return "image/jpeg"
 
 
+# return cached bytes with browser cache headers
 def _media_response(media: CachedMedia, *, max_age: int, immutable: bool = False) -> StreamingResponse:
     cache_control = f"public, max-age={max_age}"
     if immutable:
@@ -115,6 +121,7 @@ def _media_response(media: CachedMedia, *, max_age: int, immutable: bool = False
     )
 
 
+# serve cached user avatar images from telegram
 @router.get("/avatar/{telegram_id}")
 async def user_avatar(
     telegram_id: int,
@@ -137,7 +144,7 @@ async def user_avatar(
         if not photos or photos.total_count == 0:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "No profile photos found")
         
-        # Take the smallest size of the first photo for optimized mini-app loading
+        # use the smallest telegram avatar for fast mini app loading
         sizes = photos.photos[0]
         photo = sizes[0]
         file = await bot.get_file(photo.file_id)

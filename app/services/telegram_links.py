@@ -4,6 +4,7 @@ from urllib.parse import quote_plus
 from urllib.parse import urlparse
 
 
+# build public or internal telegram message links
 def build_message_link(
     *,
     telegram_chat_id: int,
@@ -30,6 +31,7 @@ def build_message_link(
     return f"https://t.me/c/{internal_chat_id}/{message_id}"
 
 
+# build bot deep links with start payloads
 def build_bot_start_link(*, bot_username: str | None, payload: str) -> str | None:
     normalized_username = normalize_username(bot_username)
     if not normalized_username:
@@ -38,6 +40,7 @@ def build_bot_start_link(*, bot_username: str | None, payload: str) -> str | Non
     return f"https://t.me/{normalized_username}?start={payload}"
 
 
+# build bot links that open a specific event
 def build_event_deep_link(
     *, bot_username: str | None, public_token: str | None
 ) -> str | None:
@@ -50,6 +53,7 @@ def build_event_deep_link(
     )
 
 
+# build direct mini app links when botfather short name exists
 def build_telegram_miniapp_direct_link(
     *,
     bot_username: str | None,
@@ -67,6 +71,7 @@ def build_telegram_miniapp_direct_link(
     )
 
 
+# build direct mini app invite links
 def build_telegram_miniapp_invite_link(
     *,
     bot_username: str | None,
@@ -84,6 +89,7 @@ def build_telegram_miniapp_invite_link(
     )
 
 
+# prefer telegram mini app links for in-telegram users
 def build_miniapp_event_url(
     *, miniapp_base_url: str | None, public_token: str | None
 ) -> str | None:
@@ -93,6 +99,7 @@ def build_miniapp_event_url(
     return f"{miniapp_base_url.rstrip('/')}/events/{quote_plus(public_token)}"
 
 
+# build browser event urls from the configured base
 def build_public_miniapp_event_url(
     *, miniapp_base_url: str | None, public_token: str | None
 ) -> str | None:
@@ -104,6 +111,7 @@ def build_public_miniapp_event_url(
     )
 
 
+# accept only shareable public https links
 def is_public_https_url(url: str | None) -> bool:
     if not url:
         return False
@@ -116,6 +124,7 @@ def is_public_https_url(url: str | None) -> bool:
     return hostname not in {"localhost", "127.0.0.1", "0.0.0.0"}
 
 
+# create telegram share url with optional target link
 def build_telegram_share_link(*, url: str, text: str | None = None) -> str:
     if not url:
         return f"https://t.me/share/url?text={quote_plus(text)}" if text else "https://t.me/share/url"
@@ -125,11 +134,13 @@ def build_telegram_share_link(*, url: str, text: str | None = None) -> str:
     return share_url
 
 
+# create telegram share url for text-only messages
 def build_telegram_text_share_link(*, text: str, url: str | None = None) -> str:
     message = f"{text}\n\n{url}" if url else text
     return build_telegram_share_link(url="", text=message)
 
 
+# strip username prefixes before building links
 def normalize_username(username: str | None) -> str | None:
     if not username:
         return None

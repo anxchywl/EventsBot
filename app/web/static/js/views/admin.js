@@ -3,6 +3,7 @@ import { state, authHeaders } from "../state.js?v=20260608-auth-v7";
 import { t } from "../i18n.js?v=20260608-auth-v7";
 import { authenticate } from "../api.js?v=20260608-auth-v7";
 
+// send admin api requests with shared auth handling
 async function adminRequest(path, options = {}) {
   await authenticate().catch(() => null);
   const res = await fetch(path, {
@@ -23,10 +24,12 @@ async function adminRequest(path, options = {}) {
   return res.json();
 }
 
+// load aggregate admin dashboard stats
 export async function fetchAdminStats() {
   return adminRequest("/api/admin/stats");
 }
 
+// load paginated admin user rows
 export async function fetchAdminUsers(q = "") {
   const params = new URLSearchParams({ limit: "500" });
   if (q) params.set("q", q);
@@ -34,6 +37,7 @@ export async function fetchAdminUsers(q = "") {
   return adminRequest(`/api/admin/users${query}`);
 }
 
+// load telegram group setup status
 export async function fetchConnectedGroups(filters = {}) {
   const params = new URLSearchParams();
   if (filters.q) params.set("q", filters.q);
@@ -43,6 +47,7 @@ export async function fetchConnectedGroups(filters = {}) {
   return adminRequest(`/api/admin/connected-groups${query ? `?${query}` : ""}`);
 }
 
+// block a user through the admin api
 export async function blockUser(email, reason = "") {
   return adminRequest("/api/admin/users/block", {
     method: "POST",
@@ -50,6 +55,7 @@ export async function blockUser(email, reason = "") {
   });
 }
 
+// unblock a user through the admin api
 export async function unblockUser(email) {
   return adminRequest("/api/admin/users/unblock", {
     method: "POST",
@@ -57,6 +63,7 @@ export async function unblockUser(email) {
   });
 }
 
+// render admin dashboard tabs
 export function renderAdminPanel(stats, users, connectedGroupsPayload = null) {
   return `
     <div class="screen admin-screen" data-route="admin">
@@ -106,6 +113,7 @@ export function renderAdminPanel(stats, users, connectedGroupsPayload = null) {
   `;
 }
 
+// render managed telegram group overview
 export function renderConnectedGroupsSection(payload) {
   const summary = payload?.summary || {};
   const groups = payload?.groups || [];
@@ -134,6 +142,7 @@ export function renderConnectedGroupsSection(payload) {
   `;
 }
 
+// render one connected group metric
 function renderGroupStat(label, value, status = "", id = "") {
   return `
     <div class="stat-card" style="background: var(--bg-secondary); border: 1px solid var(--line); padding: 10px 8px; border-radius: 10px; min-width: 0;">
@@ -145,6 +154,7 @@ function renderGroupStat(label, value, status = "", id = "") {
   `;
 }
 
+// render connected groups with setup state
 export function renderConnectedGroupsList(groups) {
   if (!groups || groups.length === 0) {
     return `<p style="text-align: center; color: var(--text-secondary);">${escapeHtml(t("noConnectedGroups"))}</p>`;
@@ -187,6 +197,7 @@ export function renderConnectedGroupsList(groups) {
   }).join("");
 }
 
+// summarize required bot permissions
 function permissionPill(label, granted) {
   const ok = Boolean(granted);
   const color = ok ? "#12805c" : "#b42318";
@@ -194,6 +205,7 @@ function permissionPill(label, granted) {
   return `<span style="font-size: 11px; font-weight: 800; padding: 5px 8px; border-radius: 999px; color: ${color}; background: ${bg};">${escapeHtml(label)}</span>`;
 }
 
+// derive connected group status labels
 function groupStatusMeta(status) {
   if (status === "active") {
     return { label: t("active"), color: "#12805c", bg: "rgba(16,185,129,0.14)" };
@@ -204,11 +216,13 @@ function groupStatusMeta(status) {
   return { label: t("setupRequired"), color: "#8a6a00", bg: "rgba(250,204,21,0.2)" };
 }
 
+// localize telegram chat type labels
 function displayChatType(value) {
   if (value === "channel") return t("channel");
   return t("group");
 }
 
+// label selected admin user status filter
 export function adminStatusLabel(value) {
   if (value === "active") return t("active");
   if (value === "setup_required") return t("setupRequired");
@@ -216,12 +230,14 @@ export function adminStatusLabel(value) {
   return t("allStatuses");
 }
 
+// label selected admin sort mode
 export function adminSortLabel(value) {
   if (value === "oldest") return t("oldest");
   if (value === "most_active") return t("mostActive");
   return t("newest");
 }
 
+// localize group setup status
 function formatSetupStatus(status, categoriesSelected, dashboardMessageId) {
   if (status === "setup_complete" && categoriesSelected && dashboardMessageId) {
     return t("complete");
@@ -235,6 +251,7 @@ function formatSetupStatus(status, categoriesSelected, dashboardMessageId) {
   return t("permissionsRequired");
 }
 
+// format admin timestamps compactly
 function formatAdminDate(value) {
   if (!value) return t("unknown");
   const date = new Date(value);
@@ -248,6 +265,7 @@ function formatAdminDate(value) {
   });
 }
 
+// render admin user moderation rows
 export function renderAdminUsersList(users) {
   if (!users || users.length === 0) {
     return `<p style="text-align: center; color: var(--text-secondary);">${escapeHtml(t("noUsersFound"))}.</p>`;

@@ -8,6 +8,7 @@ from app.config import get_settings
 _bot_username: str | None = None
 
 
+# cache bot username for telegram mini app links
 async def get_bot_username() -> str | None:
     global _bot_username
     if _bot_username:

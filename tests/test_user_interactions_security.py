@@ -10,15 +10,14 @@ class TestUserInteractionsSecurity:
         mock_request = MagicMock()
         mock_request.client.host = "127.0.0.1"
         
-        # Manually inflate the dict to trigger pruning
+        # force pruning path without waiting for real traffic
         for i in range(10005):
             _FAVORITE_RATE_LIMITS[f"fake:{i}:host"] = [10.0]
             
-        # This hit should trigger pruning
         try:
             fav_rate_limit(mock_request, user_id=1, limit=30, window_seconds=60)
         except HTTPException:
             pass
             
-        # Since all old entries were at timestamp 10.0 and cutoff is ~now - 60, they should be pruned
+        # old timestamps should be removed after the next hit
         assert len(_FAVORITE_RATE_LIMITS) < 10000

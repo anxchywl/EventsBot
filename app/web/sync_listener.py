@@ -10,6 +10,7 @@ from app.web.routers.events import event_cache
 logger = logging.getLogger(__name__)
 
 
+# listen for postgres sync notifications and clear caches
 async def run_event_cache_invalidation_listener() -> None:
     def clear_cache(_payload: str) -> None:
         event_cache.clear()
@@ -18,6 +19,7 @@ async def run_event_cache_invalidation_listener() -> None:
     await listen_for_event_sync_notifications(get_settings().database_url, clear_cache)
 
 
+# start cache invalidation listener once per process
 def start_event_cache_invalidation_listener() -> asyncio.Task:
     return asyncio.create_task(
         run_event_cache_invalidation_listener(),

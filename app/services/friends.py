@@ -20,16 +20,19 @@ FRIEND_REQUEST_TTL = timedelta(days=30)
 FRIEND_INVITE_TTL = timedelta(days=7)
 
 
+# store invite tokens as hashes only
 def invite_token_hash(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
+# keep friendship rows unique regardless of direction
 def canonical_pair(user_id: int, other_user_id: int) -> tuple[int, int]:
     if user_id == other_user_id:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "You cannot friend yourself.")
     return (user_id, other_user_id) if user_id < other_user_id else (other_user_id, user_id)
 
 
+# derive a public display name without exposing raw ids
 def display_name(user: User) -> str:
     name_part = user.nickname
     if not name_part and user.email:
@@ -46,6 +49,7 @@ def display_name(user: User) -> str:
     return name_part.capitalize() if name_part else "Unknown"
 
 
+# prefer telegram photos and fall back to initials
 def avatar_payload(user: User) -> dict[str, str | None]:
     name = display_name(user)
     initials = "".join(part[:1] for part in name.replace("_", " ").replace(".", " ").split()[:2]).upper()
@@ -62,6 +66,7 @@ def avatar_payload(user: User) -> dict[str, str | None]:
     }
 
 
+# expose direct telegram links only for allowed users
 def telegram_url(user: User) -> str | None:
     if user.username:
         return f"https://t.me/{user.username}"
@@ -70,6 +75,7 @@ def telegram_url(user: User) -> str | None:
     return None
 
 
+# create privacy defaults on first access
 async def ensure_privacy_settings(session: AsyncSession, user: User) -> PrivacySettings:
     settings = await session.scalar(
         select(PrivacySettings).where(PrivacySettings.user_id == user.id)
@@ -81,6 +87,7 @@ async def ensure_privacy_settings(session: AsyncSession, user: User) -> PrivacyS
     return settings
 
 
+# expire pending social rows before reads and writes
 async def expire_stale_friend_rows(session: AsyncSession) -> None:
     now = datetime.now(UTC)
     await session.execute(
@@ -95,6 +102,7 @@ async def expire_stale_friend_rows(session: AsyncSession) -> None:
     )
 
 
+# check friendship through the canonical pair
 async def are_friends(session: AsyncSession, user_id: int, other_user_id: int) -> bool:
     first_id, second_id = canonical_pair(user_id, other_user_id)
     return bool(
@@ -109,6 +117,7 @@ async def are_friends(session: AsyncSession, user_id: int, other_user_id: int) -
     )
 
 
+# return both sides of canonical friendship rows
 async def friend_ids(session: AsyncSession, user_id: int) -> set[int]:
     result = await session.execute(
         select(Friendship.user_id, Friendship.friend_user_id).where(
@@ -121,6 +130,7 @@ async def friend_ids(session: AsyncSession, user_id: int) -> set[int]:
     return ids
 
 
+# count friendships where the user is on either side
 async def friend_count(session: AsyncSession, user_id: int) -> int:
     return int(
         await session.scalar(
@@ -132,6 +142,7 @@ async def friend_count(session: AsyncSession, user_id: int) -> int:
     )
 
 
+# count friendships for many users in one query
 async def friend_counts(session: AsyncSession, user_ids: Iterable[int]) -> dict[int, int]:
     ids = set(user_ids)
     if not ids:
@@ -150,6 +161,7 @@ async def friend_counts(session: AsyncSession, user_ids: Iterable[int]) -> dict[
     return counts
 
 
+# compare friend sets for one profile
 async def mutual_friend_count(session: AsyncSession, user_id: int, other_user_id: int) -> int:
     if user_id == other_user_id:
         return 0
@@ -158,6 +170,7 @@ async def mutual_friend_count(session: AsyncSession, user_id: int, other_user_id
     return len(left & right)
 
 
+# compute mutual counts without per-user queries
 async def mutual_friend_counts(
     session: AsyncSession,
     current_user_id: int,
@@ -183,6 +196,7 @@ async def mutual_friend_counts(
     return counts
 
 
+# expose request direction for profile actions
 async def friendship_status(
     session: AsyncSession,
     current_user_id: int,
@@ -214,6 +228,7 @@ async def friendship_status(
     return "incoming_pending", request.id
 
 
+# shape user data according to relationship privacy
 async def public_user_summary(
     session: AsyncSession,
     target: User,
@@ -245,6 +260,7 @@ async def public_user_summary(
     }
 
 
+# create a short-lived invite without storing the raw token
 async def create_friend_invite(session: AsyncSession, owner: User) -> tuple[FriendInvite, str]:
     token = secrets.token_urlsafe(32)
     invite = FriendInvite(
@@ -257,6 +273,7 @@ async def create_friend_invite(session: AsyncSession, owner: User) -> tuple[Frie
     return invite, token
 
 
+# resolve only active unexpired invites
 async def get_active_invite_by_token(session: AsyncSession, token: str) -> FriendInvite | None:
     await expire_stale_friend_rows(session)
     return await session.scalar(
@@ -268,6 +285,7 @@ async def get_active_invite_by_token(session: AsyncSession, token: str) -> Frien
     )
 
 
+# enforce verification, privacy, and duplicate request rules
 async def create_friend_request(
     session: AsyncSession,
     requester: User,
@@ -317,6 +335,7 @@ async def create_friend_request(
     return request
 
 
+# accept one request and cancel duplicates for the same pair
 async def accept_friend_request(
     session: AsyncSession,
     request: FriendRequest,
@@ -368,6 +387,7 @@ async def accept_friend_request(
     return friendship
 
 
+# prevent stale invite links after friendship removal
 async def revoke_active_invites_for_pair(session: AsyncSession, first_user_id: int, second_user_id: int) -> None:
     await session.execute(
         update(FriendInvite)
@@ -379,6 +399,7 @@ async def revoke_active_invites_for_pair(session: AsyncSession, first_user_id: i
     )
 
 
+# show friends attending only when their privacy allows it
 async def event_friends_going(session: AsyncSession, user: User | None, event_id: int) -> list[dict]:
     if user is None:
         return []
@@ -416,6 +437,7 @@ async def event_friends_going(session: AsyncSession, user: User | None, event_id
     ]
 
 
+# batch friends-going data for event lists
 async def bulk_event_friends_going(session: AsyncSession, user: User | None, event_ids: list[int]) -> dict[int, list[dict]]:
     if user is None or not event_ids:
         return {event_id: [] for event_id in event_ids}
@@ -467,6 +489,7 @@ async def bulk_event_friends_going(session: AsyncSession, user: User | None, eve
     }
 
 
+# build a mini app invite path when no base url is configured
 def invite_url(token: str) -> str:
     base_url = (get_settings().miniapp_base_url or "").rstrip("/")
     path = f"/friends/invite/{token}"

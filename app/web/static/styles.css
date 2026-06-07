@@ -70,7 +70,7 @@ body {
 
 
 
-/* Only apply global theme transitions during active theme changes to optimize layout rendering speed and eliminate scroll/tap lag */
+/* only apply global theme transitions during active theme changes to optimize layout rendering speed and eliminate scroll/tap lag */
 html.theme-transitioning,
 html.theme-transitioning body,
 html.theme-transitioning main,
@@ -96,7 +96,7 @@ html.theme-transitioning circle {
     stroke 0.6s cubic-bezier(0.25, 0.8, 0.25, 1) !important;
 }
 
-/* Lock page scroll behind active bottom sheets */
+/* lock page scroll behind active bottom sheets */
 html.sheet-open,
 html.sheet-open body {
   overflow: hidden !important;
@@ -135,10 +135,7 @@ html.theme-transitioning *::after {
   view-transition-name: none !important;
 }
 
-/* The favorite-toggle and its star span must NOT inherit the theme-transitioning
-   color transition — when the DOM is fully replaced (on theme/lang change),
-   the freshly-inserted button would animate FROM a transparent/default color TO
-   the correct color, causing a visible flash. Snap everything instantly. */
+/* the favorite-toggle and its star span must not inherit the theme-transitioning color transition when the dom is fully replaced (on theme/lang change), the freshly-inserted button would animate from a transparent/default color to the correct color, causing a visible flash. snap everything instantly */
 html.theme-transitioning .favorite-toggle,
 html.theme-transitioning .favorite-toggle *,
 html.theme-transitioning .favorite-remove-button,
@@ -149,9 +146,7 @@ html.theme-transitioning .event-row-favorite-sticker * {
   animation: none !important;
 }
 
-/* Prevent newly-created event rows, cover images, panels, and their descendants
-   from transitioning background, colors, or shadows when mounted during active
-   theme or language switches. This eliminates the 0.6s shadow/color flicker. */
+/* prevent newly-created event rows, cover images, panels, and their descendants from transitioning background, colors, or shadows when mounted during active theme or language switches. this eliminates the 0.6s shadow/color flicker */
 html.theme-transitioning .event-row,
 html.theme-transitioning .event-row *,
 html.theme-transitioning .panel,
@@ -433,7 +428,7 @@ a {
   min-height: 178px;
 }
 
-/* Header Cover Left Action Button (e.g. Profile Button) */
+/* header cover left action button (e.g. profile button) */
 .cover .profile-trigger-btn {
   position: absolute;
   top: calc(16px + env(safe-area-inset-top));
@@ -457,7 +452,7 @@ a {
   transform: scale(0.94);
 }
 
-/* Global Controls Profile Button */
+/* global controls profile button */
 #global-controls .profile-trigger-btn {
   width: 40px;
   height: 40px;
@@ -471,14 +466,14 @@ a {
   transform: scale(0.94);
 }
 
-/* Hide profile button on event, admin, and friend-invite pages - remove it from layout entirely */
+/* hide profile button on event, admin, and friend-invite pages - remove it from layout entirely */
 html[data-current-route="event"] #global-controls .profile-trigger-btn,
 html[data-current-route="friend-invite"] #global-controls .profile-trigger-btn,
 html[data-current-route="admin"] #global-controls .profile-trigger-btn {
   display: none !important;
 }
 
-/* Push theme/lang buttons to the right on event, admin, and friend-invite pages */
+/* push theme/lang buttons to the right on event, admin, and friend-invite pages */
 html[data-current-route="event"] #global-controls,
 html[data-current-route="friend-invite"] #global-controls,
 html[data-current-route="admin"] #global-controls {
@@ -650,9 +645,7 @@ h1 {
   display: none !important;
 }
 
-/* Performance safeguard: disable expensive blur filters during active page and theme transitions.
-   Exempt: toggle buttons (they flash transparent without blur), the app-nav (it has its own
-   view-transition-name layer so the blur suppression is unnecessary and causes the gray flicker). */
+/* performance safeguard: disable expensive blur filters during active page and theme transitions. exempt: toggle buttons (they flash transparent without blur), the app-nav (it has its own view-transition-name layer so the blur suppression is unnecessary and causes the gray flicker) */
 html.page-transitioning *:not(.theme-toggle):not(.lang-toggle):not(.favorite-toggle):not(.app-nav),
 html.page-transitioning *:not(.theme-toggle):not(.lang-toggle):not(.favorite-toggle):not(.app-nav)::before,
 html.page-transitioning *:not(.theme-toggle):not(.lang-toggle):not(.favorite-toggle):not(.app-nav)::after,
@@ -1164,13 +1157,13 @@ html.auth-focusing .app-nav {
   cursor: default;
 }
 
-/* Position override only — all base styles come from the shared .theme-toggle/.lang-toggle/.favorite-toggle rule */
+/* position override only all base styles come from the shared .theme-toggle/.lang-toggle/.favorite-toggle rule */
 .favorite-toggle {
   position: absolute;
   top: calc(16px + env(safe-area-inset-top));
   left: 16px;
   z-index: 2;
-  /* Keep opacity from parent button rule, not a color-variable */
+  /* keep opacity from parent button rule, not a color-variable */
   color: rgba(255, 255, 255, 0.72);
 }
 
@@ -1179,7 +1172,7 @@ html.auth-focusing .app-nav {
   font-size: 1.12rem;
   line-height: 1;
   transform: scale(1) rotate(0deg);
-  /* Only animate transform, never color — color is static white on the button */
+  /* only animate transform, never color color is static white on the button */
   transition: transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
@@ -1659,7 +1652,7 @@ html.auth-focusing .app-nav {
   }
 }
 
-/* Keep legacy keyframes for fallback (non-view-transition) CSS class animations */
+/* keep legacy keyframes for fallback (non-view-transition) css class animations */
 @keyframes pageOldForward {
   from {
     opacity: 1;
@@ -2009,7 +2002,7 @@ html.auth-focusing .app-nav {
   transform: scale(0.96);
 }
 
-/* Timer Display UX */
+/* timer display ux */
 .timer-wrap {
   margin: 8px 0 0;
   display: flex;
@@ -2128,7 +2121,7 @@ html.auth-focusing .app-nav {
   }
 }
 
-/* Reminder Slots and Stack */
+/* reminder slots and stack */
 .reminder-stack {
   margin: 10px 0 12px;
   background: transparent;
@@ -2252,20 +2245,11 @@ html.auth-focusing .app-nav {
     linear-gradient(var(--fallback-angle), color-mix(in srgb, var(--fallback-a) 58%, #050816) 0%, color-mix(in srgb, var(--fallback-b) 56%, #070718) 48%, color-mix(in srgb, var(--fallback-c) 42%, #03040c) 100%);
 }
 
-/* view-transition-name: page-content and page-header removed.
-   Named layers cause a flash when pseudo-elements are removed and real DOM is revealed.
-   The root-level crossfade (pageOldForward/pageNewForward on ::view-transition-old/new(root))
-   handles the full-page slide as one clean snapshot. */
+/* view-transition-name: page-content and page-header removed. named layers cause a flash when pseudo-elements are removed and real dom is revealed. the root-level crossfade (pageoldforward/pagenewforward on ::view-transition-old/new(root)) handles the full-page slide as one clean snapshot */
 
-/* page-title morph removed: titles crossfade as part of their parent containers
-   (page-header / page-content) to prevent laggy position-jump animation caused
-   by the Events h1 sitting lower than the Favourites/Reminders h1. */
+/* page-title morph removed: titles crossfade as part of their parent containers (page-header / page-content) to prevent laggy position-jump animation caused by the events h1 sitting lower than the favourites/reminders h1 */
 
-/* The nav bar is intentionally part of the root view-transition snapshot.
-   A named layer (page-nav) caused a gray flicker: during tab switches both old and new
-   snapshots existed (not :only-child), so animation: none made the nav appear twice —
-   once as a static ghost snapshot (with backdrop-filter stripped) and once as real DOM.
-   Letting it ride with the root crossfade is invisible and completely flicker-free. */
+/* the nav bar is intentionally part of the root view-transition snapshot. a named layer (page-nav) caused a gray flicker: during tab switches both old and new snapshots existed (not :only-child), so animation: none made the nav appear twice once as a static ghost snapshot (with backdrop-filter stripped) and once as real dom. letting it ride with the root crossfade is invisible and completely flicker-free */
 
 .cache-enter {
   animation: cacheRestoreFadeIn 0.18s cubic-bezier(0.22, 1, 0.36, 1) both;
@@ -2668,7 +2652,7 @@ html.auth-focusing .app-nav {
   filter: grayscale(65%);
 }
 
-/* Gold light for day numbers based on favorites events */
+/* gold light for day numbers based on favorites events */
 .day-num.fav-glow-low {
   color: #ffb300 !important;
   text-shadow: 0 0 4px rgba(255, 179, 0, 0.5);
@@ -2888,7 +2872,7 @@ html.auth-focusing .app-nav {
   margin: 0;
 }
 
-/* Premium Authentication, Profile, and Reviews styling */
+/* premium authentication, profile, and reviews styling */
 .hide {
   display: none !important;
 }
@@ -3014,9 +2998,9 @@ html.auth-focusing .app-nav {
   cursor: pointer;
 }
 
-/* ── Forgot Password Flow ── */
+/* forgot password flow */
 
-/* Small ghost link button under the password field */
+/* small ghost link button under the password field */
 .forgot-password-row {
   display: flex;
   justify-content: flex-end;
@@ -3040,7 +3024,7 @@ html.auth-focusing .app-nav {
   opacity: 0.55;
 }
 
-/* Step header: back arrow + title */
+/* step header: back arrow + title */
 .forgot-step-header {
   display: flex;
   align-items: center;
@@ -3081,7 +3065,7 @@ html.auth-focusing .app-nav {
   opacity: 0.72;
 }
 
-/* Success inline message */
+/* success inline message */
 .auth-success {
   background: color-mix(in srgb, var(--green, #22c55e) 10%, transparent);
   border: 1px solid color-mix(in srgb, var(--green, #22c55e) 25%, transparent);
@@ -3094,7 +3078,7 @@ html.auth-focusing .app-nav {
   animation: slideDown 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
-/* Floating success banner that auto-dismisses */
+/* floating success banner that auto-dismisses */
 .auth-reset-success {
   margin-bottom: 12px;
   animation: slideDown 0.32s cubic-bezier(0.2, 0.8, 0.2, 1);
@@ -3114,7 +3098,7 @@ html.auth-focusing .app-nav {
 
 
 
-/* Profile Card Styling */
+/* profile card styling */
 .profile-card {
   padding: 14px 14px 12px;
 }
@@ -3337,7 +3321,7 @@ html.auth-focusing .app-nav {
   display: none !important;
 }
 
-/* Reviews Feed (Community Reviews) */
+/* reviews feed (community reviews) */
 .reviews-feed-panel {
   margin-top: 14px;
   padding: 18px;
@@ -3416,7 +3400,7 @@ html.auth-focusing .app-nav {
   color: var(--hint);
 }
 
-/* Interactive Star Rating Selector */
+/* interactive star rating selector */
 .star-rating-selector {
   display: flex;
   gap: 10px;
@@ -3441,7 +3425,7 @@ html.auth-focusing .app-nav {
   transform: scale(0.9);
 }
 
-/* Event Reviews Section */
+/* event reviews section */
 .reviews-panel {
   margin-top: 14px;
 }
@@ -3771,7 +3755,7 @@ html.auth-focusing .app-nav {
   }
 }
 
-/* Auth transition overrides to prevent navigation bar flash and isolate card changes */
+/* auth transition overrides to prevent navigation bar flash and isolate card changes */
 .auth-card {
   view-transition-name: auth-card;
 }
@@ -3785,7 +3769,7 @@ html.auth-transitioning .app-nav {
   view-transition-name: none !important;
 }
 
-/* Eye visibility toggle for password fields */
+/* eye visibility toggle for password fields */
 .input-wrap {
   position: relative;
   width: 100%;
@@ -3859,7 +3843,7 @@ html.auth-transitioning .app-nav {
   opacity: 1;
 }
 
-/* Click to Rate Unauth Panel (App Store Style) */
+/* click to rate unauth panel (app store style) */
 .click-to-rate-unauth {
   display: flex;
   justify-content: space-between;
@@ -3923,7 +3907,7 @@ html.auth-transitioning .app-nav {
   stroke: currentColor;
 }
 
-/* Reviews Pen Trigger Button */
+/* reviews pen trigger button */
 .write-review-trigger-btn {
   background: none;
   border: none;
@@ -3936,7 +3920,7 @@ html.auth-transitioning .app-nav {
   border-radius: 50%;
   transition: background-color 0.2s, transform 0.1s;
   margin-top: 2px;
-  /* Visually align with the heavy text baseline */
+  /* visually align with the heavy text baseline */
 }
 
 .write-review-trigger-btn:hover {
@@ -3955,7 +3939,7 @@ html.auth-transitioning .app-nav {
   display: block;
 }
 
-/* Review Modal Overlay (App Store Style) */
+/* review modal overlay (app store style) */
 .review-modal-backdrop {
   position: fixed;
   top: 0;
@@ -3997,7 +3981,7 @@ html.auth-transitioning .app-nav {
   transform: scale(1);
 }
 
-/* Admin sheet uses the auth-sheet-backdrop and bottom-sheet styles */
+/* admin sheet uses the auth-sheet-backdrop and bottom-sheet styles */
 .sheet-backdrop.auth-sheet-backdrop.admin-sheet-backdrop {
   justify-content: stretch;
   align-items: flex-end;
@@ -4008,7 +3992,7 @@ html.auth-transitioning .app-nav {
   max-width: none;
 }
 
-/* Admin dialog header padding and styling */
+/* admin dialog header padding and styling */
 #admin-action-modal .sheet-header {
   padding: 18px 16px 0;
 }
@@ -4017,7 +4001,7 @@ html.auth-transitioning .app-nav {
   margin: 0 0 8px;
 }
 
-/* Admin dialog content padding */
+/* admin dialog content padding */
 #admin-action-modal>p,
 #admin-action-modal>textarea,
 #admin-action-modal>div:last-of-type {
@@ -4033,7 +4017,7 @@ html.auth-transitioning .app-nav {
   margin-bottom: 16px;
 }
 
-/* Admin dialog action buttons - sign-out style */
+/* admin dialog action buttons - sign-out style */
 #admin-action-modal .action {
   background: transparent;
   border: none;
@@ -4095,7 +4079,7 @@ html.auth-transitioning .app-nav {
   color: var(--text);
 }
 
-/* Spacing and resets for Modal form */
+/* spacing and resets for modal form */
 .review-modal-card .review-form {
   border: none;
   background: none;
@@ -4103,7 +4087,7 @@ html.auth-transitioning .app-nav {
   margin: 0;
 }
 
-/* Make auth bottom sheet wide, low in height, and not like an island */
+/* make auth bottom sheet wide, low in height, and not like an island */
 .sheet-backdrop.auth-sheet-backdrop {
   justify-content: stretch;
   align-items: flex-end;
@@ -4186,7 +4170,7 @@ html.auth-transitioning .app-nav {
   border-top: 1px solid var(--line);
 }
 
-/* Admin panel button styling (in the user list) */
+/* admin panel button styling (in the user list) */
 .admin-btn {
   background: transparent;
   border: none;
@@ -4213,7 +4197,7 @@ html.auth-transitioning .app-nav {
   color: var(--brand);
 }
 
-/* Minimalistic admin button in profile popup */
+/* minimalistic admin button in profile popup */
 .profile-admin-section {
   display: flex;
   justify-content: flex-end;
@@ -4249,7 +4233,7 @@ html.auth-transitioning .app-nav {
   transform: translateY(0);
 }
 
-/* Compact admin icon used next to logout-inline-btn */
+/* compact admin icon used next to logout-inline-btn */
 .profile-admin-icon {
   display: inline-flex;
   align-items: center;
@@ -4398,7 +4382,7 @@ html.auth-transitioning .app-nav {
   }
 }
 
-/* Margin spacing for review modal errors */
+/* margin spacing for review modal errors */
 #review-error-msg {
   margin: 12px 0;
 }
@@ -4815,7 +4799,7 @@ html.auth-transitioning .app-nav {
 }
 
 
-/* Subtle edge gradients */
+/* subtle edge gradients */
 .friends-carousel-container::before,
 .friends-carousel-container::after {
   content: "";
@@ -4852,14 +4836,14 @@ html.auth-transitioning .app-nav {
   scroll-behavior: smooth;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
-  /* Firefox */
+  /* firefox */
   padding-bottom: 4px;
-  /* Space for scrollbar if any */
+  /* space for scrollbar if any */
 }
 
 .friends-carousel::-webkit-scrollbar {
   display: none;
-  /* Chrome/Safari */
+  /* chrome/safari */
 }
 
 .friend-avatar {
@@ -4902,7 +4886,7 @@ html.auth-transitioning .app-nav {
   background: linear-gradient(135deg, var(--brand), var(--brand-2));
 }
 
-/* Friends Going — compact overlapping avatar row */
+/* friends going compact overlapping avatar row */
 .friends-going-row {
   display: flex;
   align-items: center;
@@ -4979,10 +4963,10 @@ html.auth-transitioning .app-nav {
   z-index: 1;
 }
 
-/* ── Floating friend avatars around register button ── */
+/* floating friend avatars around register button */
 .friends-going-bg {
   position: absolute;
-  /* Extend beyond panel so bubbles can cross button edges */
+  /* extend beyond panel so bubbles can cross button edges */
   inset: -20px;
   pointer-events: none;
   z-index: 2;
@@ -4995,9 +4979,9 @@ html.auth-transitioning .app-nav {
   height: 36px;
   border-radius: 50%;
   overflow: hidden;
-  /* No background — photo covers the full circle */
+  /* no background photo covers the full circle */
   background: transparent;
-  /* High visibility — less transparent */
+  /* high visibility less transparent */
   opacity: 0.9;
   pointer-events: none;
   display: flex;
@@ -5006,14 +4990,14 @@ html.auth-transitioning .app-nav {
   font-size: 0.65rem;
   font-weight: 800;
   color: #fff;
-  /* Subtle white ring so photo avatars still look "floating" */
+  /* subtle white ring so photo avatars still look "floating" */
   border: 2.5px solid rgba(255, 255, 255, 0.65);
   box-shadow: 0 3px 12px rgba(0, 0, 0, 0.25);
   animation: fga-drift var(--fga-dur, 6s) ease-in-out var(--fga-delay, 0s) infinite alternate;
   will-change: transform;
 }
 
-/* Initials-only bubble: needs a gradient background for the letters to show */
+/* initials-only bubble: needs a gradient background for the letters to show */
 .fga-bubble.fga-initials {
   background: linear-gradient(135deg, var(--brand), var(--brand-2));
 }
@@ -5025,7 +5009,7 @@ html.auth-transitioning .app-nav {
   border-radius: 50%;
 }
 
-/* Initials fallback span shown when image fails to load */
+/* initials fallback span shown when image fails to load */
 .fga-bubble .fga-initials-fb,
 .fga-bubble span {
   display: flex;
