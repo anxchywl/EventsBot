@@ -1,6 +1,6 @@
-import { controls, coverStyle, escapeAttr, escapeHtml, nav, formatDisplayName } from "../components/events.js?v=20260607-cal-v5";
-import { t } from "../i18n.js?v=20260607-cal-v5";
-import { state } from "../state.js?v=20260607-cal-v5";
+import { controls, coverStyle, escapeAttr, escapeHtml, nav, formatDisplayName } from "../components/events.js?v=20260607-cal-v15";
+import { t } from "../i18n.js?v=20260607-cal-v15";
+import { state } from "../state.js?v=20260607-cal-v15";
 
 export function renderRatingsTab(profileData = null, reviewsList = []) {
   const feed = state.prefetchedRatings?.feed || reviewsList || [];

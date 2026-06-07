@@ -1,5 +1,5 @@
-import { authHeaders, setSession } from "./state.js?v=20260607-cal-v5";
-import { initData } from "./telegram.js?v=20260607-cal-v5";
+import { authHeaders, setSession } from "./state.js?v=20260607-cal-v15";
+import { initData } from "./telegram.js?v=20260607-cal-v15";
 
 export async function request(path, options = {}) {
   const controller = new AbortController();

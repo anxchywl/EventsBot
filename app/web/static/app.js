@@ -1,4 +1,4 @@
-import { boot } from "./js/router.js?v=20260607-cal-v6";
+import { boot } from "./js/router.js?v=20260607-cal-v15";
 
 
 boot().catch((error) => {

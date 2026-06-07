@@ -2,7 +2,7 @@ import os
 import re
 
 directory = "app/web/static"
-version_string = "20260607-cal-v4"
+version_string = "20260607-cal-v15"
 
 def process_file(filepath):
     with open(filepath, 'r') as f:

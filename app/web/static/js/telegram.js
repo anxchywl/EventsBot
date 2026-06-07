@@ -1,4 +1,4 @@
-import { currentTheme, setTheme } from "./state.js?v=20260607-cal-v5";
+import { currentTheme, setTheme } from "./state.js?v=20260607-cal-v15";
 
 export const tg = window.Telegram?.WebApp || null;
 

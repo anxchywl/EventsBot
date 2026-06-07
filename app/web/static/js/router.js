@@ -39,19 +39,19 @@ import {
   revokeFriendInvite,
   fetchPrivacySettings,
   updatePrivacySettings,
-} from "./api.js?v=20260607-cal-v5";
-import { coverStyle, loadingScreen, resetFallbackCoverStyles, startCountdowns } from "./components/events.js?v=20260607-cal-v5";
-import { closeFilterSheet, openFilterSheet } from "./components/filterSheet.js?v=20260607-cal-v5";
-import { fetchAdminStats, fetchAdminUsers, fetchConnectedGroups, renderAdminPanel, renderAdminUsersList, renderConnectedGroupsList, blockUser, unblockUser, adminStatusLabel, adminSortLabel } from "./views/admin.js?v=20260607-cal-v5";
-import { closeSheet, openReminderSheet } from "./components/sheets.js?v=20260607-cal-v5";
-import { t, translateError } from "./i18n.js?v=20260607-cal-v6";
-import { currentTheme, nextLang, normalizeEventFilters, rememberScroll, restoreScroll, setEventFilters, setLang, setTheme, state, toggleTheme } from "./state.js?v=20260607-cal-v5";
-import { configureBackButton, haptic, initTelegram, openLink, openTelegramLink, sanitizeStartPayload, startParam, tg } from "./telegram.js?v=20260607-cal-v5";
-import { renderEvent, renderEventUnavailable, renderEventSkeleton } from "./views/event.js?v=20260607-cal-v5";
-import { renderEventResults, renderFilterBar, renderMenu, renderPlaceholder } from "./views/menu.js?v=20260607-cal-v5";
-import { renderReminders } from "./views/reminders.js?v=20260607-cal-v5";
-import { renderCalendarInner, attachCalendarInteractions, refreshCalendarMonthPanels } from "./views/calendar.js?v=20260607-cal-v5";
-import { renderAuthSection, renderRatingsTab, renderForgotPasswordCard, renderProfileInner, renderFriendSearchResults } from "./views/ratings.js?v=20260607-cal-v5";
+} from "./api.js?v=20260607-cal-v15";
+import { coverStyle, loadingScreen, resetFallbackCoverStyles, startCountdowns } from "./components/events.js?v=20260607-cal-v15";
+import { closeFilterSheet, openFilterSheet } from "./components/filterSheet.js?v=20260607-cal-v15";
+import { fetchAdminStats, fetchAdminUsers, fetchConnectedGroups, renderAdminPanel, renderAdminUsersList, renderConnectedGroupsList, blockUser, unblockUser, adminStatusLabel, adminSortLabel } from "./views/admin.js?v=20260607-cal-v15";
+import { closeSheet, openReminderSheet } from "./components/sheets.js?v=20260607-cal-v15";
+import { t, translateError } from "./i18n.js?v=20260607-cal-v15";
+import { currentTheme, nextLang, normalizeEventFilters, rememberScroll, restoreScroll, setEventFilters, setLang, setTheme, state, toggleTheme } from "./state.js?v=20260607-cal-v15";
+import { configureBackButton, haptic, initTelegram, openLink, openTelegramLink, sanitizeStartPayload, startParam, tg } from "./telegram.js?v=20260607-cal-v15";
+import { renderEvent, renderEventUnavailable, renderEventSkeleton } from "./views/event.js?v=20260607-cal-v15";
+import { renderEventResults, renderFilterBar, renderMenu, renderPlaceholder } from "./views/menu.js?v=20260607-cal-v15";
+import { renderReminders } from "./views/reminders.js?v=20260607-cal-v15";
+import { renderCalendarInner, attachCalendarInteractions, refreshCalendarMonthPanels } from "./views/calendar.js?v=20260607-cal-v15";
+import { renderAuthSection, renderRatingsTab, renderForgotPasswordCard, renderProfileInner, renderFriendSearchResults } from "./views/ratings.js?v=20260607-cal-v15";
 
 
 const app = document.getElementById("app");
@@ -2575,6 +2575,11 @@ function initRatingsHandlers() {
 
   const emailInput = app.querySelector("#auth-email-field");
   if (emailInput) {
+    emailInput.onkeydown = (e) => {
+      if (e.key === " ") {
+        e.preventDefault();
+      }
+    };
     emailInput.oninput = (e) => {
       const originalVal = e.target.value;
       const selectionStart = e.target.selectionStart;
@@ -2596,6 +2601,11 @@ function initRatingsHandlers() {
 
   const passwordInput = app.querySelector("#auth-password-field");
   if (passwordInput) {
+    passwordInput.onkeydown = (e) => {
+      if (e.key === " " && e.target.selectionStart === 0) {
+        e.preventDefault();
+      }
+    };
     passwordInput.oninput = (e) => {
       const originalVal = e.target.value;
       const selectionStart = e.target.selectionStart;
@@ -2615,6 +2625,11 @@ function initRatingsHandlers() {
 
   const confirmPasswordInput = app.querySelector("#auth-confirm-password-field");
   if (confirmPasswordInput) {
+    confirmPasswordInput.onkeydown = (e) => {
+      if (e.key === " " && e.target.selectionStart === 0) {
+        e.preventDefault();
+      }
+    };
     confirmPasswordInput.oninput = (e) => {
       const originalVal = e.target.value;
       const selectionStart = e.target.selectionStart;
@@ -3005,9 +3020,21 @@ function initForgotPasswordHandlers() {
   if (emailForm) {
     const emailInput = root.querySelector("#forgot-email-field");
     if (emailInput) {
+      emailInput.onkeydown = (e) => {
+        if (e.key === " ") {
+          e.preventDefault();
+        }
+      };
       emailInput.oninput = (e) => {
-        let val = e.target.value.slice(0, 100).replace(/\s/g, "").replace(/[<>&"'/`\\;]/g, "");
-        e.target.value = val;
+        const originalVal = e.target.value;
+        const selectionStart = e.target.selectionStart;
+        let val = originalVal.slice(0, 100).replace(/\s/g, "").replace(/[<>&"'/`\\;]/g, "");
+        if (originalVal !== val) {
+          e.target.value = val;
+          const diff = originalVal.length - val.length;
+          const newPos = Math.max(0, selectionStart - diff);
+          e.target.setSelectionRange(newPos, newPos);
+        }
         state.forgotEmail = val;
       };
       emailInput.onblur = (e) => {
@@ -3140,6 +3167,54 @@ function initForgotPasswordHandlers() {
         btn.classList.toggle("is-visible", !isVisible);
       };
     });
+
+    // Sanitize new password field — no injection chars, no leading/trailing spaces, max 64
+    const newPwdInput = root.querySelector("#forgot-newpwd-field");
+    if (newPwdInput) {
+      newPwdInput.onkeydown = (e) => {
+        if (e.key === " " && e.target.selectionStart === 0) {
+          e.preventDefault();
+        }
+      };
+      newPwdInput.oninput = (e) => {
+        const originalVal = e.target.value;
+        const selectionStart = e.target.selectionStart;
+        let val = originalVal.slice(0, 64).replace(/[<>&"'/`\\;]/g, "");
+        if (val.startsWith(" ") || val.endsWith(" ")) {
+          val = val.trim();
+        }
+        if (originalVal !== val) {
+          e.target.value = val;
+          const diff = originalVal.length - val.length;
+          const newPos = Math.max(0, selectionStart - diff);
+          e.target.setSelectionRange(newPos, newPos);
+        }
+      };
+    }
+
+    // Sanitize confirm password field — same rules
+    const confirmPwdInput = root.querySelector("#forgot-confirmpwd-field");
+    if (confirmPwdInput) {
+      confirmPwdInput.onkeydown = (e) => {
+        if (e.key === " " && e.target.selectionStart === 0) {
+          e.preventDefault();
+        }
+      };
+      confirmPwdInput.oninput = (e) => {
+        const originalVal = e.target.value;
+        const selectionStart = e.target.selectionStart;
+        let val = originalVal.slice(0, 64).replace(/[<>&"'/`\\;]/g, "");
+        if (val.startsWith(" ") || val.endsWith(" ")) {
+          val = val.trim();
+        }
+        if (originalVal !== val) {
+          e.target.value = val;
+          const diff = originalVal.length - val.length;
+          const newPos = Math.max(0, selectionStart - diff);
+          e.target.setSelectionRange(newPos, newPos);
+        }
+      };
+    }
 
     resetForm.onsubmit = async (e) => {
       e.preventDefault();
