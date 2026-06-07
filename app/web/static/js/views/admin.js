@@ -1,7 +1,7 @@
-import { escapeHtml, coverStyle, formatDisplayName } from "../components/events.js?v=20260607-cal-v15";
-import { state, authHeaders } from "../state.js?v=20260607-cal-v15";
-import { t } from "../i18n.js?v=20260607-cal-v15";
-import { authenticate } from "../api.js?v=20260607-cal-v15";
+import { escapeHtml, coverStyle, formatDisplayName } from "../components/events.js?v=20260608-auth-v7";
+import { state, authHeaders } from "../state.js?v=20260608-auth-v7";
+import { t } from "../i18n.js?v=20260608-auth-v7";
+import { authenticate } from "../api.js?v=20260608-auth-v7";
 
 async function adminRequest(path, options = {}) {
   await authenticate().catch(() => null);
@@ -60,7 +60,7 @@ export async function unblockUser(email) {
 export function renderAdminPanel(stats, users, connectedGroupsPayload = null) {
   return `
     <div class="screen admin-screen" data-route="admin">
-      <header class="cover compact" ${coverStyle(null, "header-admin")}>
+      <header class="cover compact" ${coverStyle(null, "header-main")}>
         <h1>${t("admin")}</h1>
       </header>
       <main class="content">

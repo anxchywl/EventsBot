@@ -234,13 +234,15 @@ async def optional_current_miniapp_user(
         alias="X-Telegram-Init-Data",
     ),
 ) -> MiniAppUser | None:
-    if not authorization or not x_telegram_init_data:
+    if not x_telegram_init_data:
         return None
     try:
-        return await require_current_miniapp_user(
-            authorization=authorization,
-            x_telegram_init_data=x_telegram_init_data,
-        )
+        if authorization:
+            return await require_current_miniapp_user(
+                authorization=authorization,
+                x_telegram_init_data=x_telegram_init_data,
+            )
+        return verify_init_data(x_telegram_init_data)
     except HTTPException:
         return None
 

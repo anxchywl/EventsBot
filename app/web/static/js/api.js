@@ -1,5 +1,7 @@
-import { authHeaders, setSession } from "./state.js?v=20260607-cal-v15";
-import { initData } from "./telegram.js?v=20260607-cal-v15";
+import { authHeaders, setSession, state } from "./state.js?v=20260608-auth-v7";
+import { initData } from "./telegram.js?v=20260608-auth-v7";
+
+let authInFlight = null;
 
 export async function request(path, options = {}) {
   const controller = new AbortController();
@@ -31,21 +33,31 @@ export async function request(path, options = {}) {
   }
 }
 
-export async function authenticate() {
+export async function authenticate({ force = false } = {}) {
+  if (!force && state.session && state.user) {
+    return { token: state.session, user: state.user };
+  }
+  if (authInFlight) {
+    return authInFlight;
+  }
   const data = initData();
   if (!data) {
     return null;
   }
-  try {
+
+  authInFlight = (async () => {
     const payload = await request("/api/auth/session", {
       method: "POST",
       body: JSON.stringify({ initData: data }),
     });
     setSession(payload.token, payload.user);
     return payload;
-  } catch (error) {
-    setSession("", null);
-    throw error;
+  })();
+
+  try {
+    return await authInFlight;
+  } finally {
+    authInFlight = null;
   }
 }
 

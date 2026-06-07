@@ -1,4 +1,4 @@
-import { state } from "./state.js?v=20260607-cal-v15";
+import { state } from "./state.js?v=20260608-auth-v7";
 
 const dict = {
   en: {

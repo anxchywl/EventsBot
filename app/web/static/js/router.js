@@ -39,19 +39,19 @@ import {
   revokeFriendInvite,
   fetchPrivacySettings,
   updatePrivacySettings,
-} from "./api.js?v=20260607-cal-v15";
-import { coverStyle, loadingScreen, resetFallbackCoverStyles, startCountdowns } from "./components/events.js?v=20260607-cal-v15";
-import { closeFilterSheet, openFilterSheet } from "./components/filterSheet.js?v=20260607-cal-v15";
-import { fetchAdminStats, fetchAdminUsers, fetchConnectedGroups, renderAdminPanel, renderAdminUsersList, renderConnectedGroupsList, blockUser, unblockUser, adminStatusLabel, adminSortLabel } from "./views/admin.js?v=20260607-cal-v15";
-import { closeSheet, openReminderSheet } from "./components/sheets.js?v=20260607-cal-v15";
-import { t, translateError } from "./i18n.js?v=20260607-cal-v15";
-import { currentTheme, nextLang, normalizeEventFilters, rememberScroll, restoreScroll, setEventFilters, setLang, setTheme, state, toggleTheme } from "./state.js?v=20260607-cal-v15";
-import { configureBackButton, haptic, initTelegram, openLink, openTelegramLink, sanitizeStartPayload, startParam, tg } from "./telegram.js?v=20260607-cal-v15";
-import { renderEvent, renderEventUnavailable, renderEventSkeleton } from "./views/event.js?v=20260607-cal-v15";
-import { renderEventResults, renderFilterBar, renderMenu, renderPlaceholder } from "./views/menu.js?v=20260607-cal-v15";
-import { renderReminders } from "./views/reminders.js?v=20260607-cal-v15";
-import { renderCalendarInner, attachCalendarInteractions, refreshCalendarMonthPanels } from "./views/calendar.js?v=20260607-cal-v15";
-import { renderAuthSection, renderRatingsTab, renderForgotPasswordCard, renderProfileInner, renderFriendSearchResults } from "./views/ratings.js?v=20260607-cal-v15";
+} from "./api.js?v=20260608-auth-v7";
+import { coverStyle, loadingScreen, resetFallbackCoverStyles, startCountdowns } from "./components/events.js?v=20260608-auth-v7";
+import { closeFilterSheet, openFilterSheet } from "./components/filterSheet.js?v=20260608-auth-v7";
+import { fetchAdminStats, fetchAdminUsers, fetchConnectedGroups, renderAdminPanel, renderAdminUsersList, renderConnectedGroupsList, blockUser, unblockUser, adminStatusLabel, adminSortLabel } from "./views/admin.js?v=20260608-auth-v7";
+import { closeSheet, openReminderSheet } from "./components/sheets.js?v=20260608-auth-v7";
+import { t, translateError } from "./i18n.js?v=20260608-auth-v7";
+import { currentTheme, nextLang, normalizeEventFilters, rememberScroll, restoreScroll, setEventFilters, setLang, setTheme, state, toggleTheme } from "./state.js?v=20260608-auth-v7";
+import { configureBackButton, haptic, initTelegram, openLink, openTelegramLink, sanitizeStartPayload, startParam, tg } from "./telegram.js?v=20260608-auth-v7";
+import { renderEvent, renderEventUnavailable, renderEventSkeleton } from "./views/event.js?v=20260608-auth-v7";
+import { renderEventResults, renderFilterBar, renderMenu, renderPlaceholder } from "./views/menu.js?v=20260608-auth-v7";
+import { renderReminders } from "./views/reminders.js?v=20260608-auth-v7";
+import { renderCalendarInner, attachCalendarInteractions, refreshCalendarMonthPanels } from "./views/calendar.js?v=20260608-auth-v7";
+import { renderAuthSection, renderRatingsTab, renderForgotPasswordCard, renderProfileInner, renderFriendSearchResults } from "./views/ratings.js?v=20260608-auth-v7";
 
 
 const app = document.getElementById("app");
@@ -437,7 +437,6 @@ export async function boot() {
       renderCurrent();
     }
   });
-  await authenticate().catch(() => null);
   window.addEventListener("hashchange", () => loadFromLocation());
   document.addEventListener("pointerdown", onPointerDown, { passive: true });
   document.addEventListener("touchstart", onPointerDown, { passive: true });
@@ -460,7 +459,13 @@ export async function boot() {
     }
   });
   installKeyboardOverlayNav();
-  loadFromLocation();
+  const initialNavigation = loadFromLocation();
+  authenticate()
+    .then(async () => {
+      await initialNavigation.catch(() => null);
+      startMiniappUpdates();
+    })
+    .catch(() => null);
   startEventSyncPolling();
   startReviewUpdates();
   startMiniappUpdates();
@@ -1987,9 +1992,18 @@ async function handleEventAction(action, element) {
   }
   if (action === "share") {
     hapticImpactFallback();
+    const fallbackUrl = event.share_url;
+    if (fallbackUrl) {
+      openTelegramLink(fallbackUrl);
+      haptic("success");
+      shareEvent(event.token).catch(() => null);
+      return;
+    }
     const payload = await shareEvent(event.token);
-    haptic("success");
-    openTelegramLink(payload.url || event.share_url);
+    if (payload.url) {
+      openTelegramLink(payload.url);
+      haptic("success");
+    }
   }
   if (action === "register" && event.registration_url) {
     openLink(event.registration_url);

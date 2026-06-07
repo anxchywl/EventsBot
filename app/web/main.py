@@ -183,16 +183,20 @@ async def rate_limit(request: Request, call_next):
             sse_hits.append(now)
             rate_limits[sse_key] = sse_hits
 
-        # General API rate limiting fallback
-        hits = [ts for ts in rate_limits.get(key, []) if now - ts < 60]
-        limit = 45 if request.method not in {"GET", "HEAD", "OPTIONS"} else 120
-        if len(hits) >= limit:
-            return JSONResponse(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                content={"detail": "Too many requests"},
-            )
-        hits.append(now)
-        rate_limits[key] = hits
+        if request.url.path != "/api/auth/session":
+            # General API rate limiting fallback
+            hits = [ts for ts in rate_limits.get(key, []) if now - ts < 60]
+            if key.startswith("user:"):
+                limit = 180 if request.method not in {"GET", "HEAD", "OPTIONS"} else 600
+            else:
+                limit = 45 if request.method not in {"GET", "HEAD", "OPTIONS"} else 120
+            if len(hits) >= limit:
+                return JSONResponse(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    content={"detail": "Too many requests"},
+                )
+            hits.append(now)
+            rate_limits[key] = hits
     return await call_next(request)
 
 

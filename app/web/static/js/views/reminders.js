@@ -1,5 +1,5 @@
-import { controls, coverStyle, escapeAttr, escapeHtml, nav } from "../components/events.js?v=20260607-cal-v15";
-import { t } from "../i18n.js?v=20260607-cal-v15";
+import { controls, coverStyle, escapeAttr, escapeHtml, nav } from "../components/events.js?v=20260608-auth-v7";
+import { t } from "../i18n.js?v=20260608-auth-v7";
 
 function formatReminderLeadTime(minutes) {
   const days = Math.floor(minutes / 1440);
