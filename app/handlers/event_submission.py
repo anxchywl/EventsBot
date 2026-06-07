@@ -603,6 +603,13 @@ async def process_organizer(message: Message, state: FSMContext, bot: Bot, sessi
         await go_back_one_step(message, state, bot, session)
         return
 
+    if len(message.text) > 100:
+        msg = await message.answer(
+            "Organizer name is too long. Please keep it under 100 characters."
+        )
+        await track_messages(state, message.message_id, msg.message_id, is_temp=True)
+        return
+
     await finalize_previous_step(
         state, bot, message.chat.id, f"🏢 **Organizer:** {message.text}"
     )
@@ -837,9 +844,9 @@ async def process_registration_link(message: Message, state: FSMContext, bot: Bo
         await skip_registration_link(message, state, bot)
         return
 
-    if not is_valid_url(message.text):
+    if not is_valid_url(message.text) or len(message.text) > 2048:
         msg = await message.answer(
-            "That doesn't look like a valid link. Please send a full URL starting with http:// or https://, or click Skip link.",
+            "That doesn't look like a valid link or it is too long (max 2048 characters). Please send a full URL starting with http:// or https://, or click Skip link.",
             reply_markup=get_step_navigation_kb("Skip link"),
             parse_mode="Markdown",
         )

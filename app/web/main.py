@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from hashlib import sha256
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Request, status
@@ -34,8 +35,29 @@ from app.web.schemas import AuthRequest, AuthResponse
 
 STATIC_DIR = Path(__file__).parent / "static"
 rate_limits: dict[str, list[float]] = {}
+MAX_RATE_LIMIT_KEYS = 20_000
 
-web_app = FastAPI(title="Events Bot Mini App")
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # startup
+    from app.web.sync_listener import start_event_cache_invalidation_listener
+    app.state.event_cache_listener_task = start_event_cache_invalidation_listener()
+    yield
+    # shutdown
+    task = getattr(app.state, "event_cache_listener_task", None)
+    if task:
+        task.cancel()
+
+
+web_app = FastAPI(
+    title="Events Bot Mini App",
+    lifespan=lifespan,
+    docs_url=None,     # Disable Swagger UI in production
+    redoc_url=None,    # Disable ReDoc in production
+    openapi_url=None,  # Disable OpenAPI schema endpoint
+)
 web_app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 web_app.include_router(events_router)
 web_app.include_router(favorites_router)
@@ -48,39 +70,46 @@ web_app.include_router(ratings_router)
 web_app.include_router(admin_router)
 
 
-@web_app.on_event("startup")
-async def start_sync_cache_listener() -> None:
-    from app.web.sync_listener import start_event_cache_invalidation_listener
-
-    web_app.state.event_cache_listener_task = start_event_cache_invalidation_listener()
-
-
-@web_app.on_event("shutdown")
-async def stop_sync_cache_listener() -> None:
-    task = getattr(web_app.state, "event_cache_listener_task", None)
-    if task:
-        task.cancel()
+@web_app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    
+    # Add Global Security Headers
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    response.headers["Content-Security-Policy"] = "frame-ancestors https://*.telegram.org https://*.telegram.me;"
+    
+    # Add strong caching headers for static assets
+    if request.url.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        
+    return response
 
 
 @web_app.middleware("http")
 async def rate_limit(request: Request, call_next):
     if request.url.path.startswith("/api/"):
+        # Max request body size: 150KB
+        content_length = request.headers.get("content-length")
+        if content_length and int(content_length) > 150_000:
+            return JSONResponse(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                content={"detail": "Request body too large"},
+            )
+
         auth_header = request.headers.get("authorization")
-        is_admin = False
+        key = request.client.host if request.client else "unknown"
         if auth_header and auth_header.startswith("Bearer "):
             try:
                 token = auth_header.removeprefix("Bearer ").strip()
                 miniapp_user = verify_session_token(token)
-                if miniapp_user.id in get_settings().admin_ids:
-                    is_admin = True
+                key = f"user:{miniapp_user.id}"
             except Exception:
-                pass
+                key = f"bad-auth:{sha256(auth_header.encode()).hexdigest()[:16]}"
 
-        if is_admin:
-            return await call_next(request)
-
-        key = auth_header or request.client.host
         now = time.time()
+        if len(rate_limits) > MAX_RATE_LIMIT_KEYS:
+            _prune_rate_limits(now)
 
         # 1. Registration Rate Limit (Max 5 attempts / 15 mins)
         if request.url.path == "/api/auth/register":
@@ -142,6 +171,18 @@ async def rate_limit(request: Request, call_next):
             reset_hits.append(now)
             rate_limits[reset_key] = reset_hits
 
+        # 6. SSE Connections Rate Limit (Max 15 connections / 1 minute)
+        elif request.url.path in {"/api/events/review-updates", "/api/events/updates"}:
+            sse_key = f"sse:{key}"
+            sse_hits = [ts for ts in rate_limits.get(sse_key, []) if now - ts < 60]
+            if len(sse_hits) >= 15:
+                return JSONResponse(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    content={"detail": "Too many streaming connections. Try again later."},
+                )
+            sse_hits.append(now)
+            rate_limits[sse_key] = sse_hits
+
         # General API rate limiting fallback
         hits = [ts for ts in rate_limits.get(key, []) if now - ts < 60]
         limit = 45 if request.method not in {"GET", "HEAD", "OPTIONS"} else 120
@@ -153,6 +194,23 @@ async def rate_limit(request: Request, call_next):
         hits.append(now)
         rate_limits[key] = hits
     return await call_next(request)
+
+
+def _prune_rate_limits(now: float) -> None:
+    cutoff = now - 900
+    stale_keys = [
+        key
+        for key, hits in rate_limits.items()
+        if not hits or max(hits) < cutoff
+    ]
+    for key in stale_keys:
+        rate_limits.pop(key, None)
+    if len(rate_limits) <= MAX_RATE_LIMIT_KEYS:
+        return
+    for key in sorted(rate_limits, key=lambda item_key: max(rate_limits[item_key] or [0]))[
+        : len(rate_limits) - MAX_RATE_LIMIT_KEYS
+    ]:
+        rate_limits.pop(key, None)
 
 
 @web_app.get("/health")

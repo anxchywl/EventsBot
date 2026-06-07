@@ -1,6 +1,5 @@
 const STORED_LANG = "events_miniapp_lang";
 const STORED_THEME = "events_miniapp_theme";
-const STORED_SESSION = "events_miniapp_session";
 const STORED_EVENT_FILTERS = "events_miniapp_event_filters";
 
 const DEFAULT_EVENT_FILTERS = Object.freeze({
@@ -18,7 +17,7 @@ export const LANGS = ["en", "ru", "kk"];
 export const state = {
   route: "events",
   token: "",
-  session: localStorage.getItem(STORED_SESSION) || "",
+  session: "",
   user: null,
   lang: normalizeLang(localStorage.getItem(STORED_LANG) || navigator.language || "en"),
   theme: localStorage.getItem(STORED_THEME) || "",
@@ -173,11 +172,6 @@ export function currentTheme() {
 export function setSession(token, user) {
   state.session = token || "";
   state.user = user || null;
-  if (state.session) {
-    localStorage.setItem(STORED_SESSION, state.session);
-  } else {
-    localStorage.removeItem(STORED_SESSION);
-  }
 }
 
 export function authHeaders() {

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_session
@@ -13,22 +13,47 @@ from app.services.reminders import (
     get_user_scheduled_reminders,
     schedule_reminder_offset,
 )
-from app.web.auth import MiniAppUser, require_miniapp_user, upsert_miniapp_user
-from app.web.routers.events import event_cache
+from app.web.auth import MiniAppUser, require_current_miniapp_user, upsert_miniapp_user
+from app.web.routers.events import event_cache, validate_public_token
 from app.web.schemas import ActionResponse, ReminderGroup, ReminderItem, ReminderRequest
 from app.web.serializers import event_list_item
 
 
 router = APIRouter(tags=["miniapp-reminders"])
 
+import time
+
+_REMINDER_RATE_LIMITS: dict[str, list[float]] = {}
+
+def _check_rate_limit(request: Request, user_id: int, limit: int, window_seconds: int) -> None:
+    now = time.time()
+    cutoff = now - window_seconds
+    host = request.client.host if request.client else "unknown"
+    key = f"reminder:{user_id}:{host}"
+    hits = [ts for ts in _REMINDER_RATE_LIMITS.get(key, []) if ts > cutoff]
+    if len(hits) >= limit:
+        _REMINDER_RATE_LIMITS[key] = hits
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Too many reminder attempts. Try again later.")
+    hits.append(now)
+    _REMINDER_RATE_LIMITS[key] = hits
+
+    # Prevent memory leaks by pruning stale keys when dict grows large
+    if len(_REMINDER_RATE_LIMITS) > 10000:
+        for k in list(_REMINDER_RATE_LIMITS.keys()):
+            _REMINDER_RATE_LIMITS[k] = [ts for ts in _REMINDER_RATE_LIMITS[k] if ts > cutoff]
+            if not _REMINDER_RATE_LIMITS[k]:
+                del _REMINDER_RATE_LIMITS[k]
+
 
 @router.get("/api/reminders", response_model=list[ReminderGroup])
 async def list_reminders(
-    miniapp_user: MiniAppUser = Depends(require_miniapp_user),
+    limit: int = Query(100, ge=1, le=200),
+    offset: int = Query(0, ge=0, le=5000),
+    miniapp_user: MiniAppUser = Depends(require_current_miniapp_user),
     session: AsyncSession = Depends(get_session),
 ) -> list[ReminderGroup]:
     user = await upsert_miniapp_user(session, miniapp_user)
-    reminders = await get_user_scheduled_reminders(session, user)
+    reminders = await get_user_scheduled_reminders(session, user, limit, offset)
     groups: dict[str, list[ReminderItem]] = defaultdict(list)
     for reminder in reminders:
         key = reminder.remind_at.date().isoformat()
@@ -43,10 +68,13 @@ async def list_reminders(
 async def create_reminder(
     public_token: str,
     payload: ReminderRequest,
-    miniapp_user: MiniAppUser = Depends(require_miniapp_user),
+    request: Request,
+    miniapp_user: MiniAppUser = Depends(require_current_miniapp_user),
     session: AsyncSession = Depends(get_session),
 ) -> ActionResponse:
     user = await upsert_miniapp_user(session, miniapp_user)
+    _check_rate_limit(request, user.id, limit=20, window_seconds=3600)
+    public_token = validate_public_token(public_token)
     event = await get_available_event_by_public_token(session, public_token)
     if not event:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Event no longer available")
@@ -64,7 +92,7 @@ async def create_reminder(
 @router.delete("/api/reminders/{reminder_id}", response_model=ActionResponse)
 async def delete_reminder(
     reminder_id: int,
-    miniapp_user: MiniAppUser = Depends(require_miniapp_user),
+    miniapp_user: MiniAppUser = Depends(require_current_miniapp_user),
     session: AsyncSession = Depends(get_session),
 ) -> ActionResponse:
     user = await upsert_miniapp_user(session, miniapp_user)

@@ -746,6 +746,7 @@ html.auth-focusing .app-nav {
 
 .filter-bar {
   display: flex;
+  align-items: center;
   justify-content: flex-start;
   gap: 6px;
   overflow-x: auto;
@@ -2322,6 +2323,73 @@ html.auth-focusing .app-nav {
   }
 }
 
+.app-container {
+  position: relative;
+  width: 100%;
+}
+
+@media (min-width: 900px) {
+  body {
+    background:
+      radial-gradient(circle at 20% 0%, color-mix(in srgb, var(--brand) 8%, transparent), transparent 34%),
+      var(--bg-gradient);
+  }
+
+  .app-container {
+    width: min(760px, calc(100vw - 48px));
+    min-height: 100vh;
+    margin: 0 auto;
+    background: var(--bg-gradient);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--line) 76%, transparent), 0 34px 110px rgba(34, 48, 84, 0.16);
+  }
+
+  #app {
+    width: 100%;
+  }
+
+  .screen {
+    min-height: 100vh;
+    overflow: hidden;
+  }
+
+  .cover {
+    min-height: 214px;
+    border-radius: 0 0 26px 26px;
+  }
+
+  .cover.compact {
+    min-height: 188px;
+  }
+
+  .content {
+    width: 100%;
+    padding-inline: 18px;
+  }
+
+  .screen[data-route="events"] .content {
+    margin-top: 8px;
+  }
+
+  .events-mode-container,
+  .calendar-mode-container,
+  .profile-mode-container {
+    width: 100%;
+  }
+
+  #global-controls {
+    right: 16px;
+  }
+
+  .filter-bar {
+    justify-content: center;
+    overflow-x: visible;
+  }
+
+  .calendar-widget-container {
+    height: 640px;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
 
   .cover,
@@ -2428,7 +2496,8 @@ html.auth-focusing .app-nav {
 }
 
 .month-section {
-  height: 375px;
+  min-height: 375px;
+  height: auto;
   scroll-snap-align: start;
   scroll-snap-stop: always;
   box-sizing: border-box;
@@ -2911,6 +2980,7 @@ html.auth-focusing .app-nav {
   font-size: 0.85rem;
   font-weight: 800;
   line-height: 1.4;
+  overflow-wrap: break-word;
   animation: shake 0.4s ease;
 }
 
@@ -4907,4 +4977,97 @@ html.auth-transitioning .app-nav {
 .register-panel .register-action {
   position: relative;
   z-index: 1;
+}
+
+/* ── Floating friend avatars around register button ── */
+.friends-going-bg {
+  position: absolute;
+  /* Extend beyond panel so bubbles can cross button edges */
+  inset: -20px;
+  pointer-events: none;
+  z-index: 2;
+  overflow: visible;
+}
+
+.fga-bubble {
+  position: absolute;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  overflow: hidden;
+  /* No background — photo covers the full circle */
+  background: transparent;
+  /* High visibility — less transparent */
+  opacity: 0.9;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.65rem;
+  font-weight: 800;
+  color: #fff;
+  /* Subtle white ring so photo avatars still look "floating" */
+  border: 2.5px solid rgba(255, 255, 255, 0.65);
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.25);
+  animation: fga-drift var(--fga-dur, 6s) ease-in-out var(--fga-delay, 0s) infinite alternate;
+  will-change: transform;
+}
+
+/* Initials-only bubble: needs a gradient background for the letters to show */
+.fga-bubble.fga-initials {
+  background: linear-gradient(135deg, var(--brand), var(--brand-2));
+}
+
+.fga-bubble img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
+}
+
+/* Initials fallback span shown when image fails to load */
+.fga-bubble .fga-initials-fb,
+.fga-bubble span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, var(--brand), var(--brand-2));
+}
+
+@keyframes fga-drift {
+  0%   { transform: translateX(calc(var(--fga-amp, 8px) * -1)) translateY(0px); }
+  33%  { transform: translateX(calc(var(--fga-amp, 8px) * 0.4)) translateY(-3px); }
+  66%  { transform: translateX(calc(var(--fga-amp, 8px) * 0.8)) translateY(2px); }
+  100% { transform: translateX(var(--fga-amp, 8px)) translateY(-1px); }
+}
+
+.copyable-bot-tag {
+  color: var(--brand);
+  font-weight: 500;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: var(--grid-color);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  display: inline-block;
+  user-select: all;
+  margin: 0 2px;
+}
+
+.copyable-bot-tag:hover {
+  background: rgba(79, 109, 245, 0.15);
+  text-decoration: underline;
+  transform: translateY(-1px);
+}
+
+[data-theme="dark"] .copyable-bot-tag:hover {
+  background: rgba(139, 92, 246, 0.15);
+}
+
+.copyable-bot-tag.copied {
+  color: var(--brand-2);
+  background: rgba(33, 184, 137, 0.15);
+  transform: scale(0.95);
 }

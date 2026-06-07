@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, urlencode
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -129,7 +129,7 @@ async def event_detail(
     for r in verified_ratings:
         user_map[r.user_id] = {
             "comment_id": None,
-            "rating_id": r.id,
+            "rating_id": r.id if can_delete_all else None,
             "nickname": r.user.nickname or "Anonymous",
             "avatar": avatar_payload(r.user),
             "content": None,
@@ -137,15 +137,15 @@ async def event_detail(
             "created_at": r.created_at.isoformat(),
             "is_own": user is not None and r.user_id == user.id,
             "can_delete": can_delete_all,
-            "user_id": r.user_id,
+            "user_id": r.user_id if can_delete_all else None,
         }
     for c in verified_comments:
         if c.user_id in user_map:
-            user_map[c.user_id]["comment_id"] = c.id
+            user_map[c.user_id]["comment_id"] = c.id if can_delete_all else None
             user_map[c.user_id]["content"] = c.content
         else:
             user_map[c.user_id] = {
-                "comment_id": c.id,
+                "comment_id": c.id if can_delete_all else None,
                 "rating_id": None,
                 "nickname": c.user.nickname or "Anonymous",
                 "avatar": avatar_payload(c.user),
@@ -154,7 +154,7 @@ async def event_detail(
                 "created_at": c.created_at.isoformat(),
                 "is_own": user is not None and c.user_id == user.id,
                 "can_delete": can_delete_all,
-                "user_id": c.user_id,
+                "user_id": c.user_id if can_delete_all else None,
             }
 
     reviews_list = list(user_map.values())
@@ -301,7 +301,10 @@ async def user_reminder_details(
 
 
 def event_cover_url(event: Event) -> str | None:
-    return f"/api/events/{event.public_token}/cover" if event.poster_file_id else None
+    if not event.poster_file_id:
+        return None
+    version = urlencode({"v": event.poster_file_id})
+    return f"/api/events/{event.public_token}/cover?{version}"
 
 
 def is_event_ended(event: Event) -> bool:

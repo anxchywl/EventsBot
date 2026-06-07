@@ -1,5 +1,5 @@
-import { escapeAttr, escapeHtml } from "./events.js?v=20260607-cal-v4";
-import { formatReminderOffset, t, translateError } from "../i18n.js?v=20260607-cal-v4";
+import { escapeAttr, escapeHtml } from "./events.js?v=20260607-cal-v5";
+import { formatReminderOffset, t, translateError } from "../i18n.js?v=20260607-cal-v5";
 
 const MAX_REMINDERS = 3;
 

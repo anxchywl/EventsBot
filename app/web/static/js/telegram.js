@@ -1,4 +1,4 @@
-import { currentTheme, setTheme } from "./state.js?v=20260607-cal-v4";
+import { currentTheme, setTheme } from "./state.js?v=20260607-cal-v5";
 
 export const tg = window.Telegram?.WebApp || null;
 
@@ -28,7 +28,18 @@ export function initData() {
 }
 
 export function startParam() {
-  return tg?.initDataUnsafe?.start_param || "";
+  return sanitizeStartPayload(tg?.initDataUnsafe?.start_param || "");
+}
+
+export function sanitizeStartPayload(value) {
+  const payload = String(value || "").trim();
+  if (/^event_[0-9a-fA-F-]{36}$/.test(payload)) {
+    return payload;
+  }
+  if (/^invite_[A-Za-z0-9_-]{32,256}$/.test(payload)) {
+    return payload;
+  }
+  return "";
 }
 
 export function haptic(type = "selection") {
@@ -75,6 +86,9 @@ function vibrate(pattern) {
 }
 
 export function openTelegramLink(url) {
+  if (!isSafeTelegramUrl(url)) {
+    return;
+  }
   if (tg?.openTelegramLink) {
     tg.openTelegramLink(url);
     return;
@@ -83,11 +97,37 @@ export function openTelegramLink(url) {
 }
 
 export function openLink(url) {
+  if (!isSafeHttpUrl(url)) {
+    return;
+  }
   if (tg?.openLink) {
     tg.openLink(url);
     return;
   }
   window.open(url, "_blank", "noopener");
+}
+
+function isSafeHttpUrl(url) {
+  try {
+    const parsed = new URL(String(url || ""), window.location.origin);
+    return parsed.protocol === "https:" || parsed.protocol === "http:";
+  } catch {
+    return false;
+  }
+}
+
+function isSafeTelegramUrl(url) {
+  try {
+    const value = String(url || "");
+    const parsed = new URL(value, window.location.origin);
+    return (
+      parsed.protocol === "tg:"
+      || (parsed.protocol === "https:" && parsed.hostname === "t.me")
+      || (parsed.protocol === "https:" && parsed.hostname.endsWith(".telegram.me"))
+    );
+  } catch {
+    return false;
+  }
 }
 
 export function configureBackButton(visible, onClick) {

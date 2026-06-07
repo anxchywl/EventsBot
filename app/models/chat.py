@@ -34,6 +34,8 @@ class Chat(TimestampMixin, Base):
         ),
         UniqueConstraint("telegram_chat_id", name="uq_chats_telegram_chat_id"),
         Index("ix_chats_telegram_chat_id", "telegram_chat_id"),
+        Index("ix_chats_bot_id_active", "bot_id", "is_active"),
+        Index("ix_chats_status_activity", "is_active", "last_activity_at"),
     )
 
     # telegram chat fields

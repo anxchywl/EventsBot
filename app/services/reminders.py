@@ -186,6 +186,8 @@ async def cancel_reminder(
 async def get_user_scheduled_reminders(
     session: AsyncSession,
     user: User,
+    limit: int,
+    offset: int,
 ) -> Sequence[Reminder]:
     result = await session.execute(
         select(Reminder)
@@ -197,6 +199,8 @@ async def get_user_scheduled_reminders(
         .where(Event.status == EventStatus.APPROVED.value)
         .order_by(Reminder.remind_at)
         .options(selectinload(Reminder.event).selectinload(Event.category))
+        .offset(offset)
+        .limit(limit)
     )
     return result.scalars().all()
 

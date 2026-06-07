@@ -361,10 +361,12 @@ async def send_manage_event_message(
     safe_location = html.escape(event.location)
     safe_cat = html.escape(event.category.name)
     def render_text(safe_desc: str) -> str:
+        date_str = event.event_date.strftime("%d.%m.%Y")
+        time_str = event.event_time.strftime("%H:%M")
         return (
             f"<b>{safe_title}</b>\n\n"
-            f"Date: {event.event_date}\n"
-            f"Time: {event.event_time}\n"
+            f"Date: {date_str}\n"
+            f"Time: {time_str}\n"
             f"Location: {safe_location}\n"
             f"Category: {safe_cat}\n"
             f"Status: {event.status.upper()}\n\n"
@@ -405,16 +407,24 @@ async def process_manage_event(callback: CallbackQuery, session: AsyncSession):
         await callback.answer("Event not found.", show_alert=True)
         return
 
+    settings = get_settings()
+    user_id = callback.from_user.id
+    if event.creator_user_id != user_id and user_id not in settings.admin_ids:
+        await callback.answer("Unauthorized.", show_alert=True)
+        return
+
     # escape user content before rendering html
     safe_title = html.escape(event.title)
     safe_location = html.escape(event.location)
     safe_cat = html.escape(event.category.name)
     safe_desc = html.escape(event.description)
 
+    date_str = event.event_date.strftime("%d.%m.%Y")
+    time_str = event.event_time.strftime("%H:%M")
     text = (
         f"<b>{safe_title}</b>\n\n"
-        f"Date: {event.event_date}\n"
-        f"Time: {event.event_time}\n"
+        f"Date: {date_str}\n"
+        f"Time: {time_str}\n"
         f"Location: {safe_location}\n"
         f"Category: {safe_cat}\n"
         f"Status: <b>{event.status.upper()}</b>\n\n"
@@ -444,8 +454,19 @@ async def process_edit_event(
 
 # asks the user to confirm event deletion
 @router.callback_query(F.data.startswith("delete_event_"))
-async def process_delete_event(callback: CallbackQuery):
+async def process_delete_event(callback: CallbackQuery, session: AsyncSession):
     event_id = int(callback.data.split("_")[2])
+    
+    event = await get_event_by_id(session, event_id)
+    if not event:
+        await callback.answer("Event not found.", show_alert=True)
+        return
+
+    settings = get_settings()
+    user_id = callback.from_user.id
+    if event.creator_user_id != user_id and user_id not in settings.admin_ids:
+        await callback.answer("Unauthorized.", show_alert=True)
+        return
 
     builder = InlineKeyboardBuilder()
     builder.button(text="❗ Yes, Delete", callback_data=f"confirm_delete_{event_id}")
@@ -465,6 +486,17 @@ async def process_confirm_delete(
     callback: CallbackQuery, session: AsyncSession, bot: Bot
 ):
     event_id = int(callback.data.split("_")[2])
+    
+    event = await get_event_by_id(session, event_id)
+    if not event:
+        await callback.answer("Event not found.", show_alert=True)
+        return
+
+    settings = get_settings()
+    user_id = callback.from_user.id
+    if event.creator_user_id != user_id and user_id not in settings.admin_ids:
+        await callback.answer("Unauthorized.", show_alert=True)
+        return
 
     # remove database rows and telegram messages
     success = await delete_event_completely(session, bot, event_id)

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import logging
+import re
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status, Request
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -10,6 +11,7 @@ from sqlalchemy.orm import selectinload
 from app.db.session import get_session
 from app.models.user import User
 from app.models.event import Event
+from app.models.enums import EventStatus
 from app.models.rating import Rating
 from app.models.comment import Comment
 from app.services.events import get_event_by_public_token
@@ -19,27 +21,55 @@ from app.web.realtime import publish_review_deleted
 from app.web.auth import (
     MiniAppUser,
     effective_web_role,
-    optional_miniapp_user,
+    optional_current_miniapp_user,
     require_current_miniapp_user,
     require_verified_user,
     require_verified_user_allow_blocked,
     upsert_miniapp_user,
 )
-from app.web.schemas import ReviewSubmitRequest, ActionResponse, ReviewDetail
+from app.web.routers.events import validate_public_token
+from app.web.schemas import FeedReviewDetail, ReviewSubmitRequest, ActionResponse, ReviewDetail
 
 logger = logging.getLogger("app.web.routers.ratings")
 router = APIRouter(prefix="/api/events", tags=["ratings-reviews"])
+_CONTROL_CHARS_RE = re.compile(r'[\u200b-\u200d\uFEFF\u200e\u200f\u202a-\u202e\x00-\x1f\x7f-\x9f]')
+_WHITESPACE_RE = re.compile(r"\s+")
+
+_RATING_RATE_LIMITS: dict[str, list[float]] = {}
+
+def _check_rate_limit(request: Request, user_id: int, limit: int, window_seconds: int) -> None:
+    import time
+    now = time.time()
+    cutoff = now - window_seconds
+    host = request.client.host if request.client else "unknown"
+    key = f"review:{user_id}:{host}"
+    hits = [ts for ts in _RATING_RATE_LIMITS.get(key, []) if ts > cutoff]
+    if len(hits) >= limit:
+        _RATING_RATE_LIMITS[key] = hits
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Too many review attempts. Try again later.")
+    hits.append(now)
+    _RATING_RATE_LIMITS[key] = hits
+
+    # Prevent memory leaks by pruning stale keys when dict grows large
+    if len(_RATING_RATE_LIMITS) > 10000:
+        for k in list(_RATING_RATE_LIMITS.keys()):
+            _RATING_RATE_LIMITS[k] = [ts for ts in _RATING_RATE_LIMITS[k] if ts > cutoff]
+            if not _RATING_RATE_LIMITS[k]:
+                del _RATING_RATE_LIMITS[k]
 
 
 @router.post("/{public_token}/reviews", response_model=ActionResponse)
 async def submit_review(
     public_token: str,
     payload: ReviewSubmitRequest,
+    request: Request,
     user: User = Depends(require_verified_user),
     session: AsyncSession = Depends(get_session),
 ) -> ActionResponse:
+    _check_rate_limit(request, user.id, limit=5, window_seconds=60)
+    public_token = validate_public_token(public_token)
     event = await get_event_by_public_token(session, public_token)
-    if not event:
+    if not event or event.status != EventStatus.APPROVED.value:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
 
     score = payload.score
@@ -54,11 +84,10 @@ async def submit_review(
                 detail="Comments consisting only of spaces are invalid."
             )
         
-        import re
         # Clean hidden formatting / control characters (Cc, Cf, Cs, Co, Cn)
-        cleaned = re.sub(r'[\u200b-\u200d\uFEFF\u200e\u200f\u202a-\u202e\x00-\x1f\x7f-\x9f]', '', content_raw)
+        cleaned = _CONTROL_CHARS_RE.sub('', content_raw)
         # Normalize consecutive spaces, tabs, and newlines to a single space
-        cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+        cleaned = _WHITESPACE_RE.sub(' ', cleaned).strip()
         
         if not cleaned:
             raise HTTPException(
@@ -124,8 +153,9 @@ async def delete_review(
     user: User = Depends(require_verified_user_allow_blocked),
     session: AsyncSession = Depends(get_session),
 ) -> ActionResponse:
+    public_token = validate_public_token(public_token)
     event = await get_event_by_public_token(session, public_token)
-    if not event:
+    if not event or event.status != EventStatus.APPROVED.value:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
 
     # Delete rating
@@ -145,11 +175,14 @@ async def delete_review(
 @router.get("/{public_token}/reviews", response_model=list[ReviewDetail])
 async def list_reviews(
     public_token: str,
-    miniapp_user: MiniAppUser | None = Depends(optional_miniapp_user),
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0, le=5000),
+    miniapp_user: MiniAppUser | None = Depends(optional_current_miniapp_user),
     session: AsyncSession = Depends(get_session),
 ) -> list[ReviewDetail]:
+    public_token = validate_public_token(public_token)
     event = await get_event_by_public_token(session, public_token)
-    if not event:
+    if not event or event.status != EventStatus.APPROVED.value:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
 
     current_db_user = None
@@ -179,7 +212,7 @@ async def list_reviews(
             continue
         user_map[r.user_id] = {
             "comment_id": None,
-            "rating_id": r.id,
+            "rating_id": r.id if can_delete_all else None,
             "nickname": r.user.nickname or "Anonymous",
             "avatar": avatar_payload(r.user),
             "content": None,
@@ -187,7 +220,7 @@ async def list_reviews(
             "created_at": r.created_at.isoformat(),
             "is_own": current_db_user is not None and r.user_id == current_db_user.id,
             "can_delete": can_delete_all,
-            "user_id": r.user_id
+            "user_id": r.user_id if can_delete_all else None,
         }
 
     # Process comments
@@ -195,11 +228,11 @@ async def list_reviews(
         if not c.user.is_verified:
             continue
         if c.user_id in user_map:
-            user_map[c.user_id]["comment_id"] = c.id
+            user_map[c.user_id]["comment_id"] = c.id if can_delete_all else None
             user_map[c.user_id]["content"] = c.content
         else:
             user_map[c.user_id] = {
-                "comment_id": c.id,
+                "comment_id": c.id if can_delete_all else None,
                 "rating_id": None,
                 "nickname": c.user.nickname or "Anonymous",
                 "avatar": avatar_payload(c.user),
@@ -208,34 +241,29 @@ async def list_reviews(
                 "created_at": c.created_at.isoformat(),
                 "is_own": current_db_user is not None and c.user_id == current_db_user.id,
                 "can_delete": can_delete_all,
-                "user_id": c.user_id
+                "user_id": c.user_id if can_delete_all else None,
             }
 
     # Sort reviews so the current user's review is first, followed by newest
     reviews = list(user_map.values())
     reviews.sort(key=lambda x: (not x["is_own"], x["created_at"]), reverse=True)
 
-    return [ReviewDetail(**val) for val in reviews]
-
-
-from pydantic import BaseModel
-
-class FeedReviewDetail(BaseModel):
-    event_token: str
-    event_title: str
-    nickname: str
-    content: str | None = None
-    score: int | None = None
-    created_at: str
-    user_id: int | None = None
-    comment_id: int | None = None
-    rating_id: int | None = None
+    return [ReviewDetail(**val) for val in reviews[offset : offset + limit]]
 
 
 @router.get("/reviews/feed", response_model=list[FeedReviewDetail])
 async def list_global_reviews_feed(
+    limit: int = Query(20, ge=1, le=50),
+    offset: int = Query(0, ge=0, le=5000),
+    miniapp_user: MiniAppUser | None = Depends(optional_current_miniapp_user),
     session: AsyncSession = Depends(get_session),
 ) -> list[FeedReviewDetail]:
+    current_db_user = None
+    can_delete_all = False
+    if miniapp_user is not None:
+        current_db_user = await upsert_miniapp_user(session, miniapp_user)
+        can_delete_all = effective_web_role(current_db_user, miniapp_user.id) in ("admin", "moderator")
+
     # Query 20 most recent comments and ratings from verified users
     stmt_comments = (
         select(Comment)
@@ -244,7 +272,8 @@ async def list_global_reviews_feed(
         .where(User.is_verified == True, Event.status == "approved", Comment.deleted_at.is_(None))
         .order_by(Comment.created_at.desc())
         .options(selectinload(Comment.user), selectinload(Comment.event))
-        .limit(20)
+        .offset(offset)
+        .limit(limit)
     )
     comments = (await session.execute(stmt_comments)).scalars().all()
 
@@ -255,7 +284,8 @@ async def list_global_reviews_feed(
         .where(User.is_verified == True, Event.status == "approved", Rating.deleted_at.is_(None))
         .order_by(Rating.created_at.desc())
         .options(selectinload(Rating.user), selectinload(Rating.event))
-        .limit(20)
+        .offset(offset)
+        .limit(limit)
     )
     ratings = (await session.execute(stmt_ratings)).scalars().all()
 
@@ -270,8 +300,8 @@ async def list_global_reviews_feed(
             "content": None,
             "score": r.score,
             "created_at": r.created_at.isoformat(),
-            "user_id": r.user_id,
-            "rating_id": r.id,
+            "user_id": r.user_id if can_delete_all else None,
+            "rating_id": r.id if can_delete_all else None,
             "comment_id": None,
         }
 
@@ -293,15 +323,15 @@ async def list_global_reviews_feed(
                 "content": c.content,
                 "score": None,
                 "created_at": c.created_at.isoformat(),
-                "user_id": c.user_id,
-                "comment_id": c.id,
+                "user_id": c.user_id if can_delete_all else None,
+                "comment_id": c.id if can_delete_all else None,
                 "rating_id": None,
             }
 
     # Sort merged list by created_at desc, limit 20
     feed = list(feed_map.values())
     feed.sort(key=lambda x: x["created_at"], reverse=True)
-    return [FeedReviewDetail(**val) for val in feed[:20]]
+    return [FeedReviewDetail(**val) for val in feed[:limit]]
 
 
 @router.delete("/admin/{public_token}/reviews/{target_user_id}", response_model=ActionResponse)
@@ -311,6 +341,7 @@ async def admin_delete_review(
     miniapp_user: MiniAppUser = Depends(require_current_miniapp_user),
     session: AsyncSession = Depends(get_session),
 ) -> ActionResponse:
+    public_token = validate_public_token(public_token)
     user = await upsert_miniapp_user(session, miniapp_user)
     if effective_web_role(user, miniapp_user.id) not in ("admin", "moderator"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")

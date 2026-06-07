@@ -1,6 +1,6 @@
-import { coverStyle, escapeAttr, escapeHtml, status, formatDisplayName } from "../components/events.js?v=20260607-cal-v4";
-import { formatEventDate, t } from "../i18n.js?v=20260607-cal-v4";
-import { state } from "../state.js?v=20260607-cal-v4";
+import { coverStyle, escapeAttr, escapeHtml, status, formatDisplayName } from "../components/events.js?v=20260607-cal-v5";
+import { formatEventDate, t } from "../i18n.js?v=20260607-cal-v5";
+import { state } from "../state.js?v=20260607-cal-v5";
 
 function meta(label, value, copyable = false) {
   const displayValue = value || "—";
@@ -38,10 +38,7 @@ export function renderEvent(event) {
         </section>
 
         ${event.registration_url ? `<section class="panel action-panel register-panel">
-          ${renderFriendsGoing(event)}
           <button class="action register-action" type="button" data-action="register" ${isArchived ? "disabled" : ""}>${t("register")}</button>
-        </section>` : renderFriendsGoing(event) ? `<section class="panel action-panel register-panel">
-          ${renderFriendsGoing(event)}
         </section>` : ""}
 
 
@@ -89,11 +86,6 @@ export function renderEvent(event) {
     </div>
   `;
 }
-
-function renderFriendsGoing(event) {
-  return "";
-}
-
 
 function renderEventReviewsSummary(event) {
   const reviews = event.reviews || [];

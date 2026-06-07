@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import json
 import time
+from binascii import Error as BinasciiError
 from dataclasses import dataclass
 from datetime import datetime, UTC
 from urllib.parse import parse_qsl
@@ -29,11 +30,32 @@ class MiniAppUser:
     photo_url: str | None = None
 
 
+SESSION_ISSUER = "nu-events-miniapp"
+SESSION_AUDIENCE = "nu-events-web"
+SESSION_TOKEN_TYPE = "miniapp-session"
+MAX_INIT_DATA_FUTURE_SKEW_SECONDS = 60
+MAX_INIT_DATA_LENGTH = 8192
+
+
 def verify_init_data(init_data: str) -> MiniAppUser:
-    values = dict(parse_qsl(init_data, keep_blank_values=True))
+    if not init_data or len(init_data) > MAX_INIT_DATA_LENGTH:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid Telegram initData")
+
+    values: dict[str, str] = {}
+    try:
+        pairs = parse_qsl(init_data, keep_blank_values=True, strict_parsing=True)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid Telegram initData") from exc
+    for key, value in pairs:
+        if key in values:
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid Telegram initData")
+        values[key] = value
+
     received_hash = values.pop("hash", None)
     if not received_hash:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Missing Telegram hash")
+    if not _is_hex_sha256(received_hash):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid Telegram initData")
 
     data_check_string = "\n".join(f"{key}={values[key]}" for key in sorted(values))
     bot_token = get_settings().bot_token.get_secret_value()
@@ -50,31 +72,53 @@ def verify_init_data(init_data: str) -> MiniAppUser:
     if not hmac.compare_digest(expected_hash, received_hash):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid Telegram initData")
 
-    auth_date = int(values.get("auth_date", "0") or "0")
-    if auth_date <= 0 or time.time() - auth_date > get_settings().miniapp_session_ttl_seconds:
+    try:
+        auth_date = int(values.get("auth_date", "0") or "0")
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid Telegram initData") from exc
+
+    now = int(time.time())
+    if (
+        auth_date <= 0
+        or auth_date > now + MAX_INIT_DATA_FUTURE_SKEW_SECONDS
+        or now - auth_date > get_settings().miniapp_session_ttl_seconds
+    ):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Expired Telegram initData")
 
     raw_user = values.get("user")
     if not raw_user:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Missing Telegram user")
 
-    user_data = json.loads(raw_user)
+    try:
+        user_data = json.loads(raw_user)
+        telegram_id = int(user_data["id"])
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid Telegram user") from exc
+
+    if telegram_id <= 0 or bool(user_data.get("is_bot", False)):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid Telegram user")
+
     return MiniAppUser(
-        id=int(user_data["id"]),
-        username=user_data.get("username"),
-        first_name=user_data.get("first_name"),
-        last_name=user_data.get("last_name"),
-        language_code=user_data.get("language_code"),
-        is_bot=bool(user_data.get("is_bot", False)),
-        photo_url=user_data.get("photo_url"),
+        id=telegram_id,
+        username=_optional_str(user_data.get("username"), max_len=255),
+        first_name=_optional_str(user_data.get("first_name"), max_len=255),
+        last_name=_optional_str(user_data.get("last_name"), max_len=255),
+        language_code=_optional_str(user_data.get("language_code"), max_len=16),
+        is_bot=False,
+        photo_url=_optional_str(user_data.get("photo_url"), max_len=1024),
     )
 
 
 def create_session_token(user: MiniAppUser) -> str:
     settings = get_settings()
-    expires_at = int(time.time()) + settings.miniapp_session_ttl_seconds
+    issued_at = int(time.time())
+    expires_at = issued_at + settings.miniapp_session_ttl_seconds
     header = {"alg": "HS256", "typ": "JWT"}
     payload = {
+        "iss": SESSION_ISSUER,
+        "aud": SESSION_AUDIENCE,
+        "typ": SESSION_TOKEN_TYPE,
+        "sub": str(user.id),
         "telegram_id": user.id,
         "username": user.username,
         "first_name": user.first_name,
@@ -82,6 +126,8 @@ def create_session_token(user: MiniAppUser) -> str:
         "language_code": user.language_code,
         "is_bot": user.is_bot,
         "photo_url": user.photo_url,
+        "iat": issued_at,
+        "nbf": issued_at,
         "exp": expires_at,
     }
     header_part = _b64(json.dumps(header, separators=(",", ":")).encode())
@@ -92,6 +138,8 @@ def create_session_token(user: MiniAppUser) -> str:
 
 
 def verify_session_token(token: str) -> MiniAppUser:
+    if not token or len(token) > 4096:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid session")
     try:
         header_part, payload_part, signature = token.split(".", 2)
     except ValueError as exc:
@@ -101,22 +149,44 @@ def verify_session_token(token: str) -> MiniAppUser:
     if not hmac.compare_digest(expected_signature, signature):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid session")
 
-    header = json.loads(base64.urlsafe_b64decode(_pad_b64(header_part)))
+    try:
+        header = json.loads(base64.urlsafe_b64decode(_pad_b64(header_part)))
+    except (BinasciiError, ValueError, json.JSONDecodeError) as exc:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid session") from exc
     if header.get("alg") != "HS256":
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid session")
 
-    payload = json.loads(base64.urlsafe_b64decode(_pad_b64(payload_part)))
-    if int(payload.get("exp", 0)) < int(time.time()):
+    try:
+        payload = json.loads(base64.urlsafe_b64decode(_pad_b64(payload_part)))
+        telegram_id = int(payload["telegram_id"])
+        exp = int(payload.get("exp", 0))
+        nbf = int(payload.get("nbf", 0) or 0)
+    except (KeyError, TypeError, ValueError, BinasciiError, json.JSONDecodeError) as exc:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid session") from exc
+
+    now = int(time.time())
+    if (
+        payload.get("iss") != SESSION_ISSUER
+        or payload.get("aud") != SESSION_AUDIENCE
+        or payload.get("typ") != SESSION_TOKEN_TYPE
+        or payload.get("sub") != str(telegram_id)
+        or telegram_id <= 0
+        or bool(payload.get("is_bot", False))
+    ):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid session")
+    if nbf and nbf > now + MAX_INIT_DATA_FUTURE_SKEW_SECONDS:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid session")
+    if exp < now:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Expired session")
 
     return MiniAppUser(
-        id=int(payload["telegram_id"]),
-        username=payload.get("username"),
-        first_name=payload.get("first_name"),
-        last_name=payload.get("last_name"),
-        language_code=payload.get("language_code"),
-        is_bot=bool(payload.get("is_bot", False)),
-        photo_url=payload.get("photo_url"),
+        id=telegram_id,
+        username=_optional_str(payload.get("username"), max_len=255),
+        first_name=_optional_str(payload.get("first_name"), max_len=255),
+        last_name=_optional_str(payload.get("last_name"), max_len=255),
+        language_code=_optional_str(payload.get("language_code"), max_len=16),
+        is_bot=False,
+        photo_url=_optional_str(payload.get("photo_url"), max_len=1024),
     )
 
 
@@ -153,6 +223,24 @@ async def optional_miniapp_user(
         return None
     try:
         return verify_session_token(authorization.removeprefix("Bearer ").strip())
+    except HTTPException:
+        return None
+
+
+async def optional_current_miniapp_user(
+    authorization: str | None = Header(default=None),
+    x_telegram_init_data: str | None = Header(
+        default=None,
+        alias="X-Telegram-Init-Data",
+    ),
+) -> MiniAppUser | None:
+    if not authorization or not x_telegram_init_data:
+        return None
+    try:
+        return await require_current_miniapp_user(
+            authorization=authorization,
+            x_telegram_init_data=x_telegram_init_data,
+        )
     except HTTPException:
         return None
 
@@ -205,8 +293,7 @@ def effective_web_role(user: User, telegram_id: int) -> str:
 
 
 def _sign(value: bytes) -> bytes:
-    secret = get_settings().bot_token.get_secret_value().encode()
-    return hmac.new(secret, value, hashlib.sha256).digest()
+    return hmac.new(_session_signing_key(), value, hashlib.sha256).digest()
 
 
 def _b64(value: bytes) -> str:
@@ -217,8 +304,29 @@ def _pad_b64(value: str) -> bytes:
     return (value + "=" * (-len(value) % 4)).encode()
 
 
+def _session_signing_key() -> bytes:
+    bot_token = get_settings().bot_token.get_secret_value().encode()
+    return hmac.new(bot_token, b"nu-events-miniapp-session-v1", hashlib.sha256).digest()
+
+
+def _is_hex_sha256(value: str) -> bool:
+    if len(value) != 64:
+        return False
+    try:
+        int(value, 16)
+    except ValueError:
+        return False
+    return True
+
+
+def _optional_str(value: object, *, max_len: int) -> str | None:
+    if value is None or not isinstance(value, str):
+        return None
+    return value[:max_len]
+
+
 async def require_verified_user(
-    miniapp_user: MiniAppUser = Depends(require_miniapp_user),
+    miniapp_user: MiniAppUser = Depends(require_current_miniapp_user),
     session: AsyncSession = Depends(get_session),
 ) -> User:
     user = await upsert_miniapp_user(session, miniapp_user)
@@ -241,7 +349,7 @@ async def require_verified_user(
     return user
 
 async def require_verified_user_allow_blocked(
-    miniapp_user: MiniAppUser = Depends(require_miniapp_user),
+    miniapp_user: MiniAppUser = Depends(require_current_miniapp_user),
     session: AsyncSession = Depends(get_session),
 ) -> User:
     user = await upsert_miniapp_user(session, miniapp_user)

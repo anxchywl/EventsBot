@@ -335,6 +335,19 @@ async def show_admin_mod_queue(
     is_callback: bool,
     event_obj: CallbackQuery | None = None,
 ):
+    from app.config import get_settings
+    settings = get_settings()
+    user_id = message_obj.from_user.id if message_obj.from_user else (event_obj.from_user.id if event_obj else None)
+    chat_id = message_obj.chat.id
+    if not user_id:
+        return
+    is_admin = user_id in settings.admin_ids
+    is_mod_chat = chat_id == settings.moderator_chat_id
+    if not (is_admin or is_mod_chat):
+        if is_callback and event_obj:
+            await event_obj.answer("Unauthorized.", show_alert=True)
+        return
+
     pending = await get_pending_events(session)
     data = await state.get_data()
     was_in_mod_queue = data.get("admin_mod_queue_mode") is True
@@ -446,6 +459,13 @@ class AdminModActionFilter(Filter):
 
 @router.message(F.chat.type == "private", AdminModActionFilter())
 async def process_admin_mod_action(message: Message, session: AsyncSession, state: FSMContext):
+    from app.config import get_settings
+    settings = get_settings()
+    if not message.from_user or message.from_user.id not in settings.admin_ids:
+        # allow if they are acting in the moderator chat
+        if message.chat.id != settings.moderator_chat_id:
+            return
+
     data = await state.get_data()
     event_id = data.get("admin_mod_current_event_id")
     if event_id is None:
@@ -608,11 +628,13 @@ def _render_admin_manage_event_text(
     safe_cat: str,
     safe_desc: str,
 ) -> str:
+    date_str = event.event_date.strftime("%d.%m.%Y")
+    time_str = event.event_time.strftime("%H:%M")
     return (
         f"<b>{safe_title}</b>\n\n"
         f"Creator: {safe_creator}\n"
-        f"Date: {event.event_date}\n"
-        f"Time: {event.event_time}\n"
+        f"Date: {date_str}\n"
+        f"Time: {time_str}\n"
         f"Location: {safe_location}\n"
         f"Category: {safe_cat}\n"
         f"Status: {event.status.upper()}\n\n"
@@ -737,6 +759,14 @@ async def show_admin_active_events(
     is_callback: bool,
     event_obj: CallbackQuery | None = None,
 ):
+    from app.config import get_settings
+    settings = get_settings()
+    user_id = message_obj.from_user.id if message_obj.from_user else (event_obj.from_user.id if event_obj else None)
+    if not user_id or user_id not in settings.admin_ids:
+        if is_callback and event_obj:
+            await event_obj.answer("Unauthorized.", show_alert=True)
+        return
+
     result = await session.execute(
         select(Event)
         .where(Event.status.in_([EventStatus.APPROVED.value, EventStatus.ARCHIVED.value]))

@@ -79,7 +79,7 @@ class TelegramLinksTest(unittest.TestCase):
                 miniapp_short_name="@events",
                 public_token="abc",
             ),
-            "https://t.me/events_bot/events?startapp=event_abc",
+            "https://t.me/events_bot/events?startapp=event_abc&mode=compact",
         )
 
 

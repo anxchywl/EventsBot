@@ -63,7 +63,7 @@ def build_telegram_miniapp_direct_link(
 
     return (
         f"https://t.me/{normalized_username}/{normalized_short_name}"
-        f"?startapp=event_{quote_plus(public_token)}"
+        f"?startapp=event_{quote_plus(public_token)}&mode=compact"
     )
 
 
@@ -80,7 +80,7 @@ def build_telegram_miniapp_invite_link(
 
     return (
         f"https://t.me/{normalized_username}/{normalized_short_name}"
-        f"?startapp=invite_{quote_plus(token)}"
+        f"?startapp=invite_{quote_plus(token)}&mode=compact"
     )
 
 

@@ -33,7 +33,7 @@ from app.web.auth import (
     MiniAppUser,
     create_session_token,
     effective_web_role,
-    require_miniapp_user,
+    require_current_miniapp_user,
     upsert_miniapp_user,
 )
 from app.web.schemas import (
@@ -114,14 +114,15 @@ import re
 @router.post("/register", response_model=ActionResponse)
 async def register(
     payload: UserRegisterRequest,
-    miniapp_user: MiniAppUser = Depends(require_miniapp_user),
+    miniapp_user: MiniAppUser = Depends(require_current_miniapp_user),
     session: AsyncSession = Depends(get_session),
     x_language: str | None = Header(default="en", alias="X-Language"),
     x_theme: str | None = Header(default="light", alias="X-Theme"),
 ) -> ActionResponse:
     # 1. Validate email domain
     email = payload.email.strip().lower()
-    if not email.endswith("@nu.edu.kz"):
+    email_parts = email.split("@")
+    if len(email_parts) != 2 or email_parts[1] != "nu.edu.kz":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Only @nu.edu.kz addresses"
@@ -136,9 +137,11 @@ async def register(
     stmt = select(User).where(User.email == email, User.is_verified == True)
     existing_verified = await session.execute(stmt)
     if existing_verified.scalar_one_or_none():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="This email is already registered. Please log in."
+        # OWASP: Return generic success to prevent account enumeration
+        settings = get_settings()
+        return ActionResponse(
+            ok=True,
+            message=f"Verification code sent to {email}. Code expires in {settings.email_code_ttl_minutes} minutes."
         )
 
     # Get or create current user corresponding to this Telegram ID
@@ -182,7 +185,7 @@ async def register(
 @router.post("/verify", response_model=AuthResponse)
 async def verify(
     payload: UserVerifyRequest,
-    miniapp_user: MiniAppUser = Depends(require_miniapp_user),
+    miniapp_user: MiniAppUser = Depends(require_current_miniapp_user),
     session: AsyncSession = Depends(get_session),
 ) -> AuthResponse:
     email = payload.email.strip().lower()
@@ -284,7 +287,7 @@ async def verify(
 @router.post("/resend", response_model=ActionResponse)
 async def resend(
     payload: UserResendRequest,
-    miniapp_user: MiniAppUser = Depends(require_miniapp_user),
+    miniapp_user: MiniAppUser = Depends(require_current_miniapp_user),
     session: AsyncSession = Depends(get_session),
     x_language: str | None = Header(default="en", alias="X-Language"),
     x_theme: str | None = Header(default="light", alias="X-Theme"),
@@ -430,7 +433,7 @@ async def merge_friend_records(
 @router.post("/login", response_model=AuthResponse)
 async def login(
     payload: UserLoginRequest,
-    miniapp_user: MiniAppUser = Depends(require_miniapp_user),
+    miniapp_user: MiniAppUser = Depends(require_current_miniapp_user),
     session: AsyncSession = Depends(get_session),
 ) -> AuthResponse:
     email = payload.email.strip().lower()
@@ -453,7 +456,16 @@ async def login(
             detail="Invalid email or password."
         )
 
-    # 3. Link verified email account to current Telegram ID!
+    # 3. Check if the user is blocked
+    settings = get_settings()
+    is_admin = miniapp_user.id in settings.admin_ids
+    if verified_user.is_blocked and not is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Your account has been blocked."
+        )
+
+    # 4. Link verified email account to current Telegram ID!
     current_guest_user = await upsert_miniapp_user(session, miniapp_user)
 
     if current_guest_user.id != verified_user.id:
@@ -596,7 +608,7 @@ async def login(
 
 @router.get("/profile", response_model=ProfileResponse)
 async def get_profile(
-    miniapp_user: MiniAppUser = Depends(require_miniapp_user),
+    miniapp_user: MiniAppUser = Depends(require_current_miniapp_user),
     session: AsyncSession = Depends(get_session),
 ) -> ProfileResponse:
     user = await upsert_miniapp_user(session, miniapp_user)
@@ -663,7 +675,7 @@ async def get_profile(
 @router.put("/profile/nickname", response_model=ActionResponse)
 async def update_nickname(
     payload: NicknameRequest,
-    miniapp_user: MiniAppUser = Depends(require_miniapp_user),
+    miniapp_user: MiniAppUser = Depends(require_current_miniapp_user),
     session: AsyncSession = Depends(get_session),
 ) -> ActionResponse:
     nickname = payload.nickname.strip()
@@ -704,7 +716,7 @@ async def update_nickname(
 
 @router.post("/profile/logout", response_model=ActionResponse)
 async def logout(
-    miniapp_user: MiniAppUser = Depends(require_miniapp_user),
+    miniapp_user: MiniAppUser = Depends(require_current_miniapp_user),
     session: AsyncSession = Depends(get_session),
 ) -> ActionResponse:
     stmt = select(User).where(User.telegram_id == miniapp_user.id)
@@ -732,6 +744,7 @@ _GENERIC_TOO_MANY_MSG = "Too many attempts. Try again later."
 async def forgot_password_request(
     payload: ForgotPasswordRequestBody,
     request: Request,
+    miniapp_user: MiniAppUser = Depends(require_current_miniapp_user),
     session: AsyncSession = Depends(get_session),
 ) -> ActionResponse:
     """
@@ -827,6 +840,7 @@ async def forgot_password_request(
 async def forgot_password_verify(
     payload: ForgotPasswordVerifyBody,
     request: Request,
+    miniapp_user: MiniAppUser = Depends(require_current_miniapp_user),
     session: AsyncSession = Depends(get_session),
 ) -> ActionResponse:
     """
@@ -915,6 +929,7 @@ async def forgot_password_verify(
 async def forgot_password_reset(
     payload: ForgotPasswordResetBody,
     request: Request,
+    miniapp_user: MiniAppUser = Depends(require_current_miniapp_user),
     session: AsyncSession = Depends(get_session),
 ) -> ActionResponse:
     """
@@ -1011,6 +1026,9 @@ async def forgot_password_reset(
     # Atomically: update password + mark code as used.
     user.password_hash = hash_password(new_password)
     db_code.used_at = now_utc
+    
+    # Invalidate active miniapp sessions by unlinking the telegram_id
+    user.telegram_id = -abs(user.telegram_id)
 
     # Flush both writes before committing so they go out together.
     await session.flush()

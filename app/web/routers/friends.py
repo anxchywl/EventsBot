@@ -2,16 +2,19 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, status
 from aiogram import Bot
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_session
 from app.config import get_settings
+from app.models.enums import EventStatus
+from app.models.event import Event
 from app.models.friend import FriendInvite, FriendRequest, Friendship, PrivacySettings
 from app.models.user import User
 from app.services.friends import (
@@ -33,7 +36,7 @@ from app.services.telegram_links import (
     build_telegram_share_link,
 )
 from app.web.telegram import get_bot_username
-from app.web.auth import MiniAppUser, effective_web_role, optional_miniapp_user, require_verified_user, upsert_miniapp_user
+from app.web.auth import MiniAppUser, effective_web_role, optional_current_miniapp_user, require_verified_user, upsert_miniapp_user
 from app.web.realtime import publish_miniapp_event
 from app.web.schemas import (
     ActionResponse,
@@ -45,6 +48,7 @@ from app.web.schemas import (
     FriendRequestsResponse,
     FriendSearchResponse,
     FriendsListResponse,
+    EventFriendGoing,
     PrivacySettingsResponse,
     PrivacySettingsUpdate,
 )
@@ -54,6 +58,14 @@ router = APIRouter(prefix="/api/friends", tags=["miniapp-friends"])
 logger = logging.getLogger("app.web.routers.friends")
 
 _FRIEND_RATE_LIMITS: dict[str, list[float]] = {}
+_INVITE_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{32,256}$")
+
+
+def _validate_invite_token(token: str | None) -> str:
+    value = (token or "").strip()
+    if not _INVITE_TOKEN_RE.fullmatch(value):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Invite expired or revoked.")
+    return value
 
 
 def _client_key(request: Request, user: User, action: str) -> str:
@@ -71,6 +83,12 @@ def _check_rate_limit(key: str, *, limit: int, window_seconds: int) -> None:
     hits.append(now)
     _FRIEND_RATE_LIMITS[key] = hits
 
+    # Prevent memory leaks by pruning stale keys when dict grows large
+    if len(_FRIEND_RATE_LIMITS) > 10000:
+        for k in list(_FRIEND_RATE_LIMITS.keys()):
+            _FRIEND_RATE_LIMITS[k] = [ts for ts in _FRIEND_RATE_LIMITS[k] if ts > cutoff]
+            if not _FRIEND_RATE_LIMITS[k]:
+                del _FRIEND_RATE_LIMITS[k]
 
 def _notify_user(user: User | None, message: str) -> None:
     if user is None or not user.telegram_id or user.telegram_id < 0:
@@ -90,6 +108,8 @@ async def _send_telegram_notification(telegram_id: int, message: str) -> None:
 
 @router.get("", response_model=FriendsListResponse)
 async def list_friends(
+    limit: int = Query(100, ge=1, le=200),
+    offset: int = Query(0, ge=0, le=5000),
     user: User = Depends(require_verified_user),
     session: AsyncSession = Depends(get_session),
 ) -> FriendsListResponse:
@@ -102,7 +122,7 @@ async def list_friends(
         .where(User.id.in_(ids), User.is_verified.is_(True))
         .order_by(func.lower(User.nickname), func.lower(User.email))
     )
-    friends = list(result.scalars().all())
+    friends = list(result.scalars().all())[offset : offset + limit]
     return FriendsListResponse(
         total=len(friends),
         friends=[
@@ -114,6 +134,8 @@ async def list_friends(
 
 @router.get("/requests", response_model=FriendRequestsResponse)
 async def list_friend_requests(
+    limit: int = Query(100, ge=1, le=200),
+    offset: int = Query(0, ge=0, le=5000),
     user: User = Depends(require_verified_user),
     session: AsyncSession = Depends(get_session),
 ) -> FriendRequestsResponse:
@@ -129,7 +151,7 @@ async def list_friend_requests(
         )
         .order_by(FriendRequest.created_at.desc())
     )
-    requests = list(result.scalars().all())
+    requests = list(result.scalars().all())[offset : offset + limit]
     incoming: list[FriendRequestItem] = []
     outgoing: list[FriendRequestItem] = []
     for request_row in requests:
@@ -162,7 +184,7 @@ async def send_friend_request(
     invite: FriendInvite | None = None
     recipient: User | None = None
     if payload.invite_token:
-        invite = await get_active_invite_by_token(session, payload.invite_token)
+        invite = await get_active_invite_by_token(session, _validate_invite_token(payload.invite_token))
         if invite is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Invite expired or revoked.")
         recipient = await session.get(User, invite.owner_id)
@@ -190,7 +212,7 @@ async def send_friend_request(
 
 @router.post("/requests/{request_id}/accept", response_model=ActionResponse)
 async def accept_request(
-    request_id: int,
+    request_id: int = Path(..., ge=1),
     user: User = Depends(require_verified_user),
     session: AsyncSession = Depends(get_session),
 ) -> ActionResponse:
@@ -220,7 +242,7 @@ async def accept_request(
 
 @router.post("/requests/{request_id}/decline", response_model=ActionResponse)
 async def decline_request(
-    request_id: int,
+    request_id: int = Path(..., ge=1),
     user: User = Depends(require_verified_user),
     session: AsyncSession = Depends(get_session),
 ) -> ActionResponse:
@@ -249,7 +271,7 @@ async def decline_request(
 
 @router.post("/requests/{request_id}/cancel", response_model=ActionResponse)
 async def cancel_request(
-    request_id: int,
+    request_id: int = Path(..., ge=1),
     user: User = Depends(require_verified_user),
     session: AsyncSession = Depends(get_session),
 ) -> ActionResponse:
@@ -274,7 +296,7 @@ async def cancel_request(
 
 @router.delete("/{friend_user_id}", response_model=ActionResponse)
 async def remove_friend(
-    friend_user_id: int,
+    friend_user_id: int = Path(..., ge=1),
     user: User = Depends(require_verified_user),
     session: AsyncSession = Depends(get_session),
 ) -> ActionResponse:
@@ -388,7 +410,7 @@ async def create_invite(
 
 @router.delete("/invites/{invite_id}", response_model=ActionResponse)
 async def revoke_invite(
-    invite_id: int,
+    invite_id: int = Path(..., ge=1),
     user: User = Depends(require_verified_user),
     session: AsyncSession = Depends(get_session),
 ) -> ActionResponse:
@@ -404,10 +426,10 @@ async def revoke_invite(
 @router.get("/invites/{token}", response_model=FriendInviteLookupResponse)
 async def lookup_invite(
     token: str,
-    miniapp_user: MiniAppUser | None = Depends(optional_miniapp_user),
+    miniapp_user: MiniAppUser | None = Depends(optional_current_miniapp_user),
     session: AsyncSession = Depends(get_session),
 ) -> FriendInviteLookupResponse:
-    invite = await get_active_invite_by_token(session, token)
+    invite = await get_active_invite_by_token(session, _validate_invite_token(token))
     if invite is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Invite expired or revoked.")
     
@@ -475,10 +497,13 @@ async def update_privacy_settings(
     )
 
 
-@router.get("/events/{event_id}/friends-going")
+@router.get("/events/{event_id}/friends-going", response_model=list[EventFriendGoing])
 async def event_friends(
-    event_id: int,
+    event_id: int = Path(..., ge=1),
     user: User = Depends(require_verified_user),
     session: AsyncSession = Depends(get_session),
-) -> list[dict]:
+) -> list[EventFriendGoing]:
+    event = await session.get(Event, event_id)
+    if event is None or event.status != EventStatus.APPROVED.value:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Event not found.")
     return await event_friends_going(session, user, event_id)

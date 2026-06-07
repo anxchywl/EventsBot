@@ -5,6 +5,7 @@ from typing import Sequence
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from datetime import date
 
 from app.models.event import Event
 from app.models.enums import EventStatus
@@ -62,7 +63,7 @@ async def remove_favorite(session: AsyncSession, user: User, event: Event) -> bo
     return result.scalar_one_or_none() is not None
 
 
-async def get_user_favorite_events(session: AsyncSession, user: User) -> Sequence[Event]:
+async def get_user_favorite_events(session: AsyncSession, user: User, limit: int, offset: int, today: date) -> Sequence[Event]:
     result = await session.execute(
         select(Event)
         .join(Favorite, Favorite.event_id == Event.id)
@@ -70,7 +71,9 @@ async def get_user_favorite_events(session: AsyncSession, user: User) -> Sequenc
             Favorite.user_id == user.id,
             Event.status == EventStatus.APPROVED.value,
         )
-        .order_by(Event.event_date, Event.event_time)
+        .order_by(Event.event_date < today, Event.event_date, Event.event_time)
         .options(selectinload(Event.category))
+        .offset(offset)
+        .limit(limit)
     )
     return result.scalars().all()

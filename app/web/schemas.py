@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class AuthRequest(BaseModel):
@@ -17,77 +17,89 @@ class ReminderRequest(BaseModel):
 
 
 class EventListItem(BaseModel):
-    token: str
-    title: str
-    date: str
-    time: str
-    location: str
-    organizer: str
-    category: str
+    token: str = Field(min_length=1, max_length=64)
+    title: str = Field(min_length=1, max_length=100)
+    date: str = Field(min_length=1, max_length=32)
+    time: str = Field(min_length=1, max_length=16)
+    location: str = Field(min_length=1, max_length=100)
+    organizer: str = Field(min_length=1, max_length=100)
+    category: str = Field(min_length=1, max_length=64)
     is_favorite: bool = False
     reminder_count: int = 0
     attendee_count: int = 0
     is_ended: bool = False
     is_archived: bool = False
-    cover_url: str | None = None
+    cover_url: str | None = Field(default=None, max_length=2048)
     average_rating: float | None = None
     rating_count: int = 0
     friends_going: list[EventFriendGoing] = Field(default_factory=list)
 
 
 class FriendAvatar(BaseModel):
-    url: str | None = None
-    initials: str
+    url: str | None = Field(default=None, max_length=2048)
+    initials: str = Field(min_length=1, max_length=4)
 
 
 class FriendUserSummary(BaseModel):
     id: int
-    nickname: str
-    email: str | None = None
+    nickname: str = Field(min_length=1, max_length=64)
+    email: str | None = Field(default=None, min_length=3, max_length=255)
     avatar: FriendAvatar
     friend_count: int = 0
     mutual_friends_count: int = 0
-    telegram_url: str | None = None
+    telegram_url: str | None = Field(default=None, max_length=255)
     relationship_status: str = "none"
     request_id: int | None = None
 
 
 class EventFriendGoing(BaseModel):
     id: int
-    nickname: str
+    nickname: str = Field(min_length=1, max_length=64)
     avatar: FriendAvatar
     friend_count: int = 0
     mutual_friends_count: int = 0
-    telegram_url: str | None = None
+    telegram_url: str | None = Field(default=None, max_length=255)
 
 
 class ReviewDetail(BaseModel):
     comment_id: int | None = None
     rating_id: int | None = None
-    nickname: str
+    nickname: str = Field(min_length=1, max_length=64)
     avatar: FriendAvatar | None = None
-    content: str | None = None
-    score: int | None = None
+    content: str | None = Field(default=None, max_length=1024)
+    score: int | None = Field(default=None, ge=1, le=5)
     created_at: str
     is_own: bool = False
     can_delete: bool = False
     user_id: int | None = None
 
 
+class FeedReviewDetail(BaseModel):
+    event_token: str = Field(min_length=1, max_length=64)
+    event_title: str = Field(min_length=1, max_length=100)
+    nickname: str = Field(min_length=1, max_length=64)
+    content: str | None = Field(default=None, max_length=1024)
+    score: int | None = Field(default=None, ge=1, le=5)
+    created_at: str
+    user_id: int | None = None
+    comment_id: int | None = None
+    rating_id: int | None = None
+
+
 class EventDetail(BaseModel):
-    token: str
-    title: str
-    description: str
-    date: str
-    time: str
-    location: str
-    map_url: str
-    organizer: str
-    category: str
-    registration_url: str | None
-    cover_url: str | None
+    token: str = Field(min_length=1, max_length=64)
+    title: str = Field(min_length=1, max_length=100)
+    description: str = Field(max_length=1000)
+    date: str = Field(max_length=32)
+    time: str = Field(max_length=16)
+    location: str = Field(max_length=100)
+    map_url: str = Field(max_length=2048)
+    organizer: str = Field(max_length=100)
+    category: str = Field(max_length=64)
+    registration_url: str | None = Field(default=None, max_length=2048)
+    cover_url: str | None = Field(default=None, max_length=2048)
     attendee_count: int
-    share_url: str
+    share_url: str = Field(max_length=2048)
     is_favorite: bool = False
     reminder_offsets: list[int] = Field(default_factory=list)
     reminder_ids: list[int] = Field(default_factory=list)
@@ -114,7 +126,7 @@ class ReminderItem(BaseModel):
     event: EventListItem
     offset_minutes: int
     remind_at: str
-    status: str
+    status: str = Field(max_length=32)
 
 
 class ReminderGroup(BaseModel):
@@ -123,8 +135,8 @@ class ReminderGroup(BaseModel):
 
 
 class EventFilterOption(BaseModel):
-    value: str
-    label: str
+    value: str = Field(max_length=128)
+    label: str = Field(max_length=128)
 
 
 class EventFiltersResponse(BaseModel):
@@ -135,52 +147,52 @@ class EventFiltersResponse(BaseModel):
 
 class ActionResponse(BaseModel):
     ok: bool = True
-    message: str
-    url: str | None = None
+    message: str = Field(max_length=512)
+    url: str | None = Field(default=None, max_length=2048)
 
 
 # auth & profile request schemas
 class UserRegisterRequest(BaseModel):
-    email: str
-    password: str
+    email: str = Field(min_length=3, max_length=255)
+    password: str = Field(min_length=1, max_length=128)
 
 
 class UserVerifyRequest(BaseModel):
-    email: str
-    code: str
+    email: str = Field(min_length=3, max_length=255)
+    code: str = Field(min_length=6, max_length=6)
 
 
 class UserResendRequest(BaseModel):
-    email: str
+    email: str = Field(min_length=3, max_length=255)
 
 
 class UserLoginRequest(BaseModel):
-    email: str
-    password: str
+    email: str = Field(min_length=3, max_length=255)
+    password: str = Field(min_length=1, max_length=128)
 
 
 class NicknameRequest(BaseModel):
-    nickname: str
+    nickname: str = Field(min_length=1, max_length=64)
 
 
 class ForgotPasswordRequestBody(BaseModel):
-    email: str
+    email: str = Field(min_length=3, max_length=255)
 
 
 class ForgotPasswordVerifyBody(BaseModel):
-    email: str
-    code: str
+    email: str = Field(min_length=3, max_length=255)
+    code: str = Field(min_length=6, max_length=6)
 
 
 class ForgotPasswordResetBody(BaseModel):
-    email: str
-    code: str
-    new_password: str
+    email: str = Field(min_length=3, max_length=255)
+    code: str = Field(min_length=6, max_length=6)
+    new_password: str = Field(min_length=1, max_length=128)
 
 
 class ReviewSubmitRequest(BaseModel):
     score: int | None = Field(default=None, ge=1, le=5)
-    content: str | None = Field(default=None)
+    content: str | None = Field(default=None, max_length=1024)
 
 
 class ProfileHistoryItem(BaseModel):
@@ -198,7 +210,7 @@ class ProfileResponse(BaseModel):
     nickname: str
     is_verified: bool
     is_blocked: bool = False
-    blocked_reason: str | None = None
+    blocked_reason: str | None = Field(default=None, max_length=512)
     history: list[ProfileHistoryItem] = Field(default_factory=list)
 
 
@@ -215,8 +227,14 @@ class PrivacySettingsUpdate(BaseModel):
 
 
 class FriendRequestCreate(BaseModel):
-    user_id: int | None = None
-    invite_token: str | None = None
+    user_id: int | None = Field(default=None, ge=1)
+    invite_token: str | None = Field(default=None, min_length=32, max_length=256)
+
+    @model_validator(mode="after")
+    def exactly_one_target(self):
+        if bool(self.user_id) == bool(self.invite_token):
+            raise ValueError("Provide exactly one friend request target.")
+        return self
 
 
 class FriendRequestItem(BaseModel):

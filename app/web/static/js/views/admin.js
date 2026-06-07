@@ -1,7 +1,7 @@
-import { escapeHtml, coverStyle, formatDisplayName } from "../components/events.js?v=20260607-cal-v4";
-import { state, authHeaders } from "../state.js?v=20260607-cal-v4";
-import { t } from "../i18n.js?v=20260607-cal-v4";
-import { authenticate } from "../api.js?v=20260607-cal-v4";
+import { escapeHtml, coverStyle, formatDisplayName } from "../components/events.js?v=20260607-cal-v5";
+import { state, authHeaders } from "../state.js?v=20260607-cal-v5";
+import { t } from "../i18n.js?v=20260607-cal-v5";
+import { authenticate } from "../api.js?v=20260607-cal-v5";
 
 async function adminRequest(path, options = {}) {
   await authenticate().catch(() => null);
@@ -28,7 +28,7 @@ export async function fetchAdminStats() {
 }
 
 export async function fetchAdminUsers(q = "") {
-  const params = new URLSearchParams({ limit: "1000" });
+  const params = new URLSearchParams({ limit: "500" });
   if (q) params.set("q", q);
   const query = `?${params.toString()}`;
   return adminRequest(`/api/admin/users${query}`);

@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from sqlalchemy import or_, select, func, String
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -19,6 +19,7 @@ from app.services.events import get_event_by_public_token
 from app.services.reviews import invalidate_review_caches, permanently_delete_review
 from app.web.realtime import publish_review_deleted
 from app.web.auth import effective_web_role, require_admin_or_moderator, require_admin
+from app.web.routers.events import validate_public_token
 from app.web.schemas import ActionResponse
 
 logger = logging.getLogger("app.web.routers.admin")
@@ -27,9 +28,9 @@ router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 @router.delete("/reviews/{event_id}/{user_id}", response_model=ActionResponse)
 async def admin_delete_review(
-    event_id: int,
-    user_id: int,
-    admin: User = Depends(require_admin_or_moderator),
+    event_id: int = Path(..., ge=1),
+    user_id: int = Path(..., ge=1),
+    admin: User = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ) -> ActionResponse:
     event = await session.get(Event, event_id)
@@ -54,10 +55,11 @@ async def admin_delete_review(
 @router.delete("/reviews/by-token/{public_token}/{user_id}", response_model=ActionResponse)
 async def admin_delete_review_by_token(
     public_token: str,
-    user_id: int,
-    admin: User = Depends(require_admin_or_moderator),
+    user_id: int = Path(..., ge=1),
+    admin: User = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ) -> ActionResponse:
+    public_token = validate_public_token(public_token)
     event = await get_event_by_public_token(session, public_token)
     if not event:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
@@ -77,7 +79,7 @@ async def admin_delete_review_by_token(
     return ActionResponse(ok=True, message="Review deleted successfully by admin.")
 
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from typing import Any
 
 class AdminStatsResponse(BaseModel):
@@ -139,8 +141,24 @@ class ConnectedGroupsResponse(BaseModel):
     groups: list[ConnectedGroupItem]
 
 class BlockUserRequest(BaseModel):
-    email: str
-    reason: str | None = None
+    email: str = Field(min_length=3, max_length=255)
+    reason: str | None = Field(default=None, max_length=255)
+
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, value: str) -> str:
+        email = value.strip().lower()
+        if len(email) > 255 or "@" not in email:
+            raise ValueError("Invalid email")
+        return email
+
+    @field_validator("reason")
+    @classmethod
+    def normalize_reason(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        reason = value.strip()
+        return reason or None
 
 @router.get("/stats", response_model=AdminStatsResponse)
 async def get_admin_stats(
@@ -162,10 +180,12 @@ async def get_admin_stats(
 
 @router.get("/connected-groups", response_model=ConnectedGroupsResponse)
 async def list_connected_groups(
-    q: str | None = None,
-    status_filter: str | None = None,
-    sort: str = "newest",
-    admin: User = Depends(require_admin_or_moderator),
+    q: str | None = Query(default=None, max_length=100),
+    status_filter: str | None = Query(default=None, max_length=32),
+    sort: str = Query("newest", max_length=32),
+    limit: int = Query(100, ge=1, le=200),
+    offset: int = Query(0, ge=0, le=5000),
+    admin: User = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ) -> ConnectedGroupsResponse:
     current_bot_id = _current_bot_id()
@@ -203,8 +223,10 @@ async def list_connected_groups(
         groups.sort(key=lambda group: group.connected_at or "")
     elif sort == "most_active":
         groups.sort(key=lambda group: group.last_activity_at or "", reverse=True)
-    else:
+    elif sort == "newest":
         groups.sort(key=lambda group: group.connected_at or "", reverse=True)
+    else:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Invalid sort")
 
     summary_counts = {
         "active": 0,
@@ -222,7 +244,7 @@ async def list_connected_groups(
             setup_required=summary_counts["setup_required"],
             missing_permissions=summary_counts["missing_permissions"],
         ),
-        groups=groups,
+        groups=groups[offset : offset + limit],
     )
 
 
@@ -312,14 +334,12 @@ async def unblock_user(
 
 @router.get("/users", response_model=list[AdminUserItem])
 async def list_users(
-    limit: int = 1000,
-    offset: int = 0,
-    q: str | None = None,
-    admin: User = Depends(require_admin_or_moderator),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0, le=5000),
+    q: str | None = Query(default=None, max_length=100),
+    admin: User = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ) -> list[AdminUserItem]:
-    limit = max(1, min(limit, 2000))
-    offset = max(0, offset)
     stmt = select(User).order_by(User.last_active_at.desc().nullslast(), User.created_at.desc())
     if q:
         needle = f"%{q.strip()}%"
@@ -359,9 +379,9 @@ async def list_users(
 
 @router.get("/audit-logs", response_model=list[AuditLogItem])
 async def list_audit_logs(
-    limit: int = 50,
-    offset: int = 0,
-    admin: User = Depends(require_admin_or_moderator),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0, le=5000),
+    admin: User = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ) -> list[AuditLogItem]:
     stmt = select(AuditLog).order_by(AuditLog.created_at.desc()).limit(limit).offset(offset)

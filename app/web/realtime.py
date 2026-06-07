@@ -29,7 +29,20 @@ async def publish_miniapp_event(event_type: str, payload: dict[str, Any]) -> Non
 
 
 async def publish_review_deleted(payload: dict[str, Any]) -> None:
-    await publish_miniapp_event("review_deleted", payload)
+    public_payload = {
+        key: payload[key]
+        for key in (
+            "deleted",
+            "event_token",
+            "average_rating",
+            "rating_count",
+            "rating_distribution",
+            "review_count",
+            "deleted_at",
+        )
+        if key in payload
+    }
+    await publish_miniapp_event("review_deleted", public_payload)
 
 
 async def subscribe_miniapp_events(user_id: int | None = None) -> AsyncIterator[dict[str, Any]]:

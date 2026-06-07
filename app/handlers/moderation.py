@@ -96,6 +96,13 @@ async def cmd_moderate(message: Message, session: AsyncSession):
 # approves an event or update draft
 @router.callback_query(F.data.startswith("mod_approve_"))
 async def process_approve(callback: CallbackQuery, session: AsyncSession, bot: Bot):
+    from app.config import get_settings
+    settings = get_settings()
+    user_id = callback.fromuser.id if hasattr(callback, 'fromuser') else callback.from_user.id
+    if user_id not in settings.admin_ids and callback.message.chat.id != settings.moderator_chat_id:
+        await callback.answer("Unauthorized.", show_alert=True)
+        return
+
     event_id = int(callback.data.split("_")[2])
     moderator = await upsert_user_from_telegram(session, callback.from_user)
 
@@ -145,6 +152,15 @@ async def process_approve(callback: CallbackQuery, session: AsyncSession, bot: B
         operation="approved",
         snapshot=snapshot,
     )
+
+    from app.models.audit import AuditLog
+    session.add(AuditLog(
+        actor_user_id=moderator.id,
+        action="approve_event",
+        target_type="event",
+        target_id=str(target_event.id),
+        metadata_json={"is_update": is_update, "original_event_id": event_id}
+    ))
 
     # commit the status change first — publishing errors must not roll this back
     await session.commit()
@@ -228,9 +244,19 @@ async def handle_reject_back(message: Message, state: FSMContext, session: Async
 async def process_rejection_reason(
     message: Message, state: FSMContext, session: AsyncSession
 ):
+    from app.config import get_settings
+    settings = get_settings()
+    user_id = message.from_user.id
+    if user_id not in settings.admin_ids and message.chat.id != settings.moderator_chat_id:
+        return
+
     data = await state.get_data()
     event_id = data["mod_event_id"]
     reason = message.text
+
+    if len(reason) > 1000:
+        await message.answer("Reason is too long. Please keep it under 1000 characters.")
+        return
 
     # mark the event as rejected with the moderator comment
     moderator = await upsert_user_from_telegram(session, message.from_user)
@@ -280,6 +306,14 @@ async def process_rejection_reason(
             operation="rejected",
             snapshot=snapshot,
         )
+        from app.models.audit import AuditLog
+        session.add(AuditLog(
+            actor_user_id=moderator.id,
+            action="reject_event",
+            target_type="event",
+            target_id=str(event_id),
+            metadata_json={"reason": reason, "is_update": False}
+        ))
         await session.commit()
         await message.answer(
             f"❌ Event #{event_id} has been rejected with reason: {reason}"
@@ -322,9 +356,19 @@ async def handle_changes_back(message: Message, state: FSMContext, session: Asyn
 async def process_changes_reason(
     message: Message, state: FSMContext, session: AsyncSession
 ):
+    from app.config import get_settings
+    settings = get_settings()
+    user_id = message.from_user.id
+    if user_id not in settings.admin_ids and message.chat.id != settings.moderator_chat_id:
+        return
+
     data = await state.get_data()
     event_id = data["mod_event_id"]
     reason = message.text
+
+    if len(reason) > 1000:
+        await message.answer("Reason is too long. Please keep it under 1000 characters.")
+        return
 
     # mark the event as needing changes with the moderator comment
     moderator = await upsert_user_from_telegram(session, message.from_user)
@@ -345,6 +389,14 @@ async def process_changes_reason(
         operation="needs_changes",
         snapshot=snapshot,
     )
+    from app.models.audit import AuditLog
+    session.add(AuditLog(
+        actor_user_id=moderator.id,
+        action="needs_changes_event",
+        target_type="event",
+        target_id=str(event_id),
+        metadata_json={"reason": reason}
+    ))
     await session.commit()
     await message.answer(
         f"📝 Event #{event_id} marked as 'Needs Changes' with reason: {reason}"

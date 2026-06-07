@@ -11,6 +11,7 @@ from sqlalchemy import (
     Index,
     String,
     Text,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -25,6 +26,7 @@ if TYPE_CHECKING:
 class Comment(Base):
     __tablename__ = "comments"
     __table_args__ = (
+        UniqueConstraint("user_id", "event_id", name="uq_comments_user_id_event_id"),
         Index("ix_comments_user_id", "user_id"),
         Index("ix_comments_event_id", "event_id"),
     )

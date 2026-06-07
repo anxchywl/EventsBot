@@ -107,7 +107,7 @@ class EventCardsTest(unittest.TestCase):
         self.assertEqual(1, len(buttons))
         self.assertEqual("Open Event", buttons[0].text)
         self.assertIsNone(buttons[0].web_app)
-        self.assertEqual("https://t.me/events_bot/events?startapp=event_abc123", buttons[0].url)
+        self.assertEqual("https://t.me/events_bot/events?startapp=event_abc123&mode=compact", buttons[0].url)
 
     def test_regular_event_keyboard_keeps_registration_link(self):
         event = SimpleNamespace(

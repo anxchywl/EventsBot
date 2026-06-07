@@ -7,7 +7,7 @@ services:
       POSTGRES_USER: events_bot
       POSTGRES_PASSWORD: events_bot
     ports:
-      - "54320:5432"
+      - "127.0.0.1:54320:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -20,7 +20,7 @@ services:
     image: redis:7-alpine
     container_name: events_bot_redis
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:

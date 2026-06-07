@@ -39,19 +39,19 @@ import {
   revokeFriendInvite,
   fetchPrivacySettings,
   updatePrivacySettings,
-} from "./api.js?v=20260607-cal-v4";
-import { coverStyle, loadingScreen, resetFallbackCoverStyles, startCountdowns } from "./components/events.js?v=20260607-cal-v4";
-import { closeFilterSheet, openFilterSheet } from "./components/filterSheet.js?v=20260607-cal-v4";
-import { fetchAdminStats, fetchAdminUsers, fetchConnectedGroups, renderAdminPanel, renderAdminUsersList, renderConnectedGroupsList, blockUser, unblockUser, adminStatusLabel, adminSortLabel } from "./views/admin.js?v=20260607-cal-v4";
-import { closeSheet, openReminderSheet } from "./components/sheets.js?v=20260607-cal-v4";
-import { t, translateError } from "./i18n.js?v=20260607-cal-v4";
-import { currentTheme, nextLang, normalizeEventFilters, rememberScroll, restoreScroll, setEventFilters, setLang, setTheme, state, toggleTheme } from "./state.js?v=20260607-cal-v4";
-import { configureBackButton, haptic, initTelegram, openLink, openTelegramLink, startParam, tg } from "./telegram.js?v=20260607-cal-v4";
-import { renderEvent, renderEventUnavailable, renderEventSkeleton } from "./views/event.js?v=20260607-cal-v4";
-import { renderEventResults, renderFilterBar, renderMenu, renderPlaceholder } from "./views/menu.js?v=20260607-cal-v4";
-import { renderReminders } from "./views/reminders.js?v=20260607-cal-v4";
-import { renderCalendarInner, attachCalendarInteractions, refreshCalendarMonthPanels } from "./views/calendar.js?v=20260607-cal-v4";
-import { renderAuthSection, renderRatingsTab, renderForgotPasswordCard, renderProfileInner, renderFriendSearchResults } from "./views/ratings.js?v=20260607-cal-v4";
+} from "./api.js?v=20260607-cal-v5";
+import { coverStyle, loadingScreen, resetFallbackCoverStyles, startCountdowns } from "./components/events.js?v=20260607-cal-v5";
+import { closeFilterSheet, openFilterSheet } from "./components/filterSheet.js?v=20260607-cal-v5";
+import { fetchAdminStats, fetchAdminUsers, fetchConnectedGroups, renderAdminPanel, renderAdminUsersList, renderConnectedGroupsList, blockUser, unblockUser, adminStatusLabel, adminSortLabel } from "./views/admin.js?v=20260607-cal-v5";
+import { closeSheet, openReminderSheet } from "./components/sheets.js?v=20260607-cal-v5";
+import { t, translateError } from "./i18n.js?v=20260607-cal-v6";
+import { currentTheme, nextLang, normalizeEventFilters, rememberScroll, restoreScroll, setEventFilters, setLang, setTheme, state, toggleTheme } from "./state.js?v=20260607-cal-v5";
+import { configureBackButton, haptic, initTelegram, openLink, openTelegramLink, sanitizeStartPayload, startParam, tg } from "./telegram.js?v=20260607-cal-v5";
+import { renderEvent, renderEventUnavailable, renderEventSkeleton } from "./views/event.js?v=20260607-cal-v5";
+import { renderEventResults, renderFilterBar, renderMenu, renderPlaceholder } from "./views/menu.js?v=20260607-cal-v5";
+import { renderReminders } from "./views/reminders.js?v=20260607-cal-v5";
+import { renderCalendarInner, attachCalendarInteractions, refreshCalendarMonthPanels } from "./views/calendar.js?v=20260607-cal-v5";
+import { renderAuthSection, renderRatingsTab, renderForgotPasswordCard, renderProfileInner, renderFriendSearchResults } from "./views/ratings.js?v=20260607-cal-v5";
 
 
 const app = document.getElementById("app");
@@ -693,11 +693,13 @@ function routeFromLocation() {
 
   const pathEvent = window.location.pathname.match(/^\/events\/([^/]+)/);
   if (pathEvent) {
-    return { route: "event", token: decodeURIComponent(pathEvent[1]) };
+    const token = sanitizeEventToken(decodeURIComponent(pathEvent[1]));
+    return token ? { route: "event", token } : { route: "events", token: "" };
   }
   const pathInvite = window.location.pathname.match(/^\/friends\/invite\/([^/]+)/);
   if (pathInvite) {
-    return { route: "friend-invite", token: decodeURIComponent(pathInvite[1]) };
+    const token = sanitizeInviteToken(decodeURIComponent(pathInvite[1]));
+    return token ? { route: "friend-invite", token } : { route: "events", token: "" };
   }
   const hash = window.location.hash.replace(/^#\/?/, "");
   const [hashRoute, hashQuery = ""] = hash.split("?");
@@ -707,10 +709,12 @@ function routeFromLocation() {
     return { route: "events", token: "" };
   }
   if (hashRoute.startsWith("events/")) {
-    return { route: "event", token: decodeURIComponent(hashRoute.split("/")[1] || "") };
+    const token = sanitizeEventToken(decodeURIComponent(hashRoute.split("/")[1] || ""));
+    return token ? { route: "event", token } : { route: "events", token: "" };
   }
   if (hashRoute.startsWith("friends/invite/")) {
-    return { route: "friend-invite", token: decodeURIComponent(hashRoute.split("/")[2] || "") };
+    const token = sanitizeInviteToken(decodeURIComponent(hashRoute.split("/")[2] || ""));
+    return token ? { route: "friend-invite", token } : { route: "events", token: "" };
   }
   if (hashRoute === "favorites") {
     setEventFilters({ ...state.eventFilters, favoritesOnly: true });
@@ -728,7 +732,7 @@ function routeFromLocation() {
   if (hashRoute === "admin") {
     return { route: "admin", token: "" };
   }
-  const start = startParam() || new URLSearchParams(window.location.search).get("startapp") || "";
+  const start = startParam() || sanitizeStartPayload(new URLSearchParams(window.location.search).get("startapp") || "");
   if (start.startsWith("event_")) {
     return { route: "event", token: start.slice(6) };
   }
@@ -736,6 +740,22 @@ function routeFromLocation() {
     return { route: "friend-invite", token: start.slice(7) };
   }
   return { route: "events", token: "" };
+}
+
+function sanitizeEventToken(value) {
+  const token = String(value || "").trim();
+  if (/^[0-9a-fA-F-]{36}$/.test(token)) {
+    return token;
+  }
+  if (/^event_[0-9a-fA-F-]{36}$/.test(token)) {
+    return token.slice(6);
+  }
+  return "";
+}
+
+function sanitizeInviteToken(value) {
+  const token = String(value || "").trim();
+  return /^[A-Za-z0-9_-]{32,256}$/.test(token) ? token : "";
 }
 
 async function loadFromLocation() {
@@ -754,6 +774,8 @@ async function navigate(route, options = {}) {
 
   const prevRoute = state.route;
   const targetRoute = route;
+
+
 
   // Pre-fetch data for the next route BEFORE starting the view transition.
   // This ensures the DOM swap inside startViewTransition is near-instant,
@@ -1624,9 +1646,6 @@ async function onClick(event) {
     inviteBtn.textContent = t("creatingLabel");
     try {
       state.currentFriendInvite = await createFriendInvite();
-      if (state.currentFriendInvite && state.currentFriendInvite.token) {
-        localStorage.setItem("friend_invite_token", state.currentFriendInvite.token);
-      }
       haptic("success");
       
       const searchBox = document.querySelector(".friend-search-box");
@@ -2547,7 +2566,7 @@ function initRatingsHandlers() {
         resendBtn.disabled = false;
         resendBtn.textContent = "Resend Code";
         if (errEl) {
-          errEl.textContent = translateError(err.message) || t("failedToResendCode");
+          errEl.innerHTML = translateError(err.message) || t("failedToResendCode");
           errEl.classList.remove("hide");
         }
       }
@@ -2659,7 +2678,7 @@ function initRatingsHandlers() {
         if (password !== confirmPassword) {
           haptic("error");
           if (errEl) {
-            errEl.textContent = t("confirmPasswordLabel") ? (t("passwordLabel") === "Пароль" ? "Пароли не совпадают." : (t("passwordLabel") === "Құпия сөз" ? "Құпия сөздер сәйкес келмейді." : "Passwords do not match.")) : "Passwords do not match.";
+            errEl.innerHTML = t("confirmPasswordLabel") ? (t("passwordLabel") === "Пароль" ? "Пароли не совпадают." : (t("passwordLabel") === "Құпия сөз" ? "Құпия сөздер сәйкес келмейді." : "Passwords do not match.")) : "Passwords do not match.";
             errEl.classList.remove("hide");
           }
           return;
@@ -2719,7 +2738,7 @@ function initRatingsHandlers() {
         submitBtn.disabled = false;
         submitBtn.textContent = originalText;
         if (errEl) {
-          errEl.textContent = translateError(err.message) || t("anErrorOccurred");
+          errEl.innerHTML = translateError(err.message) || t("anErrorOccurred");
           errEl.classList.remove("hide");
         }
       }
@@ -2782,7 +2801,7 @@ function initRatingsHandlers() {
         submitBtn.disabled = false;
         submitBtn.textContent = "Verify Code";
         if (errEl) {
-          errEl.textContent = translateError(err.message) || t("invalidCode");
+          errEl.innerHTML = translateError(err.message) || t("invalidCode");
           errEl.classList.remove("hide");
         }
       }
@@ -3025,7 +3044,7 @@ function initForgotPasswordHandlers() {
         submitBtn.disabled = false;
         submitBtn.textContent = origText;
         if (errEl) {
-          errEl.textContent = translateError(err.message) || t("invalidOrExpiredCode");
+          errEl.innerHTML = translateError(err.message) || t("invalidOrExpiredCode");
           errEl.classList.remove("hide");
         }
       }
@@ -3067,7 +3086,7 @@ function initForgotPasswordHandlers() {
         submitBtn.disabled = false;
         submitBtn.textContent = origText;
         if (errEl) {
-          errEl.textContent = t("invalidOrExpiredCode");
+          errEl.innerHTML = t("invalidOrExpiredCode");
           errEl.classList.remove("hide");
         }
       }
@@ -3098,7 +3117,7 @@ function initForgotPasswordHandlers() {
           resendBtn.disabled = false;
           resendBtn.textContent = t("resendCode");
           if (errEl) {
-            errEl.textContent = translateError(err.message) || t("tooManyAttempts");
+            errEl.innerHTML = translateError(err.message) || t("tooManyAttempts");
             errEl.classList.remove("hide");
           }
         }
@@ -3134,7 +3153,7 @@ function initForgotPasswordHandlers() {
       if (newPwd !== confirmPwd) {
         haptic("error");
         if (errEl) {
-          errEl.textContent = t("passwordsDoNotMatch");
+          errEl.innerHTML = t("passwordsDoNotMatch");
           errEl.classList.remove("hide");
         }
         return;
@@ -3175,7 +3194,7 @@ function initForgotPasswordHandlers() {
         submitBtn.disabled = false;
         submitBtn.textContent = origText;
         if (errEl) {
-          errEl.textContent = t("invalidOrExpiredCode");
+          errEl.innerHTML = t("invalidOrExpiredCode");
           errEl.classList.remove("hide");
         }
       }
@@ -3283,7 +3302,7 @@ function initEventReviewsHandlers() {
     if (isNaN(scoreVal) || scoreVal === 0) {
       haptic("error");
       if (errEl) {
-        errEl.textContent = t("pleaseSelectStarRating");
+        errEl.innerHTML = t("pleaseSelectStarRating");
         errEl.classList.remove("hide");
       }
       return;
@@ -3292,7 +3311,7 @@ function initEventReviewsHandlers() {
     if (rawContent && !rawContent.trim()) {
       haptic("error");
       if (errEl) {
-        errEl.textContent = t("commentOnlySpaces");
+        errEl.innerHTML = t("commentOnlySpaces");
         errEl.classList.remove("hide");
       }
       return;
@@ -3306,7 +3325,7 @@ function initEventReviewsHandlers() {
     if (cleanedContent.length > 256) {
       haptic("error");
       if (errEl) {
-        errEl.textContent = t("commentTooLong");
+        errEl.innerHTML = t("commentTooLong");
         errEl.classList.remove("hide");
       }
       return;
@@ -3333,7 +3352,7 @@ function initEventReviewsHandlers() {
       submitBtn.disabled = false;
       submitBtn.textContent = t("submitReview");
       if (errEl) {
-        errEl.textContent = translateError(err.message) || t("failedToSubmitReview");
+        errEl.innerHTML = translateError(err.message) || t("failedToSubmitReview");
         errEl.classList.remove("hide");
       }
     }

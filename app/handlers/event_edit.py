@@ -109,6 +109,13 @@ async def start_edit_event(
         )
         return
 
+    from app.config import get_settings
+    settings = get_settings()
+    user_id = source.from_user.id
+    if event.creator_user_id != user_id and user_id not in settings.admin_ids:
+        await source.answer("Unauthorized.", show_alert=True)
+        return
+
     old_data = await state.get_data()
     manage_event_msg_id = old_data.get("manage_event_msg_id")
     my_events_choose_msg_id = old_data.get("my_events_choose_msg_id")
@@ -448,9 +455,9 @@ async def process_text_edit(message: Message, state: FSMContext):
             return
         await state.update_data(organizer=message.text)
     elif field == "registration_link":
-        if not _is_valid_url(message.text):
+        if not _is_valid_url(message.text) or len(message.text) > 2048:
             await _record_temp_edit_message(state, message)
-            sent = await message.answer("Please send a valid URL that starts with http:// or https://")
+            sent = await message.answer("Please send a valid URL that starts with http:// or https:// (max 2048 chars).")
             await _record_temp_edit_message(state, sent)
             return
         await state.update_data(registration_url=message.text)
@@ -547,10 +554,12 @@ async def cancel_edit(callback: CallbackQuery, state: FSMContext, session: Async
                 await callback.answer()
                 return
 
+            date_str = event.event_date.strftime("%d.%m.%Y")
+            time_str = event.event_time.strftime("%H:%M")
             text = (
                 f"<b>{safe_title}</b>\n\n"
-                f"Date: {event.event_date}\n"
-                f"Time: {event.event_time}\n"
+                f"Date: {date_str}\n"
+                f"Time: {time_str}\n"
                 f"Location: {safe_location}\n"
                 f"Category: {safe_cat}\n"
                 f"Status: <b>{event.status.upper()}</b>\n\n"

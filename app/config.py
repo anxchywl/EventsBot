@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from pydantic import Field, SecretStr
+from typing import Any
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -27,6 +28,34 @@ class Settings(BaseSettings):
     )
     moderator_chat_id: int | None = Field(default=None, alias="MODERATOR_CHAT_ID")
     admin_ids: list[int] = Field(default_factory=list, alias="ADMIN_IDS")
+
+    @field_validator("admin_ids", mode="before")
+    @classmethod
+    def parse_admin_ids(cls, v: Any) -> list[int]:
+        if isinstance(v, list):
+            return [int(x) for x in v]
+        if isinstance(v, str):
+            val = v.strip()
+            if not val:
+                return []
+            if val.startswith("[") and val.endswith("]"):
+                try:
+                    import json
+                    parsed = json.loads(val)
+                    if isinstance(parsed, list):
+                        return [int(x) for x in parsed]
+                except Exception:
+                    pass
+            try:
+                # Strip brackets just in case JSON parsing failed but brackets exist
+                clean_val = val.lstrip("[").rstrip("]")
+                return [int(x.strip()) for x in clean_val.split(",") if x.strip()]
+            except ValueError as exc:
+                raise ValueError(f"Invalid ADMIN_IDS format: {v}") from exc
+        if isinstance(v, int):
+            return [v]
+        return v
+
     telegram_delivery_delay_seconds: float = Field(
         default=0.15,
         alias="TELEGRAM_DELIVERY_DELAY_SECONDS",

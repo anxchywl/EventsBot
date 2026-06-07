@@ -1,4 +1,4 @@
-import { state } from "./state.js?v=20260607-cal-v4";
+import { state } from "./state.js?v=20260607-cal-v5";
 
 const dict = {
   en: {
@@ -265,7 +265,7 @@ const dict = {
       "Failed to update nickname.": "Failed to update nickname.",
       "Failed to submit review.": "Failed to submit review.",
       "Please select a star rating.": "Please select a star rating.",
-      "Missing session": "Please open this app from Telegram."
+      "Missing session": "Please open this app from Telegram. <span style=\"white-space:nowrap\">(<span class=\"copyable-bot-tag\" onclick=\"navigator.clipboard.writeText('@NUeventsbot'); window.haptic?.('light'); this.classList.add('copied'); setTimeout(()=>this.classList.remove('copied'), 1000)\">@NUeventsbot</span>)</span>"
     }
   },
   ru: {
@@ -532,7 +532,7 @@ const dict = {
       "Failed to update nickname.": "Не удалось обновить никнейм.",
       "Failed to submit review.": "Не удалось отправить отзыв.",
       "Please select a star rating.": "Пожалуйста, выберите количество звезд.",
-      "Missing session": "Пожалуйста, откройте приложение через Telegram."
+      "Missing session": "Пожалуйста, откройте приложение через Telegram. <span style=\"white-space:nowrap\">(<span class=\"copyable-bot-tag\" onclick=\"navigator.clipboard.writeText('@NUeventsbot'); window.haptic?.('light'); this.classList.add('copied'); setTimeout(()=>this.classList.remove('copied'), 1000)\">@NUeventsbot</span>)</span>"
     }
   },
   kk: {
@@ -799,7 +799,7 @@ const dict = {
       "Failed to update nickname.": "Никнеймді жаңарту мүмкін болмады",
       "Failed to submit review.": "Пікірді жіберу мүмкін болмады",
       "Please select a star rating.": "Жұлдызды бағаны таңдаңыз",
-      "Missing session": "Қолданбаны Telegram арқылы ашыңыз."
+      "Missing session": "Қолданбаны Telegram арқылы ашыңыз. <span style=\"white-space:nowrap\">(<span class=\"copyable-bot-tag\" onclick=\"navigator.clipboard.writeText('@NUeventsbot'); window.haptic?.('light'); this.classList.add('copied'); setTimeout(()=>this.classList.remove('copied'), 1000)\">@NUeventsbot</span>)</span>"
     }
   },
 };

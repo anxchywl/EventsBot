@@ -4,6 +4,7 @@ import hashlib
 import secrets
 from datetime import UTC, datetime, timedelta
 from typing import Iterable
+from urllib.parse import urlencode
 
 from fastapi import HTTPException, status
 from sqlalchemy import and_, exists, func, or_, select, update
@@ -51,7 +52,10 @@ def avatar_payload(user: User) -> dict[str, str | None]:
     if getattr(user, "photo_url", None):
         url = user.photo_url
     else:
-        url = f"/api/events/avatar/{user.telegram_id}" if user.telegram_id and user.telegram_id > 0 else None
+        url = None
+        if user.telegram_id and user.telegram_id > 0:
+            version = user.photo_updated_at.isoformat() if user.photo_updated_at else str(user.telegram_id)
+            url = f"/api/events/avatar/{user.telegram_id}?{urlencode({'v': version})}"
     return {
         "url": url,
         "initials": initials[:2] or "NU",
@@ -227,14 +231,15 @@ async def public_user_summary(
         if current_user is not None
         else ("none", None)
     )
+    can_contact_directly = relationship in {"self", "friends"}
     return {
         "id": target.id,
         "nickname": display_name(target),
-        "email": target.email,
+        "email": None,
         "avatar": avatar_payload(target),
         "friend_count": target_counts.get(target.id, 0),
         "mutual_friends_count": mutual_count,
-        "telegram_url": telegram_url(target),
+        "telegram_url": telegram_url(target) if can_contact_directly else None,
         "relationship_status": relationship,
         "request_id": request_id,
     }
