@@ -32,11 +32,6 @@ def _check_rate_limit(request: Request, user_id: int, limit: int, window_seconds
     host = request.client.host if request.client else "unknown"
     key = f"reminder:{user_id}:{host}"
     hits = [ts for ts in _REMINDER_RATE_LIMITS.get(key, []) if ts > cutoff]
-    if len(hits) >= limit:
-        _REMINDER_RATE_LIMITS[key] = hits
-        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Too many reminder attempts. Try again later.")
-    hits.append(now)
-    _REMINDER_RATE_LIMITS[key] = hits
 
     # prevent memory leaks by pruning stale keys when dict grows large
     if len(_REMINDER_RATE_LIMITS) > 10000:
@@ -45,8 +40,11 @@ def _check_rate_limit(request: Request, user_id: int, limit: int, window_seconds
             if not _REMINDER_RATE_LIMITS[k]:
                 del _REMINDER_RATE_LIMITS[k]
 
-
-# group scheduled reminders by event
+    if len(hits) >= limit:
+        _REMINDER_RATE_LIMITS[key] = hits
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Too many requests. Try again later.")
+    hits.append(now)
+    _REMINDER_RATE_LIMITS[key] = hits
 @router.get("/api/reminders", response_model=list[ReminderGroup])
 async def list_reminders(
     limit: int = Query(100, ge=1, le=200),

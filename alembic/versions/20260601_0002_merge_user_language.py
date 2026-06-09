@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from typing import Sequence, Union
 
-from alembic import op
 
 
 revision: str = '20260601_0002'

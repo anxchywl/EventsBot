@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.config import get_settings
+from aiogram.filters import Filter
 from app.handlers.moderation import ModerationState
 from app.models.enums import EventStatus
 from app.models.event import Event
@@ -452,7 +453,6 @@ async def show_admin_mod_queue(
     _delete_messages_background(message_obj.bot, message_obj.chat.id, delete_ids)
 
 
-from aiogram.filters import Filter
 
 # filter admin mod queue event callbacks
 class AdminModQueueEventFilter(Filter):
@@ -957,14 +957,15 @@ async def _show_admin_manage_event(
     safe_cat = html.escape(event.category.name if event.category else "")
     safe_creator = html.escape(f"{event.creator.first_name} (@{event.creator.username})")
 
-    render_text = lambda safe_desc: _render_admin_manage_event_text(
-        event,
-        safe_title=safe_title,
-        safe_creator=safe_creator,
-        safe_location=safe_location,
-        safe_cat=safe_cat,
-        safe_desc=safe_desc,
-    )
+    def render_text(safe_desc):
+        return _render_admin_manage_event_text(
+            event,
+            safe_title=safe_title,
+            safe_creator=safe_creator,
+            safe_location=safe_location,
+            safe_cat=safe_cat,
+            safe_desc=safe_desc,
+        )
     safe_desc = escape_and_fit_description(event.description or "", render_text) if event.poster_file_id else html.escape(event.description or "")
     text = render_text(safe_desc)
 

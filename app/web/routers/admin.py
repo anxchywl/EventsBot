@@ -12,6 +12,8 @@ from app.db.session import get_session
 from app.models.user import User
 from app.models.event import Event
 from app.config import get_settings
+from pydantic import BaseModel, Field, field_validator
+from typing import Any
 from app.models.audit import AuditLog
 from app.models.chat import Chat
 from app.services.chats import connected_group_status
@@ -81,8 +83,6 @@ async def admin_delete_review_by_token(
     return ActionResponse(ok=True, message="Review deleted successfully by admin.")
 
 
-from pydantic import BaseModel, Field, field_validator
-from typing import Any
 
 # shape aggregate admin dashboard stats
 class AdminStatsResponse(BaseModel):
@@ -177,8 +177,8 @@ async def get_admin_stats(
 ) -> AdminStatsResponse:
     bot_users = (await session.execute(select(func.count()).select_from(User))).scalar() or 0
     miniapp_users = bot_users
-    nu_accounts = (await session.execute(select(func.count()).select_from(User).where(User.is_verified == True))).scalar() or 0
-    blocked_users = (await session.execute(select(func.count()).select_from(User).where(User.is_blocked == True))).scalar() or 0
+    nu_accounts = (await session.execute(select(func.count()).select_from(User).where(User.is_verified))).scalar() or 0
+    blocked_users = (await session.execute(select(func.count()).select_from(User).where(User.is_blocked))).scalar() or 0
 
     return AdminStatsResponse(
         total_bot_users=bot_users,
@@ -373,7 +373,7 @@ async def list_users(
     stmt = stmt.limit(limit).offset(offset)
     users = (await session.execute(stmt)).scalars().all()
     
-    settings = get_settings()
+    get_settings()
     return [
         AdminUserItem(
             id=u.id,

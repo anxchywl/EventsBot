@@ -17,7 +17,6 @@ from app.config import get_settings
 from app.services.events import (
     create_pending_event,
     get_active_categories,
-    get_category_by_id,
 )
 from app.services.event_cards import escape_and_fit_description
 from app.services.users import upsert_user_from_telegram
@@ -969,7 +968,7 @@ async def confirm_submission(
     user = await upsert_user_from_telegram(session, message.from_user)
 
     # save the event and show the user confirmation
-    event = await create_pending_event(session, user, data)
+    await create_pending_event(session, user, data)
     await session.commit()
 
     from app.handlers.start import get_main_menu_keyboard

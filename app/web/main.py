@@ -5,6 +5,7 @@ from hashlib import sha256
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Request, status
+from contextlib import asynccontextmanager
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,7 +19,6 @@ from app.web.auth import (
     verify_init_data,
     verify_session_token,
 )
-from app.config import get_settings
 from app.web.routers import (
     events_router,
     favorites_router,
@@ -37,7 +37,6 @@ STATIC_DIR = Path(__file__).parent / "static"
 rate_limits: dict[str, list[float]] = {}
 MAX_RATE_LIMIT_KEYS = 20_000
 
-from contextlib import asynccontextmanager
 
 # open and close shared web resources around app lifetime
 @asynccontextmanager

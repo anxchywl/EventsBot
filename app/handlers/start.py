@@ -3,7 +3,7 @@ from aiogram.filters import CommandObject, CommandStart, StateFilter
 from aiogram.filters import Filter
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message, MenuButtonWebApp, WebAppInfo
-from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
+from aiogram.utils.keyboard import ReplyKeyboardBuilder
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
@@ -113,9 +113,8 @@ async def process_start_menu(
     """
     Returns the user to the main menu by deleting active menu panels and resending the welcome menu.
     """
-    user = await upsert_user_from_telegram(session, callback.from_user)
+    await upsert_user_from_telegram(session, callback.from_user)
     settings = get_settings()
-    is_admin = user.telegram_id in settings.admin_ids
 
     # set chat menu button to default base mini app url
     if settings.miniapp_base_url:

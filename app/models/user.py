@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from app.models.comment import Comment
     from app.models.code import EmailVerificationCode
     from app.models.password_reset import PasswordResetCode
-    from app.models.friend import FriendInvite, FriendRequest, Friendship, PrivacySettings
+    from app.models.friend import PrivacySettings
 
 
 # stores telegram user profiles

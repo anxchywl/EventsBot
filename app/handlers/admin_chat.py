@@ -6,7 +6,6 @@ from aiogram.types import ChatMemberUpdated, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
-from app.models.chat import Chat
 from app.services.chats import (
     delete_chat_data,
     get_chat_by_telegram_id,
@@ -268,7 +267,7 @@ async def can_manage_chat(message: Message, bot: Bot) -> bool:
         return True
 
     # check chat administrators in groups
-    if message.chat.type in {ChatType.GROUP, ChatType.SUPERGROUP}:
+    if message.chat.type in {ChatType.GROUP, ChatType.SUPERGROUP, ChatType.CHANNEL}:
         try:
             chat_member = await bot.get_chat_member(
                 chat_id=message.chat.id,

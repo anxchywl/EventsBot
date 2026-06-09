@@ -13,7 +13,7 @@ from app.services.events import (
 )
 from app.services.users import upsert_user_from_telegram
 from app.services.telegram_links import build_event_deep_link
-from app.services.event_cards import escape_and_fit_description, format_event_card_text
+from app.services.event_cards import escape_and_fit_description
 from app.handlers.start import cleanup_main_menu_warnings, get_main_menu_keyboard
 from app.handlers.message_cleanup import delete_messages_fast
 from app.config import get_settings

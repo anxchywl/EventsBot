@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, UTC
 
 from fastapi import APIRouter, Depends, HTTPException, status, Header, Request
 from sqlalchemy import select, delete, update
+import re
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
@@ -107,14 +108,13 @@ async def get_unique_nickname(session: AsyncSession, base: str) -> str:
     candidate = clean
     counter = 1
     while True:
-        stmt = select(User).where(User.nickname == candidate, User.is_verified == True)
+        stmt = select(User).where(User.nickname == candidate, User.is_verified)
         result = await session.execute(stmt)
         if not result.scalar_one_or_none():
             return candidate
         candidate = f"{clean[:18]}{counter}"
         counter += 1
 
-import re
 
 
 # start email verification for a telegram user
@@ -141,7 +141,7 @@ async def register(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=pwd_err)
 
     # 3. check if email is already verified by another account
-    stmt = select(User).where(User.email == email, User.is_verified == True)
+    stmt = select(User).where(User.email == email, User.is_verified)
     existing_verified = await session.execute(stmt)
     if existing_verified.scalar_one_or_none():
         # owasp: return generic success to prevent account enumeration
@@ -450,7 +450,7 @@ async def login(
     email = payload.email.strip().lower()
     
     # 1. fetch the verified user by email
-    stmt = select(User).where(User.email == email, User.is_verified == True)
+    stmt = select(User).where(User.email == email, User.is_verified)
     result = await session.execute(stmt)
     verified_user = result.scalar_one_or_none()
 
@@ -706,7 +706,7 @@ async def update_nickname(
         )
 
     # check if nickname is already taken by another verified user
-    stmt = select(User).where(User.nickname == nickname, User.is_verified == True, User.id != user.id)
+    stmt = select(User).where(User.nickname == nickname, User.is_verified, User.id != user.id)
     existing = await session.execute(stmt)
     if existing.scalar_one_or_none():
         raise HTTPException(
@@ -792,7 +792,7 @@ async def forgot_password_request(
         return ActionResponse(ok=True, message=_GENERIC_RESET_MSG)
 
     # look up the verified account
-    stmt = select(User).where(User.email == email, User.is_verified == True)
+    stmt = select(User).where(User.email == email, User.is_verified)
     result = await session.execute(stmt)
     user = result.scalar_one_or_none()
 
@@ -886,7 +886,7 @@ async def forgot_password_verify(
         )
 
     # avoid revealing whether the email is registered
-    stmt = select(User).where(User.email == email, User.is_verified == True)
+    stmt = select(User).where(User.email == email, User.is_verified)
     result = await session.execute(stmt)
     user = result.scalar_one_or_none()
     if not user:
@@ -988,7 +988,7 @@ async def forgot_password_reset(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=pwd_err)
 
     # look up the verified account
-    stmt = select(User).where(User.email == email, User.is_verified == True)
+    stmt = select(User).where(User.email == email, User.is_verified)
     result = await session.execute(stmt)
     user = result.scalar_one_or_none()
     if not user:

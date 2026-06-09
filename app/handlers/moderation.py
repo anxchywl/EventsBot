@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.models.enums import EventStatus
+from app.models.event import Event
 from app.services.event_cards import escape_and_fit_description
 from app.services.events import get_event_by_id, get_pending_events, update_event_status
 from app.services.event_sync import (
@@ -228,7 +229,6 @@ async def process_changes_button(callback: CallbackQuery, state: FSMContext):
 # handle reject back
 @router.message(ModerationState.waiting_for_rejection_reason, F.text.in_({"Back", "Back to Menu"}))
 async def handle_reject_back(message: Message, state: FSMContext, session: AsyncSession):
-    from aiogram.types import ReplyKeyboardRemove
     data = await state.get_data()
     event_id = data.get("mod_event_id")
     if event_id:
@@ -342,7 +342,6 @@ async def process_rejection_reason(
 # handle changes back
 @router.message(ModerationState.waiting_for_changes_reason, F.text.in_({"Back", "Back to Menu"}))
 async def handle_changes_back(message: Message, state: FSMContext, session: AsyncSession):
-    from aiogram.types import ReplyKeyboardRemove
     data = await state.get_data()
     event_id = data.get("mod_event_id")
     if event_id:

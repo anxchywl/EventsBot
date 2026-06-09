@@ -45,11 +45,6 @@ def _check_rate_limit(request: Request, user_id: int, limit: int, window_seconds
     host = request.client.host if request.client else "unknown"
     key = f"review:{user_id}:{host}"
     hits = [ts for ts in _RATING_RATE_LIMITS.get(key, []) if ts > cutoff]
-    if len(hits) >= limit:
-        _RATING_RATE_LIMITS[key] = hits
-        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Too many review attempts. Try again later.")
-    hits.append(now)
-    _RATING_RATE_LIMITS[key] = hits
 
     # prevent memory leaks by pruning stale keys when dict grows large
     if len(_RATING_RATE_LIMITS) > 10000:
@@ -58,8 +53,11 @@ def _check_rate_limit(request: Request, user_id: int, limit: int, window_seconds
             if not _RATING_RATE_LIMITS[k]:
                 del _RATING_RATE_LIMITS[k]
 
-
-# upsert rating and comment for one verified user
+    if len(hits) >= limit:
+        _RATING_RATE_LIMITS[key] = hits
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Too many requests. Try again later.")
+    hits.append(now)
+    _RATING_RATE_LIMITS[key] = hits
 @router.post("/{public_token}/reviews", response_model=ActionResponse)
 async def submit_review(
     public_token: str,
@@ -263,7 +261,7 @@ async def list_global_reviews_feed(
         select(Comment)
         .join(Comment.user)
         .join(Comment.event)
-        .where(User.is_verified == True, Event.status == "approved", Comment.deleted_at.is_(None))
+        .where(User.is_verified, Event.status == "approved", Comment.deleted_at.is_(None))
         .order_by(Comment.created_at.desc())
         .options(selectinload(Comment.user), selectinload(Comment.event))
         .offset(offset)
@@ -275,7 +273,7 @@ async def list_global_reviews_feed(
         select(Rating)
         .join(Rating.user)
         .join(Rating.event)
-        .where(User.is_verified == True, Event.status == "approved", Rating.deleted_at.is_(None))
+        .where(User.is_verified, Event.status == "approved", Rating.deleted_at.is_(None))
         .order_by(Rating.created_at.desc())
         .options(selectinload(Rating.user), selectinload(Rating.event))
         .offset(offset)

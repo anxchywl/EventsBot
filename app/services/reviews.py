@@ -154,7 +154,7 @@ async def event_rating_summary(session: AsyncSession, event_id: int) -> dict[str
             .where(
                 Rating.event_id == event_id,
                 Rating.deleted_at.is_(None),
-                User.is_verified == True,
+                User.is_verified,
             )
             .group_by(Rating.score)
         )
@@ -176,7 +176,7 @@ async def event_rating_summary(session: AsyncSession, event_id: int) -> dict[str
             .where(
                 Rating.event_id == event_id,
                 Rating.deleted_at.is_(None),
-                User.is_verified == True,
+                User.is_verified,
             )
             .union(
                 select(Comment.user_id)
@@ -184,7 +184,7 @@ async def event_rating_summary(session: AsyncSession, event_id: int) -> dict[str
                 .where(
                     Comment.event_id == event_id,
                     Comment.deleted_at.is_(None),
-                    User.is_verified == True,
+                    User.is_verified,
                 )
             )
         )

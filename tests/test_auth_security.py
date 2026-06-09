@@ -1,7 +1,6 @@
 import pytest
 from unittest.mock import AsyncMock, patch
 
-from app.models.user import User
 from app.models.event import Event
 from app.config import Settings
 

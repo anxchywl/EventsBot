@@ -39,7 +39,7 @@ async def check_admin_permission(event: Message | CallbackQuery, bot: Bot) -> bo
 
     # check group chat administrators
     chat = event.message.chat if isinstance(event, CallbackQuery) else event.chat
-    if chat.type in {ChatType.GROUP, ChatType.SUPERGROUP}:
+    if chat.type in {ChatType.GROUP, ChatType.SUPERGROUP, ChatType.CHANNEL}:
         try:
             member = await bot.get_chat_member(chat.id, user_id)
             if member.status in {

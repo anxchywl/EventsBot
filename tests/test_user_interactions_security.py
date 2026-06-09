@@ -1,4 +1,3 @@
-import pytest
 from app.web.routers.favorites import _FAVORITE_RATE_LIMITS, _check_rate_limit as fav_rate_limit
 from fastapi import HTTPException
 from unittest.mock import MagicMock

@@ -31,14 +31,19 @@ def _check_rate_limit(request: Request, limit: int, window_seconds: int) -> None
     host = request.client.host if request.client else "unknown"
     key = f"media:{host}"
     hits = [ts for ts in _MEDIA_RATE_LIMITS.get(key, []) if ts > cutoff]
+
+    # prevent memory leaks by pruning stale keys when dict grows large
+    if len(_MEDIA_RATE_LIMITS) > 10000:
+        for k in list(_MEDIA_RATE_LIMITS.keys()):
+            _MEDIA_RATE_LIMITS[k] = [ts for ts in _MEDIA_RATE_LIMITS[k] if ts > cutoff]
+            if not _MEDIA_RATE_LIMITS[k]:
+                del _MEDIA_RATE_LIMITS[k]
+
     if len(hits) >= limit:
         _MEDIA_RATE_LIMITS[key] = hits
-        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Too many media requests. Try again later.")
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Too many requests. Try again later.")
     hits.append(now)
     _MEDIA_RATE_LIMITS[key] = hits
-
-
-# keep media bytes with content type metadata
 @dataclass(frozen=True)
 class CachedMedia:
     content: bytes

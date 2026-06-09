@@ -426,7 +426,7 @@ def send_password_reset_email(email: str, code: str, lang: str = "en") -> None:
         msg.set_content(body_text)
         msg.add_alternative(body_html, subtype="html")
         msg["Subject"] = subject
-        msg["From"] = settings.email_from or f"NU Events <noreply@nu.edu.kz>"
+        msg["From"] = settings.email_from or "NU Events <noreply@nu.edu.kz>"
         msg["To"] = email
 
         port = settings.email_port or 587

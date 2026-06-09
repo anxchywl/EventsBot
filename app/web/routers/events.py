@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import exists, func, select, String, Interval, TIMESTAMP
+from sqlalchemy import exists, func, select, String, TIMESTAMP
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -362,7 +362,7 @@ async def _filtered_events(
     limit: int,
     offset: int,
 ) -> list[Event]:
-    today = _today()
+    _today()
     reminder_counts = (
         select(Reminder.event_id, func.count(Reminder.id).label("reminder_total"))
         .group_by(Reminder.event_id)

@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+import time
 from fastapi import APIRouter, Depends, HTTPException, Query, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,7 +23,6 @@ from app.web.serializers import event_list_items
 
 router = APIRouter(tags=["miniapp-favorites"])
 
-import time
 
 _FAVORITE_RATE_LIMITS: dict[str, list[float]] = {}
 
@@ -33,11 +33,6 @@ def _check_rate_limit(request: Request, user_id: int, limit: int, window_seconds
     host = request.client.host if request.client else "unknown"
     key = f"favorite:{user_id}:{host}"
     hits = [ts for ts in _FAVORITE_RATE_LIMITS.get(key, []) if ts > cutoff]
-    if len(hits) >= limit:
-        _FAVORITE_RATE_LIMITS[key] = hits
-        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Too many favorite attempts. Try again later.")
-    hits.append(now)
-    _FAVORITE_RATE_LIMITS[key] = hits
 
     # prevent memory leaks by pruning stale keys when dict grows large
     if len(_FAVORITE_RATE_LIMITS) > 10000:
@@ -46,7 +41,11 @@ def _check_rate_limit(request: Request, user_id: int, limit: int, window_seconds
             if not _FAVORITE_RATE_LIMITS[k]:
                 del _FAVORITE_RATE_LIMITS[k]
 
-# list saved events for the current user
+    if len(hits) >= limit:
+        _FAVORITE_RATE_LIMITS[key] = hits
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Too many requests. Try again later.")
+    hits.append(now)
+    _FAVORITE_RATE_LIMITS[key] = hits
 @router.get("/api/favorites", response_model=list[EventListItem])
 async def list_favorites(
     limit: int = Query(100, ge=1, le=200),

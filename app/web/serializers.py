@@ -256,7 +256,7 @@ async def rating_summaries(session: AsyncSession, event_ids: list[int]) -> dict[
         .where(
             Rating.event_id.in_(event_ids),
             Rating.deleted_at.is_(None),
-            User.is_verified == True,
+            User.is_verified,
         )
         .group_by(Rating.event_id)
     )
