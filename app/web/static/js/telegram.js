@@ -98,6 +98,16 @@ export function openTelegramLink(url) {
   if (!isSafeTelegramUrl(url)) {
     return;
   }
+  // t.me/share links are not supported by tg.openTelegramLink and will do nothing.
+  // We must open them using tg.openLink (which opens the browser/in-app share popup)
+  if (url.includes("t.me/share/")) {
+    if (tg?.openLink) {
+      tg.openLink(url);
+      return;
+    }
+    window.location.href = url;
+    return;
+  }
   if (tg?.openTelegramLink) {
     tg.openTelegramLink(url);
     return;
