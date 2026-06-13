@@ -5,14 +5,34 @@ from hashlib import sha256
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest
+from aiogram.methods.base import TelegramMethod
+from aiogram.types import Message
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from typing import Any, Dict, Optional, Union
 
 from app.models.chat import Chat, ChatCategorySetting, DashboardMessage
 from app.models.event import Event, EventCategory
 from app.services.event_cards import render_dashboard_event_line
 from app.services.events import ensure_event_public_token
 from app.services.telegram_delivery import call_with_telegram_backoff
+
+
+class SendRichMessage(TelegramMethod[Message]):
+    __returning__ = Message
+    __api_method__ = "sendRichMessage"
+
+    chat_id: Union[int, str]
+    rich_message: Dict[str, Any]
+    disable_notification: Optional[bool] = None
+
+class EditMessageTextRich(TelegramMethod[Union[Message, bool]]):
+    __returning__ = Union[Message, bool]
+    __api_method__ = "editMessageText"
+
+    chat_id: Optional[Union[int, str]] = None
+    message_id: Optional[int] = None
+    rich_message: Dict[str, Any]
 
 
 from zoneinfo import ZoneInfo
@@ -36,7 +56,7 @@ def render_dashboard(
         tz = ZoneInfo(settings.app_timezone)
         today = datetime.now(tz).date()
 
-        grouped_events = {"Today": [], "Tomorrow": [], "This Week": [], "Later": []}
+        grouped_events: dict[str, list[str]] = {"Today": [], "Tomorrow": [], "This Week": []}
 
         for event in upcoming_events:
             days_diff = (event.event_date - today).days
@@ -44,6 +64,7 @@ def render_dashboard(
                 event,
                 bot_username=bot_username,
                 include_date=days_diff > 1,
+                as_table_row=True,
             )
 
             # place each event into its date group
@@ -54,13 +75,23 @@ def render_dashboard(
             elif 1 < days_diff <= 7:
                 grouped_events["This Week"].append(event_line)
             else:
-                grouped_events["Later"].append(event_line)
+                if event.event_date.year == today.year:
+                    group_name = event.event_date.strftime("%B")
+                else:
+                    group_name = event.event_date.strftime("%B %Y")
+                
+                if group_name not in grouped_events:
+                    grouped_events[group_name] = []
+                grouped_events[group_name].append(event_line)
 
         for group_name, events in grouped_events.items():
             if events:
-                lines.append(f"<b>{group_name}</b>")
-                lines.extend(events)
-                lines.append("")
+                is_immediate = group_name in {"Today", "Tomorrow", "This Week"}
+                details_tag = "<details open>" if is_immediate else "<details>"
+                
+                lines.append(f"{details_tag}<summary><b>{group_name}</b></summary>")
+                lines.append(("<br><br>\n").join(events))
+                lines.append("</details>")
 
     return "\n".join(lines)
 
@@ -148,12 +179,11 @@ async def create_or_update_dashboard_message(
     # create the message once or edit the existing one
     if dashboard_message is None:
         sent_message = await call_with_telegram_backoff(
-            lambda: bot.send_message(
+            lambda: bot(SendRichMessage(
                 chat_id=chat.telegram_chat_id,
-                text=text,
-                parse_mode="HTML",
-                disable_web_page_preview=True,
-            ),
+                rich_message={"html": text},
+                disable_notification=True,
+            )),
             context=f"send dashboard to chat {chat.telegram_chat_id}",
         )
         dashboard_message = DashboardMessage(
@@ -202,13 +232,11 @@ async def edit_or_recreate_dashboard_message(
 ) -> None:
     try:
         await call_with_telegram_backoff(
-            lambda: bot.edit_message_text(
+            lambda: bot(EditMessageTextRich(
                 chat_id=chat.telegram_chat_id,
                 message_id=dashboard_message.message_id,
-                text=text,
-                parse_mode="HTML",
-                disable_web_page_preview=True,
-            ),
+                rich_message={"html": text},
+            )),
             context=f"edit dashboard in chat {chat.telegram_chat_id}",
         )
     except TelegramBadRequest as error:
@@ -221,12 +249,11 @@ async def edit_or_recreate_dashboard_message(
             or "message can't be edited" in message
         ):
             sent_message = await call_with_telegram_backoff(
-                lambda: bot.send_message(
+                lambda: bot(SendRichMessage(
                     chat_id=chat.telegram_chat_id,
-                    text=text,
-                    parse_mode="HTML",
-                    disable_web_page_preview=True,
-                ),
+                    rich_message={"html": text},
+                    disable_notification=True,
+                )),
                 context=f"recreate dashboard in chat {chat.telegram_chat_id}",
             )
             dashboard_message.message_id = sent_message.message_id

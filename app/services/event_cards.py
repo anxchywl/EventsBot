@@ -128,12 +128,12 @@ def build_event_share_url(event: Event, *, bot_username: str | None) -> str | No
     return build_telegram_text_share_link(text=event.title, url=deep_link)
 
 
-# keep dashboard event lines compact for telegram messages
 def render_dashboard_event_line(
     event: Event,
     *,
     bot_username: str | None,
     include_date: bool,
+    as_table_row: bool = False,
 ) -> str:
     settings = get_settings()
     event_link = build_telegram_miniapp_direct_link(
@@ -158,9 +158,12 @@ def render_dashboard_event_line(
 
     if include_date:
         date_text = event.event_date.strftime("%b %d")
-        return f"<i>{date_text} {time_text}</i> - {title_html}, {location}"
+        header = f"<b>{date_text} {time_text}</b>"
+    else:
+        header = f"<b>{time_text}</b>"
 
-    return f"<i>{time_text}</i> - {title_html}, {location}"
+    # Return the date/time on one line and the title link on the next line for perfect mobile wrapping
+    return f"{header}\n{title_html}"
 
 
 # render owned events with management links
