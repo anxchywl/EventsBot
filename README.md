@@ -144,3 +144,4 @@ Detailed references:
 - [Infrastructure, deployment, and recovery](./docs/INFRASTRUCTURE.md)
 - [Flutter development and future host contract](./flutter_events/README.md)
 - [Repository rules](./AGENTS.md)
+- [Flutter UI package](./app_ui/README.md)
