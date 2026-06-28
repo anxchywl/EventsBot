@@ -50,7 +50,7 @@ class EventCardsTest(unittest.TestCase):
             include_date=False,
         )
 
-        self.assertIn("<i>15:30</i> -", line)
+        self.assertIn("<b>15:30</b>", line)
         self.assertIn("Hackathon", line)
         self.assertIn("https://t.me/events_bot/events?startapp=event_", line)
         self.assertNotIn("Description", line)
@@ -70,7 +70,7 @@ class EventCardsTest(unittest.TestCase):
             include_date=True,
         )
 
-        self.assertIn("<i>Dec 31 18:30</i> -", line)
+        self.assertIn("<b>Dec 31 18:30</b>", line)
 
     def test_event_card_caption_safe_text_fits_telegram_photo_limit(self):
         event = SimpleNamespace(
@@ -107,7 +107,10 @@ class EventCardsTest(unittest.TestCase):
         self.assertEqual(1, len(buttons))
         self.assertEqual("Open Event", buttons[0].text)
         self.assertIsNone(buttons[0].web_app)
-        self.assertEqual("https://t.me/events_bot/events?startapp=event_abc123&mode=compact", buttons[0].url)
+        self.assertEqual(
+            "https://t.me/events_bot/events?startapp=event_abc123&mode=compact",
+            buttons[0].url,
+        )
 
     def test_regular_event_keyboard_keeps_registration_link(self):
         event = SimpleNamespace(
@@ -125,7 +128,9 @@ class EventCardsTest(unittest.TestCase):
             markup = build_event_page_keyboard(event)
 
         buttons = [button for row in markup.inline_keyboard for button in row]
-        self.assertEqual(["Open Event", "Open Link"], [button.text for button in buttons])
+        self.assertEqual(
+            ["Open Event", "Open Link"], [button.text for button in buttons]
+        )
         self.assertEqual("https://events.example.com/events/abc123", buttons[0].url)
         self.assertEqual("https://registration.example.com", buttons[1].url)
 

@@ -10,6 +10,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
+from app.models.event import Event
 from app.models.enums import EventStatus
 from app.services.rate_limit import check_bot_rate_limit
 from app.services.event_cards import escape_and_fit_description

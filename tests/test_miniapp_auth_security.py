@@ -12,6 +12,7 @@ from fastapi import HTTPException
 
 os.environ.setdefault("BOT_TOKEN", "123456:test-token")
 os.environ.setdefault("MINIAPP_SESSION_TTL_SECONDS", "86400")
+os.environ.setdefault("SESSION_SECRET", "test-session-secret")
 
 from app.config import get_settings
 from app.web.auth import (  # noqa: E402
@@ -65,11 +66,12 @@ def _pad_b64(value: str) -> bytes:
     return (value + "=" * (-len(value) % 4)).encode()
 
 
-async def _asgi_get(path: str, headers: dict[str, str] | None = None) -> tuple[int, bytes]:
+async def _asgi_get(
+    path: str, headers: dict[str, str] | None = None
+) -> tuple[int, bytes]:
     sent: list[dict] = []
     raw_headers = [
-        (key.lower().encode(), value.encode())
-        for key, value in (headers or {}).items()
+        (key.lower().encode(), value.encode()) for key, value in (headers or {}).items()
     ]
     scope = {
         "type": "http",

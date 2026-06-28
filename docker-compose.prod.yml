@@ -1,0 +1,162 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: events_bot_postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-events_bot}
+      POSTGRES_USER: ${POSTGRES_USER:-events_bot}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-events_bot} -d ${POSTGRES_DB:-events_bot}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 1g
+    pids_limit: 512
+    networks:
+      - events-data
+
+  redis:
+    image: redis:7-alpine
+    container_name: events_bot_redis
+    command: redis-server --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=$${REDIS_PASSWORD} redis-cli ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 384m
+    pids_limit: 256
+    networks:
+      - events-data
+
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile.production
+    container_name: events_bot_app
+    environment:
+      BOT_TOKEN: ${BOT_TOKEN:?BOT_TOKEN must be set}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      APP_TIMEZONE: ${APP_TIMEZONE:-Asia/Almaty}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-events_bot}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/${POSTGRES_DB:-events_bot}
+      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set}@redis:6379/${REDIS_DB:-0}
+      MINIAPP_BASE_URL: ${MINIAPP_BASE_URL:?MINIAPP_BASE_URL must be set}
+      TELEGRAM_MINIAPP_SHORT_NAME: ${TELEGRAM_MINIAPP_SHORT_NAME:-events}
+      MINIAPP_SESSION_TTL_SECONDS: ${MINIAPP_SESSION_TTL_SECONDS:-86400}
+      SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET must be set}
+      TRUSTED_PROXY_IPS: ${TRUSTED_PROXY_IPS:-}
+      ADMIN_IDS: ${ADMIN_IDS:?ADMIN_IDS must be set}
+      MODERATOR_CHAT_ID: ${MODERATOR_CHAT_ID:?MODERATOR_CHAT_ID must be set}
+      TELEGRAM_DELIVERY_DELAY_SECONDS: ${TELEGRAM_DELIVERY_DELAY_SECONDS:-0.15}
+      TELEGRAM_DELIVERY_MAX_RETRIES: ${TELEGRAM_DELIVERY_MAX_RETRIES:-3}
+      EMAIL_HOST: ${EMAIL_HOST:-console}
+      EMAIL_PORT: ${EMAIL_PORT:-587}
+      EMAIL_USERNAME: ${EMAIL_USERNAME:-}
+      EMAIL_PASSWORD: ${EMAIL_PASSWORD:-}
+      EMAIL_FROM: ${EMAIL_FROM:-}
+      EMAIL_CODE_TTL_MINUTES: ${EMAIL_CODE_TTL_MINUTES:-10}
+      EMAIL_RESEND_COOLDOWN_SECONDS: ${EMAIL_RESEND_COOLDOWN_SECONDS:-60}
+      MEDIA_MAX_UPLOAD_BYTES: ${MEDIA_MAX_UPLOAD_BYTES:-5000000}
+      MEDIA_COVER_CACHE_TTL: ${MEDIA_COVER_CACHE_TTL:-86400}
+      MEDIA_AVATAR_CACHE_TTL: ${MEDIA_AVATAR_CACHE_TTL:-21600}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"from pathlib import Path; data=Path('/proc/1/cmdline').read_text(); raise SystemExit(0 if 'app.main' in data else 1)\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: 768m
+    pids_limit: 512
+    networks:
+      - events-app
+      - events-data
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.production
+    container_name: events_bot_web
+    command: ["uvicorn", "app.web.main:web_app", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      BOT_TOKEN: ${BOT_TOKEN:?BOT_TOKEN must be set}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      APP_TIMEZONE: ${APP_TIMEZONE:-Asia/Almaty}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-events_bot}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/${POSTGRES_DB:-events_bot}
+      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set}@redis:6379/${REDIS_DB:-0}
+      MINIAPP_BASE_URL: ${MINIAPP_BASE_URL:?MINIAPP_BASE_URL must be set}
+      TELEGRAM_MINIAPP_SHORT_NAME: ${TELEGRAM_MINIAPP_SHORT_NAME:-events}
+      MINIAPP_SESSION_TTL_SECONDS: ${MINIAPP_SESSION_TTL_SECONDS:-86400}
+      SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET must be set}
+      TRUSTED_PROXY_IPS: ${TRUSTED_PROXY_IPS:-}
+      ADMIN_IDS: ${ADMIN_IDS:?ADMIN_IDS must be set}
+      MODERATOR_CHAT_ID: ${MODERATOR_CHAT_ID:?MODERATOR_CHAT_ID must be set}
+      TELEGRAM_DELIVERY_DELAY_SECONDS: ${TELEGRAM_DELIVERY_DELAY_SECONDS:-0.15}
+      TELEGRAM_DELIVERY_MAX_RETRIES: ${TELEGRAM_DELIVERY_MAX_RETRIES:-3}
+      EMAIL_HOST: ${EMAIL_HOST:-console}
+      EMAIL_PORT: ${EMAIL_PORT:-587}
+      EMAIL_USERNAME: ${EMAIL_USERNAME:-}
+      EMAIL_PASSWORD: ${EMAIL_PASSWORD:-}
+      EMAIL_FROM: ${EMAIL_FROM:-}
+      EMAIL_CODE_TTL_MINUTES: ${EMAIL_CODE_TTL_MINUTES:-10}
+      EMAIL_RESEND_COOLDOWN_SECONDS: ${EMAIL_RESEND_COOLDOWN_SECONDS:-60}
+      MEDIA_MAX_UPLOAD_BYTES: ${MEDIA_MAX_UPLOAD_BYTES:-5000000}
+      MEDIA_COVER_CACHE_TTL: ${MEDIA_COVER_CACHE_TTL:-86400}
+      MEDIA_AVATAR_CACHE_TTL: ${MEDIA_AVATAR_CACHE_TTL:-21600}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import json, urllib.request; data=json.load(urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)); raise SystemExit(0 if data.get('status') == 'ok' else 1)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: 768m
+    pids_limit: 512
+    networks:
+      - events-app
+      - events-data
+      - wished-proxy
+
+volumes:
+  postgres-data:
+  redis-data:
+
+networks:
+  events-app:
+    driver: bridge
+  events-data:
+    driver: bridge
+  wished-proxy:
+    external: true
+    name: wished_wished-app

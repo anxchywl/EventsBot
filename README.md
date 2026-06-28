@@ -225,6 +225,8 @@ docker compose up -d --build
 
 Starts `postgres`, `redis`, `bot`, and `web` on port `8000`.
 
+Automated production CI/CD is documented in [docs/deployment.md](docs/deployment.md).
+
 ## 11. Environment Variables
 
 ```env

@@ -1,0 +1,122 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Test & Quality
+    runs-on: ubuntu-latest
+
+    env:
+      BOT_TOKEN: 123456:test-token
+      SESSION_SECRET: test-session-secret
+      MINIAPP_SESSION_TTL_SECONDS: "86400"
+      DATABASE_URL: postgresql+asyncpg://events_bot:events_bot@localhost:5432/events_bot
+      REDIS_URL: redis://localhost:6379/0
+      PYTHONPATH: .
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/cache@v4
+        with:
+          path: .venv
+          key: venv-${{ runner.os }}-py3.12-${{ hashFiles('requirements.txt') }}
+
+      - name: Install dependencies
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install --upgrade pip
+          .venv/bin/pip install -r requirements.txt
+          .venv/bin/pip install pytest pytest-cov anyio ruff mypy bandit
+
+      - name: Compile Python
+        run: .venv/bin/python -m compileall -q app tests
+
+      - name: Static analysis
+        run: .venv/bin/ruff check app tests --select E9,F63,F7,F82
+
+      - name: Formatting check
+        run: |
+          .venv/bin/ruff format --check --diff \
+            tests/test_auth_security.py \
+            tests/test_event_cards.py \
+            tests/test_miniapp_auth_security.py \
+            tests/test_user_interactions_security.py
+
+      - name: Type check security-critical modules
+        run: .venv/bin/mypy app/web/auth.py app/services/security.py app/services/telegram_links.py --ignore-missing-imports --check-untyped-defs
+
+      - name: Security scan
+        run: .venv/bin/bandit -q -r app -x tests --skip B104,B105,B110
+
+      - name: Run tests with coverage
+        run: .venv/bin/pytest --cov=app --cov-report=term-missing:skip-covered --cov-fail-under=25 -q
+
+  migration-safety:
+    name: Migration Safety
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check migrations
+        run: bash scripts/check-migrations.sh alembic/versions
+
+  docker:
+    name: Docker Build
+    runs-on: ubuntu-latest
+    needs: [test, migration-safety]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create proxy network for config validation
+        run: docker network create wished_wished-app
+
+      - name: Validate production compose
+        run: |
+          cat > .ci.env <<'EOF'
+          BOT_TOKEN=123456:test-token
+          SESSION_SECRET=test-session-secret
+          POSTGRES_PASSWORD=test-postgres-password
+          REDIS_PASSWORD=test-redis-password
+          MINIAPP_BASE_URL=https://events.example.com
+          ADMIN_IDS=[1]
+          MODERATOR_CHAT_ID=1
+          EOF
+          docker compose --env-file .ci.env -p events_bot -f docker-compose.prod.yml config --quiet
+
+      - name: Build production images
+        run: docker compose --env-file .ci.env -p events_bot -f docker-compose.prod.yml build
+
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    needs: [test, migration-safety, docker]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Deploy to production server
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            set -euo pipefail
+            cd ${{ secrets.SSH_PATH }}
+            PREVIOUS_REF=$(git rev-parse HEAD)
+            git stash push --include-untracked -m "pre-deploy $(date -u +%Y-%m-%dT%H:%M:%SZ)" || true
+            git fetch origin main
+            git checkout main
+            git pull --ff-only origin main
+            DEPLOY_PREVIOUS_REF="${PREVIOUS_REF}" bash scripts/deploy.sh
