@@ -26,6 +26,20 @@ class Settings(BaseSettings):
         default=86400,
         alias="MINIAPP_SESSION_TTL_SECONDS",
     )
+    session_secret: SecretStr | None = Field(default=None, alias="SESSION_SECRET")
+    # IPs of reverse proxies whose X-Forwarded-For header should be trusted
+    # e.g. TRUSTED_PROXY_IPS=127.0.0.1,10.0.0.1
+    trusted_proxy_ips: list[str] = Field(default_factory=list, alias="TRUSTED_PROXY_IPS")
+
+    @field_validator("trusted_proxy_ips", mode="before")
+    @classmethod
+    def parse_trusted_proxy_ips(cls, v: Any) -> list[str]:
+        if isinstance(v, list):
+            return [s.strip() for s in v if s.strip()]
+        if isinstance(v, str):
+            return [s.strip() for s in v.split(",") if s.strip()]
+        return []
+
     moderator_chat_id: int | None = Field(default=None, alias="MODERATOR_CHAT_ID")
     admin_ids: list[int] = Field(default_factory=list, alias="ADMIN_IDS")
 
@@ -73,6 +87,10 @@ class Settings(BaseSettings):
     email_from: str | None = Field(default=None, alias="EMAIL_FROM")
     email_code_ttl_minutes: int = Field(default=10, alias="EMAIL_CODE_TTL_MINUTES")
     email_resend_cooldown_seconds: int = Field(default=60, alias="EMAIL_RESEND_COOLDOWN_SECONDS")
+
+    media_max_upload_bytes: int = Field(default=5_000_000, alias="MEDIA_MAX_UPLOAD_BYTES")
+    media_cover_cache_ttl: int = Field(default=86400, alias="MEDIA_COVER_CACHE_TTL")
+    media_avatar_cache_ttl: int = Field(default=21600, alias="MEDIA_AVATAR_CACHE_TTL")
 
     model_config = SettingsConfigDict(
         env_file=".env",

@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import re
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -22,6 +22,7 @@ from app.web.auth import (
     MiniAppUser,
     effective_web_role,
     optional_current_miniapp_user,
+    require_admin,
     require_current_miniapp_user,
     require_verified_user,
     require_verified_user_allow_blocked,
@@ -30,33 +31,12 @@ from app.web.auth import (
 from app.web.routers.events import validate_public_token
 from app.web.schemas import FeedReviewDetail, ReviewSubmitRequest, ActionResponse, ReviewDetail
 
+from app.web.limiter import check_rate_limit
+
 logger = logging.getLogger("app.web.routers.ratings")
 router = APIRouter(prefix="/api/events", tags=["ratings-reviews"])
 _CONTROL_CHARS_RE = re.compile(r'[\u200b-\u200d\uFEFF\u200e\u200f\u202a-\u202e\x00-\x1f\x7f-\x9f]')
 _WHITESPACE_RE = re.compile(r"\s+")
-
-_RATING_RATE_LIMITS: dict[str, list[float]] = {}
-
-# limit review actions in memory
-def _check_rate_limit(request: Request, user_id: int, limit: int, window_seconds: int) -> None:
-    import time
-    now = time.time()
-    cutoff = now - window_seconds
-    host = request.client.host if request.client else "unknown"
-    key = f"review:{user_id}:{host}"
-    hits = [ts for ts in _RATING_RATE_LIMITS.get(key, []) if ts > cutoff]
-    if len(hits) >= limit:
-        _RATING_RATE_LIMITS[key] = hits
-        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Too many review attempts. Try again later.")
-    hits.append(now)
-    _RATING_RATE_LIMITS[key] = hits
-
-    # prevent memory leaks by pruning stale keys when dict grows large
-    if len(_RATING_RATE_LIMITS) > 10000:
-        for k in list(_RATING_RATE_LIMITS.keys()):
-            _RATING_RATE_LIMITS[k] = [ts for ts in _RATING_RATE_LIMITS[k] if ts > cutoff]
-            if not _RATING_RATE_LIMITS[k]:
-                del _RATING_RATE_LIMITS[k]
 
 
 # upsert rating and comment for one verified user
@@ -64,11 +44,10 @@ def _check_rate_limit(request: Request, user_id: int, limit: int, window_seconds
 async def submit_review(
     public_token: str,
     payload: ReviewSubmitRequest,
-    request: Request,
     user: User = Depends(require_verified_user),
     session: AsyncSession = Depends(get_session),
 ) -> ActionResponse:
-    _check_rate_limit(request, user.id, limit=5, window_seconds=60)
+    await check_rate_limit(f"rate:user:{user.id}:review", 5, 60, "Too many review attempts. Try again later.")
     public_token = validate_public_token(public_token)
     event = await get_event_by_public_token(session, public_token)
     if not event or event.status != EventStatus.APPROVED.value:
@@ -152,6 +131,7 @@ async def delete_review(
     user: User = Depends(require_verified_user_allow_blocked),
     session: AsyncSession = Depends(get_session),
 ) -> ActionResponse:
+    await check_rate_limit(f"rate:user:{user.id}:review_delete", 10, 3600, "Too many requests. Try again later.")
     public_token = validate_public_token(public_token)
     event = await get_event_by_public_token(session, public_token)
     if not event or event.status != EventStatus.APPROVED.value:
@@ -335,10 +315,9 @@ async def admin_delete_review(
     miniapp_user: MiniAppUser = Depends(require_current_miniapp_user),
     session: AsyncSession = Depends(get_session),
 ) -> ActionResponse:
+    await check_rate_limit(f"rate:user:{miniapp_user.id}:admin_review_delete", 30, 60, "Too many requests.")
     public_token = validate_public_token(public_token)
-    user = await upsert_miniapp_user(session, miniapp_user)
-    if effective_web_role(user, miniapp_user.id) not in ("admin", "moderator"):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+    user = await require_admin(miniapp_user=miniapp_user, session=session)
 
     event = await get_event_by_public_token(session, public_token)
     if not event:

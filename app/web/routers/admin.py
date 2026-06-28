@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, UTC
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from sqlalchemy import or_, select, func, String
@@ -19,6 +19,7 @@ from app.services.events import get_event_by_public_token
 from app.services.reviews import invalidate_review_caches, permanently_delete_review
 from app.web.realtime import publish_review_deleted
 from app.web.auth import effective_web_role, require_admin_or_moderator, require_admin
+from app.web.limiter import check_rate_limit
 from app.web.routers.events import validate_public_token
 from app.web.schemas import ActionResponse
 
@@ -34,6 +35,7 @@ async def admin_delete_review(
     admin: User = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ) -> ActionResponse:
+    await check_rate_limit(f"rate:user:{admin.id}:admin_action", 20, 3600, "Too many admin actions. Try again later.")
     event = await session.get(Event, event_id)
     if not event:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
@@ -61,6 +63,7 @@ async def admin_delete_review_by_token(
     admin: User = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ) -> ActionResponse:
+    await check_rate_limit(f"rate:user:{admin.id}:admin_action", 20, 3600, "Too many admin actions. Try again later.")
     public_token = validate_public_token(public_token)
     event = await get_event_by_public_token(session, public_token)
     if not event:
@@ -223,21 +226,21 @@ async def list_connected_groups(
             )
         )
 
+    if sort == "oldest":
+        stmt = stmt.order_by(Chat.connected_at.asc().nullslast())
+    elif sort == "most_active":
+        stmt = stmt.order_by(Chat.last_activity_at.desc().nullslast())
+    elif sort == "newest":
+        stmt = stmt.order_by(Chat.connected_at.desc().nullslast())
+    else:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Invalid sort")
+
     chats = list((await session.execute(stmt)).scalars().all())
     groups = [_connected_group_item(chat) for chat in chats]
 
     allowed_statuses = {"active", "setup_required", "missing_permissions"}
     if status_filter in allowed_statuses:
         groups = [group for group in groups if group.status == status_filter]
-
-    if sort == "oldest":
-        groups.sort(key=lambda group: group.connected_at or "")
-    elif sort == "most_active":
-        groups.sort(key=lambda group: group.last_activity_at or "", reverse=True)
-    elif sort == "newest":
-        groups.sort(key=lambda group: group.connected_at or "", reverse=True)
-    else:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Invalid sort")
 
     summary_counts = {
         "active": 0,
@@ -298,6 +301,7 @@ async def block_user(
     admin: User = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ) -> ActionResponse:
+    await check_rate_limit(f"rate:user:{admin.id}:admin_action", 20, 3600, "Too many admin actions. Try again later.")
     user = (await session.execute(select(User).where(User.email == payload.email))).scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -306,7 +310,7 @@ async def block_user(
     
     user.is_blocked = True
     user.blocked_reason = payload.reason
-    user.blocked_at = datetime.now()
+    user.blocked_at = datetime.now(UTC)
     user.blocked_by_admin_id = admin.id
 
     audit_log = AuditLog(
@@ -327,6 +331,7 @@ async def unblock_user(
     admin: User = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ) -> ActionResponse:
+    await check_rate_limit(f"rate:user:{admin.id}:admin_action", 20, 3600, "Too many admin actions. Try again later.")
     user = (await session.execute(select(User).where(User.email == payload.email))).scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")

@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.enums import ReminderType
 from app.services.events import get_event_by_id
+from app.services.rate_limit import check_bot_rate_limit
 from app.services.reminders import (
     get_user_favorites,
     schedule_reminder,
@@ -22,6 +23,9 @@ router = Router()
 # process favorite
 @router.callback_query(F.data.startswith("fav_"))
 async def process_favorite(callback: CallbackQuery, session: AsyncSession):
+    if not await check_bot_rate_limit(callback.from_user.id, "bot_fav", 30, 60):
+        await callback.answer("Too many requests. Try again later.")
+        return
     event_id = int(callback.data.split("_")[1])
     user = await upsert_user_from_telegram(session, callback.from_user)
 
@@ -61,6 +65,9 @@ async def process_remind_cancel(callback: CallbackQuery, session: AsyncSession):
 # process remind set
 @router.callback_query(F.data.startswith("remind_set_"))
 async def process_remind_set(callback: CallbackQuery, session: AsyncSession):
+    if not await check_bot_rate_limit(callback.from_user.id, "bot_remind", 20, 3600):
+        await callback.answer("Too many requests. Try again later.")
+        return
     parts = callback.data.split("_")
     time_opt = parts[2]
     event_id = int(parts[3])

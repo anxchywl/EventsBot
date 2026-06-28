@@ -7,12 +7,14 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy import exists, func, select, String, Interval, TIMESTAMP
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.config import get_settings
+from app.db.redis import get_redis
 from app.db.session import get_session
 from app.models.enums import EventStatus
 from app.models.event import Event, EventCategory
@@ -27,7 +29,8 @@ from app.services.events import (
 )
 from app.services.event_sync import latest_completed_sync_version
 from app.services.telegram_links import build_telegram_miniapp_direct_link, build_telegram_text_share_link
-from app.web.auth import MiniAppUser, optional_current_miniapp_user, require_current_miniapp_user, upsert_miniapp_user, verify_session_token
+from app.web.auth import MiniAppUser, get_real_ip, optional_current_miniapp_user, require_current_miniapp_user, upsert_miniapp_user, verify_session_token
+from app.web.limiter import check_rate_limit
 from app.web.cache import TTLCache
 from app.web.schemas import EventDetail, EventFilterOption, EventFiltersResponse, EventListItem, RegisterResponse
 from app.web.serializers import event_detail as serialize_event_detail
@@ -37,7 +40,7 @@ from app.web.realtime import subscribe_miniapp_events
 
 
 router = APIRouter(prefix="/api/events", tags=["miniapp-events"])
-event_cache = TTLCache(ttl_seconds=20)
+event_cache = TTLCache(ttl_seconds=20, max_items=2000)
 
 ALLOWED_SORTS = {
     "time_asc",
@@ -173,7 +176,10 @@ async def event_sync_version(
 
 # stream review deletion updates to connected clients
 @router.get("/review-updates")
-async def review_updates() -> StreamingResponse:
+async def review_updates(
+    token: str = Query(..., min_length=1, max_length=4096),
+) -> StreamingResponse:
+    verify_session_token(token)
     async def stream():
         yield ": connected\n\n"
         iterator = subscribe_miniapp_events()
@@ -193,7 +199,7 @@ async def review_updates() -> StreamingResponse:
         stream(),
         media_type="text/event-stream",
         headers={
-            "Cache-Control": "no-cache",
+            "Cache-Control": "no-store",
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no",
         },
@@ -229,7 +235,7 @@ async def miniapp_updates(
         stream(),
         media_type="text/event-stream",
         headers={
-            "Cache-Control": "no-cache",
+            "Cache-Control": "no-store",
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no",
         },
@@ -240,6 +246,7 @@ async def miniapp_updates(
 @router.get("/{public_token}", response_model=EventDetail)
 async def event_detail(
     public_token: str,
+    request: Request,
     miniapp_user: MiniAppUser | None = Depends(optional_current_miniapp_user),
     session: AsyncSession = Depends(get_session),
 ) -> EventDetail:
@@ -252,13 +259,21 @@ async def event_detail(
     await session.flush()
 
     source = "share" if public_token.startswith("event_") else "miniapp"
-    await record_event_action_by_ids(
-        session,
-        event_id=event.id,
-        user_id=user.id if user else None,
-        action="open_from_share" if source == "share" else "open",
-        source=source,
+    actor_key = f"user:{user.id}" if user else f"ip:{get_real_ip(request)}"
+    await check_rate_limit(
+        f"rate:{actor_key}:event_detail:{event.id}",
+        120,
+        60,
+        "Too many event requests. Try again later.",
     )
+    if await _should_record_open(event.id, actor_key, source):
+        await record_event_action_by_ids(
+            session,
+            event_id=event.id,
+            user_id=user.id if user else None,
+            action="open_from_share" if source == "share" else "open",
+            source=source,
+        )
 
     data = await serialize_event_detail(
         session,
@@ -279,6 +294,7 @@ async def register_event_click(
     session: AsyncSession = Depends(get_session),
 ) -> RegisterResponse:
     user = await upsert_miniapp_user(session, miniapp_user)
+    await check_rate_limit(f"rate:user:{user.id}:event_register", 20, 60, "Too many requests. Try again later.")
     public_token = validate_public_token(public_token)
     event = await get_event_by_public_token(session, public_token)
     if not event or event.status != EventStatus.APPROVED.value:
@@ -442,6 +458,14 @@ def _split_filter_values(value: str) -> list[str]:
     if len(items) > MAX_FILTER_VALUES or any(len(item) > FILTER_VALUE_MAX_LEN for item in items):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Too many filter values")
     return items
+
+
+async def _should_record_open(event_id: int, actor_key: str, source: str) -> bool:
+    try:
+        key = f"analytics:open:{event_id}:{source}:{actor_key}"
+        return bool(await get_redis().set(key, "1", ex=300, nx=True))
+    except Exception:
+        return True
 
 
 # anchor date filters to local day boundaries

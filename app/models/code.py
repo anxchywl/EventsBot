@@ -11,6 +11,7 @@ from sqlalchemy import (
     Index,
     Integer,
     String,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -25,6 +26,7 @@ if TYPE_CHECKING:
 class EmailVerificationCode(Base):
     __tablename__ = "email_verification_codes"
     __table_args__ = (
+        UniqueConstraint("user_id", name="uq_email_verification_codes_user_id"),
         Index("ix_email_verification_codes_user_id", "user_id"),
         Index("ix_email_verification_codes_email", "email"),
     )

@@ -1,5 +1,6 @@
 import logging
 from datetime import datetime
+from io import BytesIO
 from urllib.parse import urlparse
 import html
 import re
@@ -14,6 +15,8 @@ from aiogram.utils.keyboard import ReplyKeyboardBuilder
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
+from app.services.image_processing import process_image
+from app.services.rate_limit import check_bot_rate_limit
 from app.services.events import (
     create_pending_event,
     get_active_categories,
@@ -371,6 +374,9 @@ async def process_menu_create(
 @router.message(F.text == "Create Event", F.chat.type == "private")
 @router.message(Command("submit_event"), F.chat.type == "private")
 async def cmd_submit_event(message: Message, state: FSMContext, session: AsyncSession):
+    if not await check_bot_rate_limit(message.from_user.id, "event_submit", 5, 3600):
+        await message.answer("You've reached the event submission limit. Try again later.")
+        return
     categories = await get_active_categories(session)
     if not categories:
         await message.answer(
@@ -634,12 +640,36 @@ async def process_organizer(message: Message, state: FSMContext, bot: Bot, sessi
     await prompt_poster(message, state, bot)
 
 
+async def validate_poster_image(message: Message, bot: Bot, file_id: str) -> bool:
+    settings = get_settings()
+    try:
+        file = await bot.get_file(file_id)
+        if file.file_size and file.file_size > settings.media_max_upload_bytes:
+            raise ValueError("File too large")
+        buffer = BytesIO()
+        await bot.download_file(file.file_path, destination=buffer)
+        process_image(buffer.getvalue(), max_px=800, max_size_bytes=settings.media_max_upload_bytes)
+        return True
+    except ValueError:
+        await message.answer(
+            "Only JPEG, PNG, and WebP images under 5 MB are accepted. Please send a valid image."
+        )
+        return False
+    except Exception:
+        await message.answer(
+            "Only JPEG, PNG, and WebP images under 5 MB are accepted. Please send a valid image."
+        )
+        return False
+
+
 # saves the uploaded poster
 # process poster
 @router.message(EventSubmission.poster, F.photo)
 async def process_poster(message: Message, state: FSMContext, bot: Bot):
     # use the highest resolution telegram photo
     file_id = message.photo[-1].file_id
+    if not await validate_poster_image(message, bot, file_id):
+        return
     await state.update_data(poster_file_id=file_id, last_step_user_message_id=message.message_id)
     await record_nav_answer(state, message.message_id)
     await track_messages(state, message.message_id)

@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime, UTC
 from urllib.parse import parse_qsl
 
-from fastapi import Header, HTTPException, status, Depends
+from fastapi import Header, HTTPException, Request, status, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -109,6 +109,17 @@ def verify_init_data(init_data: str) -> MiniAppUser:
         is_bot=False,
         photo_url=_optional_str(user_data.get("photo_url"), max_len=1024),
     )
+
+
+# return the real client IP, trusting X-Forwarded-For only from configured proxy IPs
+def get_real_ip(request: Request) -> str:
+    direct_ip = request.client.host if request.client else "unknown"
+    trusted = set(get_settings().trusted_proxy_ips)
+    if direct_ip in trusted:
+        forwarded = request.headers.get("x-forwarded-for", "")
+        if forwarded:
+            return forwarded.split(",", 1)[0].strip() or direct_ip
+    return direct_ip
 
 
 # sign mini app session data for authenticated api calls
@@ -290,11 +301,12 @@ def effective_web_role(user: User, telegram_id: int) -> str:
     admin_ids: set[int] = set()
     for admin_id in get_settings().admin_ids:
         try:
-            admin_ids.add(abs(int(admin_id)))
+            admin_ids.add(int(admin_id))
         except (TypeError, ValueError):
             continue
     try:
-        normalized_telegram_id = abs(int(telegram_id))
+        # negative telegram_id signals a de-linked account — must not match positive admin ids
+        normalized_telegram_id = int(telegram_id)
     except (TypeError, ValueError):
         normalized_telegram_id = 0
     if normalized_telegram_id in admin_ids or user.role in ("admin", "super_admin"):
@@ -319,10 +331,12 @@ def _pad_b64(value: str) -> bytes:
     return (value + "=" * (-len(value) % 4)).encode()
 
 
-# derive a stable signing key from the bot token
+# session tokens must be signed with an independent secret, not the bot token
 def _session_signing_key() -> bytes:
-    bot_token = get_settings().bot_token.get_secret_value().encode()
-    return hmac.new(bot_token, b"nu-events-miniapp-session-v1", hashlib.sha256).digest()
+    settings = get_settings()
+    if settings.session_secret is None:
+        raise RuntimeError("SESSION_SECRET must be set — do not leave session signing unkeyed")
+    return settings.session_secret.get_secret_value().encode()
 
 
 # detect legacy sha256-style bot token secrets
@@ -363,7 +377,7 @@ async def require_verified_user(
             detail="Nazarbayev University email verification required",
         )
     # keep verified-user activity fresh for admin views
-    user.last_active_at = datetime.now()
+    user.last_active_at = datetime.now(UTC)
     await session.commit()
     return user
 
@@ -382,7 +396,7 @@ async def require_verified_user_allow_blocked(
             detail="Nazarbayev University email verification required",
         )
     # keep verified-user activity fresh for admin views
-    user.last_active_at = datetime.now()
+    user.last_active_at = datetime.now(UTC)
     await session.commit()
     return user
 

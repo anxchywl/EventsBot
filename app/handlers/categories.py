@@ -16,6 +16,7 @@ from app.services.chats import (
     get_chat_by_telegram_id,
     register_chat,
 )
+from app.services.rate_limit import check_bot_rate_limit
 from app.services.users import upsert_user_from_telegram
 
 # defines the categories router
@@ -278,6 +279,9 @@ async def process_categories_done(
 # process toggle category
 @router.callback_query(F.data.startswith("toggle_cat_"), CategoryStates.editing)
 async def process_toggle_category(callback: CallbackQuery, state: FSMContext, bot: Bot):
+    if not await check_bot_rate_limit(callback.from_user.id, "categories", 20, 3600):
+        await callback.answer("Too many requests. Try again later.", show_alert=True)
+        return
     # verify permission before toggling
     if not await check_admin_permission(callback, bot):
         await callback.answer("Unauthorized.", show_alert=True)
@@ -362,6 +366,9 @@ async def process_categories_done_without_state(
 async def process_toggle_category_without_state(
     callback: CallbackQuery, session: AsyncSession, bot: Bot
 ):
+    if not await check_bot_rate_limit(callback.from_user.id, "categories", 20, 3600):
+        await callback.answer("Too many requests. Try again later.", show_alert=True)
+        return
     if not await check_admin_permission(callback, bot):
         await callback.answer("Unauthorized.", show_alert=True)
         return

@@ -1,5 +1,6 @@
 import logging
 import smtplib
+import ssl
 from email.message import EmailMessage
 
 from app.config import get_settings
@@ -232,9 +233,10 @@ def send_verification_email(email: str, code: str, lang: str = "en", theme: str 
 
         port = settings.email_port or 587
         use_ssl = port == 465
+        ctx = ssl.create_default_context()
 
         if use_ssl:
-            with smtplib.SMTP_SSL(settings.email_host, port, timeout=10) as smtp:
+            with smtplib.SMTP_SSL(settings.email_host, port, timeout=10, context=ctx) as smtp:
                 if settings.email_username and settings.email_password:
                     smtp.login(
                         settings.email_username,
@@ -245,7 +247,7 @@ def send_verification_email(email: str, code: str, lang: str = "en", theme: str 
             with smtplib.SMTP(settings.email_host, port, timeout=10) as smtp:
                 smtp.ehlo()
                 if port == 587:
-                    smtp.starttls()
+                    smtp.starttls(context=ctx)
                     smtp.ehlo()
                 if settings.email_username and settings.email_password:
                     smtp.login(
@@ -431,9 +433,10 @@ def send_password_reset_email(email: str, code: str, lang: str = "en") -> None:
 
         port = settings.email_port or 587
         use_ssl = port == 465
+        ctx = ssl.create_default_context()
 
         if use_ssl:
-            with smtplib.SMTP_SSL(settings.email_host, port, timeout=10) as smtp:
+            with smtplib.SMTP_SSL(settings.email_host, port, timeout=10, context=ctx) as smtp:
                 if settings.email_username and settings.email_password:
                     smtp.login(settings.email_username, settings.email_password.get_secret_value())
                 smtp.send_message(msg)
@@ -441,7 +444,7 @@ def send_password_reset_email(email: str, code: str, lang: str = "en") -> None:
             with smtplib.SMTP(settings.email_host, port, timeout=10) as smtp:
                 smtp.ehlo()
                 if port == 587:
-                    smtp.starttls()
+                    smtp.starttls(context=ctx)
                     smtp.ehlo()
                 if settings.email_username and settings.email_password:
                     smtp.login(settings.email_username, settings.email_password.get_secret_value())

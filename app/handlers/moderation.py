@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.models.enums import EventStatus
+from app.services.rate_limit import check_bot_rate_limit
 from app.services.event_cards import escape_and_fit_description
 from app.services.events import get_event_by_id, get_pending_events, update_event_status
 from app.services.event_sync import (
@@ -98,15 +99,17 @@ async def cmd_moderate(message: Message, session: AsyncSession):
 # process approve
 @router.callback_query(F.data.startswith("mod_approve_"))
 async def process_approve(callback: CallbackQuery, session: AsyncSession, bot: Bot):
+    if not await check_bot_rate_limit(callback.from_user.id, "moderation", 120, 3600):
+        await callback.answer("Too many moderation actions. Try again later.", show_alert=True)
+        return
     from app.config import get_settings
     settings = get_settings()
-    user_id = callback.fromuser.id if hasattr(callback, 'fromuser') else callback.from_user.id
-    if user_id not in settings.admin_ids and callback.message.chat.id != settings.moderator_chat_id:
+    moderator = await upsert_user_from_telegram(session, callback.from_user)
+    if callback.from_user.id not in settings.admin_ids and moderator.role not in ("moderator", "admin"):
         await callback.answer("Unauthorized.", show_alert=True)
         return
 
     event_id = int(callback.data.split("_")[2])
-    moderator = await upsert_user_from_telegram(session, callback.from_user)
 
     existing = await get_event_by_id(session, event_id)
     if not existing:
@@ -115,6 +118,13 @@ async def process_approve(callback: CallbackQuery, session: AsyncSession, bot: B
 
     target_event_id = existing.parent_event_id or existing.id
     await acquire_event_lock(session, target_event_id)
+
+    # re-fetch status inside the advisory lock to prevent double-moderation
+    await session.refresh(existing)
+    if existing.status != EventStatus.PENDING.value:
+        await callback.answer("Already moderated.", show_alert=True)
+        return
+
     snapshot = await capture_event_snapshot(session, target_event_id)
 
     event = await update_event_status(
@@ -200,6 +210,9 @@ def _get_moderation_reason_keyboard():
 # process reject button
 @router.callback_query(F.data.startswith("mod_reject_"))
 async def process_reject_button(callback: CallbackQuery, state: FSMContext):
+    if not await check_bot_rate_limit(callback.from_user.id, "moderation", 120, 3600):
+        await callback.answer("Too many moderation actions. Try again later.", show_alert=True)
+        return
     event_id = int(callback.data.split("_")[2])
     await state.update_data(mod_event_id=event_id)
     await state.set_state(ModerationState.waiting_for_rejection_reason)
@@ -214,6 +227,9 @@ async def process_reject_button(callback: CallbackQuery, state: FSMContext):
 # process changes button
 @router.callback_query(F.data.startswith("mod_changes_"))
 async def process_changes_button(callback: CallbackQuery, state: FSMContext):
+    if not await check_bot_rate_limit(callback.from_user.id, "moderation", 120, 3600):
+        await callback.answer("Too many moderation actions. Try again later.", show_alert=True)
+        return
     event_id = int(callback.data.split("_")[2])
     await state.update_data(mod_event_id=event_id)
     await state.set_state(ModerationState.waiting_for_changes_reason)
@@ -252,8 +268,8 @@ async def process_rejection_reason(
 ):
     from app.config import get_settings
     settings = get_settings()
-    user_id = message.from_user.id
-    if user_id not in settings.admin_ids and message.chat.id != settings.moderator_chat_id:
+    actor = await upsert_user_from_telegram(session, message.from_user)
+    if message.from_user.id not in settings.admin_ids and actor.role not in ("moderator", "admin"):
         return
 
     data = await state.get_data()
@@ -300,8 +316,8 @@ async def process_rejection_reason(
         try:
             await message.bot.send_message(
                 parent.creator.telegram_id,
-                f"❌ **The update request for your event '{parent.title}' has been rejected.**\n\n**Reason:** {reason}",
-                parse_mode="Markdown",
+                f"❌ <b>The update request for your event '{html.escape(parent.title)}' has been rejected.</b>\n\n<b>Reason:</b> {html.escape(reason)}",
+                parse_mode="HTML",
             )
         except Exception:
             pass
@@ -329,8 +345,8 @@ async def process_rejection_reason(
         try:
             await message.bot.send_message(
                 event.creator.telegram_id,
-                f"❌ **Your event '{event.title}' has been rejected.**\n\n**Reason:** {reason}",
-                parse_mode="Markdown",
+                f"❌ <b>Your event '{html.escape(event.title)}' has been rejected.</b>\n\n<b>Reason:</b> {html.escape(reason)}",
+                parse_mode="HTML",
             )
         except Exception:
             pass
@@ -366,8 +382,8 @@ async def process_changes_reason(
 ):
     from app.config import get_settings
     settings = get_settings()
-    user_id = message.from_user.id
-    if user_id not in settings.admin_ids and message.chat.id != settings.moderator_chat_id:
+    actor = await upsert_user_from_telegram(session, message.from_user)
+    if message.from_user.id not in settings.admin_ids and actor.role not in ("moderator", "admin"):
         return
 
     data = await state.get_data()
@@ -414,8 +430,8 @@ async def process_changes_reason(
     try:
         await message.bot.send_message(
             event.creator.telegram_id,
-            f"📝 **Your event '{event.title}' requires changes.**\n\n**Moderator's note:** {reason}",
-            parse_mode="Markdown",
+            f"📝 <b>Your event '{html.escape(event.title)}' requires changes.</b>\n\n<b>Moderator's note:</b> {html.escape(reason)}",
+            parse_mode="HTML",
         )
     except Exception:
         pass

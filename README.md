@@ -1,77 +1,191 @@
 # Student Events Bot
 
-A Telegram bot and Mini App for sharing university events without flooding group chats. Students can submit events, moderators approve them, and approved events appear in Telegram dashboards and the web Mini App.
+A Telegram bot and Mini App for student communities to share and discover campus events. Students submit events, moderators approve them, and approved events appear in Telegram group dashboards and the Mini App — without flooding chats.
 
-## What is this?
+Agent rules live in [AGENTS.md](./AGENTS.md).
 
-This project was built for student communities that organize a lot of events. Instead of sending many separate event posts into group chats, the bot keeps one event dashboard message updated for each connected group.
+## 1. Product Overview
 
-It is mainly for students who want to find campus events, clubs that want to submit events, moderators and admins who approve events, and Telegram groups that want a cleaner event feed.
+Student communities organize many events. Sharing them through group chats creates noise, and interested students miss things or lose track across conversations.
 
-## Features
+This project keeps one auto-updating dashboard message per connected Telegram group. Students browse and interact with events through a Telegram Mini App. Clubs submit events through the bot. Moderators approve them from a dedicated chat.
 
-- Telegram bot built with `aiogram`
-- Event submission flow in private chat
-- Moderation flow for approving, rejecting, or requesting changes
-- Editable event cards with poster, title, description, date, time, location, category, and registration link
-- Automatic group setup by adding the bot to the chat and granting specific permissions (Delete, Edit, and Pin messages)
-- One dashboard message per connected group
-- Category filters per group
-- Telegram Mini App for browsing events
-- Search, filters, favorites, reminders, and event sharing in the Mini App
-- NU email registration, login, verification codes, and password reset
-- Ratings and comments for events
-- Admin web panel for users, reviews, stats, and connected groups
-- Event analytics for opens, shares, registrations, favorites, and reminders
-- Background reminder sender
-- PostgreSQL migrations with Alembic
+Primary goals:
 
-## Tech Stack
+- Let students authenticate with a university email.
+- Let clubs submit and manage events through the bot.
+- Let moderators approve, reject, or request changes to events.
+- Show approved events in Telegram group dashboards and the Mini App.
+- Support favorites, reminders, reviews, and sharing in the Mini App.
+- Notify users about upcoming events they care about.
 
-| Technology | Purpose |
-|------------|---------|
-| Python | Main backend language |
-| aiogram 3 | Telegram bot framework |
-| FastAPI | Mini App API and static web app |
-| PostgreSQL | Main database |
-| Redis | Runtime support/cache-related infrastructure |
-| SQLAlchemy | Database models and queries |
-| Alembic | Database migrations |
-| Docker Compose | Local services and production-style run |
-| Vanilla JS/CSS | Telegram Mini App frontend |
-| Uvicorn | Runs the FastAPI web app |
+## 2. Core Features
 
-## Project Structure
+- Telegram bot built with aiogram 3.
+- Event submission flow in private chat.
+- Moderation queue — approve, reject, or request changes.
+- Editable event cards — poster, title, description, date, time, location, category, registration link.
+- One auto-updating dashboard message per connected Telegram group.
+- Per-group category filters.
+- Telegram Mini App — search, filters, favorites, reminders, sharing, reviews.
+- NU email registration, login, verification codes, and password reset.
+- Event analytics — opens, shares, registrations, favorites, and reminders.
+- Admin web panel — users, reviews, stats, connected groups, and audit logs.
+- Background reminder sender.
+- PostgreSQL migrations with Alembic.
 
-```text
+## 3. Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Bot framework | aiogram 3 |
+| API and web server | FastAPI + Uvicorn |
+| Database | PostgreSQL + SQLAlchemy + Alembic |
+| Cache | Redis |
+| Mini App frontend | Vanilla JS and CSS |
+| Runtime | Docker Compose |
+
+## 4. Project Structure
+
+```
 events_bot/
 ├── app/
-│   ├── handlers/        # Telegram bot commands, callbacks, and flows
-│   ├── models/          # SQLAlchemy database models
-│   ├── services/        # Business logic for events, chats, dashboards, etc.
-│   ├── web/             # FastAPI Mini App backend and static frontend
-│   ├── db/              # Database engine/session setup
+│   ├── handlers/        # bot commands, callbacks, and flows
+│   ├── models/          # SQLAlchemy models
+│   ├── services/        # business logic — events, chats, dashboards
+│   ├── web/             # FastAPI backend and Mini App static frontend
+│   ├── db/              # database engine and session setup
 │   ├── middlewares/     # aiogram middleware
-│   ├── config.py        # Environment settings
-│   └── main.py          # Bot entrypoint
-├── alembic/             # Database migrations
-├── scripts/             # Helper scripts, like category seeding
-├── tests/               # Unit tests
-├── docker-compose.yml   # Postgres, Redis, bot, and web services
-├── Dockerfile           # App image
-└── README.md
+│   ├── config.py        # environment settings
+│   └── main.py          # bot entrypoint
+├── alembic/             # database migrations
+├── scripts/             # helper scripts (category seeding)
+├── tests/               # unit tests
+├── docker-compose.yml
+├── Dockerfile
+└── .env.example
 ```
 
-## Getting Started
+## 5. How It Works
 
-### Requirements
+Event flow:
 
-- Python 3.12 recommended
-- Docker Desktop or Docker Engine
+1. A student submits an event through the bot in private chat.
+2. The event is saved as pending.
+3. A moderator reviews it in the moderation chat.
+4. If approved, the event is published.
+5. Connected group dashboards update automatically.
+6. The Mini App shows the event to all users.
+7. Users can favorite it, set reminders, share it, register, and leave reviews.
+
+```mermaid
+flowchart LR
+    A["Student submits event"] --> B["Saved as pending"]
+    B --> C["Moderator reviews"]
+    C --> D{"Decision"}
+    D -->|Approved| E["Event published"]
+    D -->|Rejected| F["Returned or removed"]
+    E --> G["Group dashboards update"]
+    E --> H["Mini App shows event"]
+    H --> I["Favorites, reminders, reviews, shares"]
+```
+
+## 6. Group Dashboard Setup
+
+1. Add the bot to your Telegram group or channel.
+2. Grant it three admin permissions — **Delete Messages**, **Edit Messages**, **Pin Messages**.
+3. The bot detects the permissions and displays a category chooser.
+4. Select the event categories you want shown.
+5. The bot generates and pins the dashboard automatically.
+6. If the dashboard is ever deleted, run `/dashboard` in the group to recreate it.
+
+## 7. Bot Commands
+
+```
+/start           open the bot and see the main menu
+/submit_event    start the event submission flow
+/moderate        open the moderation queue (moderators only)
+/favorites       view favorited events
+/dashboard       recreate the dashboard in a connected group
+```
+
+## 8. API Endpoints
+
+The FastAPI backend serves the Mini App and exposes the following endpoints.
+
+**Auth**
+
+| Method | Endpoint | Description |
+|---|---|---|
+| POST | `/api/auth/session` | Create session from Telegram init data |
+| POST | `/api/auth/register` | Register with NU email and password |
+| POST | `/api/auth/verify` | Verify email code |
+| POST | `/api/auth/login` | Login with email and password |
+| GET | `/api/auth/profile` | Get current user profile |
+| PUT | `/api/auth/profile/nickname` | Update nickname |
+| POST | `/api/auth/forgot-password/request` | Request a password reset code |
+| POST | `/api/auth/forgot-password/verify` | Verify the reset code |
+| POST | `/api/auth/forgot-password/reset` | Set a new password |
+
+**Events**
+
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/api/events` | List approved events |
+| GET | `/api/events/filters` | Get filter options |
+| GET | `/api/events/{token}` | Get event details |
+| POST | `/api/events/{token}/register` | Record a registration click |
+| GET | `/api/favorites` | List favorited events |
+| POST | `/api/events/{token}/favorite` | Add a favorite |
+| DELETE | `/api/events/{token}/favorite` | Remove a favorite |
+| GET | `/api/reminders` | List reminders |
+| POST | `/api/events/{token}/reminders` | Create a reminder |
+| DELETE | `/api/reminders/{id}` | Delete a reminder |
+| POST | `/api/events/{token}/share` | Create a Telegram share link |
+| GET | `/api/events/{token}/reviews` | List reviews |
+| POST | `/api/events/{token}/reviews` | Create or update a review |
+| DELETE | `/api/events/{token}/reviews` | Delete own review |
+| GET | `/api/ratings/reviews/feed` | Global review feed |
+
+**Admin**
+
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/api/admin/stats` | Overview stats |
+| GET | `/api/admin/users` | User list |
+| GET | `/api/admin/connected-groups` | Connected group list |
+| GET | `/api/admin/audit-logs` | Audit log |
+| GET | `/health` | Health check |
+
+## 9. Database
+
+| Table | Purpose |
+|---|---|
+| `users` | Telegram users, email accounts, roles, and blocks |
+| `events` | Event content, dates, status, and moderation data |
+| `event_categories` | Categories used by filters and dashboards |
+| `chats` | Connected Telegram groups |
+| `chat_category_settings` | Enabled categories per group |
+| `dashboard_messages` | Dashboard message IDs per group |
+| `event_detail_messages` | Event card message IDs |
+| `favorites` | Saved events per user |
+| `reminders` | Scheduled reminder records |
+| `ratings` / `comments` | Event reviews |
+| `event_analytics` | Opens, shares, registrations, and other event actions |
+| `moderation_logs` / `audit_logs` | Admin and moderation history |
+| `email_verification_codes` / `password_reset_codes` | Auth codes |
+| `event_sync_jobs` | Background event sync work |
+
+## 10. Local Development Setup
+
+**Prerequisites**
+
+- Python 3.12+
+- Docker and Docker Compose
 - Telegram bot token from [@BotFather](https://t.me/BotFather)
 - Your Telegram user ID for admin access
 
-### Installation
+**Setup**
 
 ```bash
 git clone https://github.com/anxchywl/events_bot
@@ -79,52 +193,68 @@ cd events_bot
 
 python3 -m venv .venv
 source .venv/bin/activate
-
-pip install --upgrade pip
 pip install -r requirements.txt
-```
 
-Start PostgreSQL and Redis:
-
-```bash
-docker compose up -d postgres redis
-```
-
-Create your environment file:
-
-```bash
 cp .env.example .env
-```
+# fill in required values
 
-Apply migrations and seed default categories:
-
-```bash
+docker compose up -d postgres redis
 alembic upgrade head
 python3 -m scripts.seed_categories
 ```
 
-## Environment Variables
+**Running the bot**
 
-Example `.env`:
+```bash
+python3 -m app.main
+```
+
+**Running the Mini App server**
+
+```bash
+uvicorn app.web.main:web_app --reload --host 0.0.0.0 --port 8000
+```
+
+Open `http://localhost:8000` to check the Mini App locally.
+
+**Production**
+
+```bash
+docker compose up -d --build
+```
+
+Starts `postgres`, `redis`, `bot`, and `web` on port `8000`.
+
+## 11. Environment Variables
 
 ```env
+# required
 BOT_TOKEN=1234567890:ABCDEFGHIJKLMNOPQRSTUVWXYZ
+
+# app
 LOG_LEVEL=INFO
 APP_TIMEZONE=Asia/Almaty
 
+# database
 DATABASE_URL=postgresql+asyncpg://events_bot:events_bot@localhost:5432/events_bot
+
+# redis
 REDIS_URL=redis://localhost:6379/0
 
+# mini app — must be a public HTTPS URL in production
 MINIAPP_BASE_URL=http://localhost:8000
 TELEGRAM_MINIAPP_SHORT_NAME=events
 MINIAPP_SESSION_TTL_SECONDS=86400
 
+# admin and moderation
 ADMIN_IDS=[123456789]
 MODERATOR_CHAT_ID=123456789
 
+# delivery
 TELEGRAM_DELIVERY_DELAY_SECONDS=0.15
 TELEGRAM_DELIVERY_MAX_RETRIES=3
 
+# email — set EMAIL_HOST=console to print codes in logs instead of sending real email
 EMAIL_HOST=console
 EMAIL_PORT=587
 EMAIL_USERNAME=
@@ -134,207 +264,18 @@ EMAIL_CODE_TTL_MINUTES=10
 EMAIL_RESEND_COOLDOWN_SECONDS=60
 ```
 
-Notes:
-
-- `BOT_TOKEN` is required.
-- `ADMIN_IDS` controls who can access admin features.
-- `EMAIL_HOST=console` prints verification codes in logs instead of sending real email. This is useful for local testing.
-- Telegram production Mini Apps need a public HTTPS `MINIAPP_BASE_URL`.
-
-## Running the Project
-
-### Development
-
-Run the bot:
-
-```bash
-python3 -m app.main
-```
-
-Run the Mini App web server:
-
-```bash
-uvicorn app.web.main:web_app --reload --host 0.0.0.0 --port 8000
-```
-
-Open:
-
-```text
-http://localhost:8000
-```
-
-Useful local command:
-
-```bash
-docker compose up -d postgres redis
-alembic upgrade head
-python3 -m scripts.seed_categories
-```
-
-### Production
-
-The repo includes a Docker Compose setup for the bot and web app:
-
-```bash
-docker compose up -d --build
-```
-
-This starts:
-
-- `postgres`
-- `redis`
-- `bot`
-- `web` on port `8000`
-
-## How It Works
-
-Simple event flow:
-
-1. A student creates an event in the Telegram bot.
-2. The event is saved as `pending`.
-3. A moderator reviews it.
-4. If approved, the event becomes visible.
-5. Group dashboards and the Mini App show the event.
-6. Users can favorite it, set reminders, share it, register, and leave reviews.
-
-```mermaid
-flowchart LR
-    A["Student submits event"] --> B["Event saved as pending"]
-    B --> C["Moderator reviews"]
-    C --> D{"Approved?"}
-    D -->|Yes| E["Event is published"]
-    D -->|No| F["Rejected or needs changes"]
-    E --> G["Group dashboard updates"]
-    E --> H["Mini App shows event"]
-    H --> I["Favorites, reminders, reviews, shares"]
-```
-
-## Main Functionality
-
-### Telegram Bot
-
-Students use the bot to submit and manage their events. Admins use it to moderate events and manage connected group dashboards.
-
-Common commands:
-
-```text
-/start
-/submit_event
-/moderate
-/favorites
-```
-
-### Mini App
-
-The Mini App is served by FastAPI from `app/web/static`. It lets users browse approved events, filter them, open detail pages, favorite events, set reminders, share links, and review events.
-
-### Group Dashboards
-
-Each connected Telegram group can choose categories. The bot keeps one dashboard message updated instead of posting every event as a new message.
-
-**How to set up a group:**
-1. **Add the bot** to your Telegram group or channel.
-2. **Grant the bot these 3 specific administrator permissions** (it does *not* need full admin rights):
-   - **Delete Messages** (required to clean up commands and keep the chat clean)
-   - **Edit Messages** (required to update the event list dashboard on the fly)
-   - **Pin Messages** (optional, to pin the dashboard at the top of the chat)
-3. The bot will automatically detect these permissions and display an interactive **Category Chooser** in the chat.
-4. Select the event categories you want to display, and the bot will automatically generate and pin the dashboard!
-5. If the dashboard message is ever deleted or needs recreation, admins can simply run the `/dashboard` command in the group.
-
-### Admin Panel
-
-Admins can view basic stats, users, connected groups, audit logs, and remove inappropriate reviews.
-
-## API Endpoints
-
-The project has a FastAPI API for the Mini App.
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/health` | Health check |
-| POST | `/api/auth/session` | Create Mini App session from Telegram init data |
-| POST | `/api/auth/register` | Register with email/password |
-| POST | `/api/auth/verify` | Verify email code |
-| POST | `/api/auth/login` | Login with email/password |
-| GET | `/api/auth/profile` | Get current profile |
-| PUT | `/api/auth/profile/nickname` | Update nickname |
-| POST | `/api/auth/forgot-password/request` | Request password reset code |
-| POST | `/api/auth/forgot-password/verify` | Verify password reset code |
-| POST | `/api/auth/forgot-password/reset` | Set a new password |
-| GET | `/api/events` | List approved events |
-| GET | `/api/events/filters` | Get filter options |
-| GET | `/api/events/{public_token}` | Get event details |
-| POST | `/api/events/{public_token}/register` | Record registration click |
-| GET | `/api/favorites` | List favorite events |
-| POST | `/api/events/{public_token}/favorite` | Add favorite |
-| DELETE | `/api/events/{public_token}/favorite` | Remove favorite |
-| GET | `/api/reminders` | List reminders |
-| POST | `/api/events/{public_token}/reminders` | Create reminder |
-| DELETE | `/api/reminders/{reminder_id}` | Delete reminder |
-| POST | `/api/events/{public_token}/share` | Create Telegram share link |
-| GET | `/api/events/{public_token}/reviews` | List reviews |
-| POST | `/api/events/{public_token}/reviews` | Create or update review |
-| DELETE | `/api/events/{public_token}/reviews` | Delete own review |
-| GET | `/api/ratings/reviews/feed` | Global review feed |
-| GET | `/api/admin/stats` | Admin stats |
-| GET | `/api/admin/users` | Admin user list |
-| GET | `/api/admin/connected-groups` | Connected group list |
-| GET | `/api/admin/audit-logs` | Admin audit logs |
-
-## Database
-
-The main tables are:
-
-- `users` - Telegram users, NU email accounts, roles, blocks, nicknames
-- `events` - event content, dates, status, moderation data, public token
-- `event_categories` - event categories used by filters and dashboards
-- `chats` - connected Telegram groups/channels
-- `chat_category_settings` - categories enabled per group
-- `dashboard_messages` - dashboard message IDs for each group
-- `event_detail_messages` - Telegram event card messages
-- `favorites` - saved events per user
-- `reminders` - scheduled reminder records
-- `ratings` and `comments` - event reviews
-- `event_analytics` - opens, shares, registrations, and other event actions
-- `moderation_logs`, `audit_logs`, `user_activity_logs` - admin/moderation history
-- `email_verification_codes`, `password_reset_codes` - auth codes
-- `event_sync_jobs` - background event sync work
-
-## Configuration
-
-Things you may want to change:
-
-- `APP_TIMEZONE` - default timezone for event dates and reminders
-- `ADMIN_IDS` - Telegram users allowed to access admin tools
-- `MODERATOR_CHAT_ID` - where moderation requests can be handled
-- `MINIAPP_BASE_URL` - public URL for Telegram Mini App links
-- `TELEGRAM_MINIAPP_SHORT_NAME` - Mini App short name from BotFather
-- `EMAIL_HOST` and email settings - switch from console codes to real email
-- default categories in `scripts/seed_categories.py`
-
-## Testing
-
-Run the unit tests:
+## 12. Testing
 
 ```bash
 python3 -m unittest discover tests
 ```
 
-Some loose test files also exist in the project root. They are mostly small experiments or older checks.
-
-## Contributing
-
-Small improvements are welcome.
+## 13. Contributing
 
 ```bash
 git checkout -b your-change
+# make changes
 python3 -m unittest discover tests
 ```
 
-Before opening a pull request, try to include:
-
-- what changed
-- how you tested it
-- screenshots if the UI changed
-
+When opening a pull request, include what changed, how you tested it, and screenshots if the UI changed.

@@ -510,8 +510,8 @@ async function checkEventSyncVersion() {
 
 // start review updates
 function startReviewUpdates() {
-  if (!window.EventSource || reviewUpdatesSource) return;
-  reviewUpdatesSource = new EventSource("/api/events/review-updates");
+  if (!window.EventSource || reviewUpdatesSource || !state.session) return;
+  reviewUpdatesSource = new EventSource(`/api/events/review-updates?token=${encodeURIComponent(state.session)}`);
   reviewUpdatesSource.addEventListener("review_deleted", (event) => {
     try {
       handleReviewDeleted(JSON.parse(event.data || "{}")).catch(() => null);

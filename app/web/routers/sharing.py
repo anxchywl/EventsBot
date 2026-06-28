@@ -12,6 +12,7 @@ from app.services.telegram_links import (
     build_telegram_text_share_link,
 )
 from app.web.auth import MiniAppUser, require_current_miniapp_user, upsert_miniapp_user
+from app.web.limiter import check_rate_limit
 from app.web.routers.events import validate_public_token
 from app.web.schemas import ActionResponse
 from app.web.telegram import get_bot_username
@@ -28,6 +29,7 @@ async def share_event(
     session: AsyncSession = Depends(get_session),
 ) -> ActionResponse:
     user = await upsert_miniapp_user(session, miniapp_user)
+    await check_rate_limit(f"rate:user:{user.id}:share", 30, 60, "Too many requests. Try again later.")
     public_token = validate_public_token(public_token)
     event = await get_available_event_by_public_token(session, public_token)
     if not event:

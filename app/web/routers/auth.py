@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import logging
+import re
 import secrets
-from datetime import datetime, timedelta, UTC
+from datetime import datetime, timedelta, UTC  # timedelta used for code expiry
 
-from fastapi import APIRouter, Depends, HTTPException, status, Header, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Header
 from sqlalchemy import select, delete, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,6 +27,7 @@ from app.models.club import Club
 from app.models.analytics import EventAnalytics
 from app.models.moderation import ModerationLog
 from app.models.chat import Chat
+from app.models.audit import AuditLog, UserActivityLog
 from app.services.email import send_verification_email, send_password_reset_email
 from app.services.security import hash_password, verify_password, validate_password_format, validate_nickname_format
 from app.services.friends import canonical_pair, friend_ids
@@ -36,6 +39,7 @@ from app.web.auth import (
     require_current_miniapp_user,
     upsert_miniapp_user,
 )
+from app.web.limiter import check_rate_limit
 from app.web.schemas import (
     UserRegisterRequest,
     UserVerifyRequest,
@@ -54,11 +58,7 @@ from app.web.schemas import (
 logger = logging.getLogger("app.web.routers.auth")
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
-_RESET_RATE_LIMITS: dict[str, list[datetime]] = {}
-_RESET_REQUEST_LIMIT = 5
-_RESET_REQUEST_WINDOW = timedelta(hours=1)
-_RESET_VERIFY_LIMIT = 20
-_RESET_VERIFY_WINDOW = timedelta(minutes=15)
+_GENERIC_TOO_MANY_MSG = "Too many attempts. Try again later."
 
 
 # generate 6digit code
@@ -71,50 +71,34 @@ def hash_code(code: str) -> str:
     return hashlib.sha256(code.encode()).hexdigest()
 
 
-# client ip
-def _client_ip(request: Request) -> str:
-    forwarded = request.headers.get("x-forwarded-for", "")
-    if forwarded:
-        return forwarded.split(",", 1)[0].strip() or "unknown"
-    return request.client.host if request.client else "unknown"
-
-
-# rate limit key
-def _rate_limit_key(prefix: str, request: Request, email: str) -> str:
-    return f"{prefix}:{_client_ip(request)}:{email[:255]}"
-
-
-# rate limited
-def _rate_limited(key: str, limit: int, window: timedelta, now: datetime) -> bool:
-    cutoff = now - window
-    hits = [ts for ts in _RESET_RATE_LIMITS.get(key, []) if ts > cutoff]
-    if len(hits) >= limit:
-        _RESET_RATE_LIMITS[key] = hits
-        return True
-    hits.append(now)
-    _RESET_RATE_LIMITS[key] = hits
-    return False
+# build Redis rate-limit key scoped to email for forgot-password flow
+def _rl_email_key(action: str, email: str) -> str:
+    return f"rate:email:{email[:255]}:{action}"
 
 
 # get unique nickname
 async def get_unique_nickname(session: AsyncSession, base: str) -> str:
-    """Generates a unique nickname by appending digits if necessary."""
-    # clean nickname base
     clean = re.sub(r"[^a-zA-Z0-9_.]", "", base)[:20]
     if not clean:
         clean = "user"
-    
-    candidate = clean
-    counter = 1
-    while True:
-        stmt = select(User).where(User.nickname == candidate, User.is_verified == True)
-        result = await session.execute(stmt)
-        if not result.scalar_one_or_none():
-            return candidate
-        candidate = f"{clean[:18]}{counter}"
-        counter += 1
 
-import re
+    prefix = clean[:18]
+    result = await session.execute(
+        select(User.nickname).where(
+            User.nickname.like(f"{prefix}%"),
+            User.is_verified == True,
+        )
+    )
+    taken = {row[0] for row in result}
+
+    if clean not in taken:
+        return clean
+    for counter in range(1, 101):
+        candidate = f"{prefix}{counter}"
+        if candidate not in taken:
+            return candidate
+    # ultimate fallback when namespace is saturated
+    return f"{clean[:12]}{secrets.token_hex(4)}"
 
 
 # start email verification for a telegram user
@@ -128,6 +112,7 @@ async def register(
 ) -> ActionResponse:
     # 1. validate email domain
     email = payload.email.strip().lower()
+    await check_rate_limit(f"rate:email:{email[:255]}:register", 3, 3600, _GENERIC_TOO_MANY_MSG)
     email_parts = email.split("@")
     if len(email_parts) != 2 or email_parts[1] != "nu.edu.kz":
         raise HTTPException(
@@ -179,10 +164,12 @@ async def register(
     session.add(db_code)
     await session.flush()
 
-    # send the email dispatch with language pref and theme
-    send_verification_email(email, code, lang=x_language, theme=x_theme)
-
+    session.add(UserActivityLog(user_id=user.id, action="register", metadata_json={"email": email}))
     await session.commit()
+
+    # offload blocking SMTP call so it does not block the event loop
+    asyncio.create_task(asyncio.to_thread(send_verification_email, email, code, lang=x_language, theme=x_theme))
+
     return ActionResponse(
         ok=True,
         message=f"Verification code sent to {email}. Code expires in {settings.email_code_ttl_minutes} minutes."
@@ -256,7 +243,7 @@ async def verify(
         await session.commit()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid verification code. Attempts remaining: {5 - db_code.attempts}."
+            detail="Invalid verification code.",
         )
 
     # verification successful
@@ -272,6 +259,7 @@ async def verify(
         delete(EmailVerificationCode).where(EmailVerificationCode.id == db_code.id)
     )
 
+    session.add(UserActivityLog(user_id=user.id, action="email_verified", metadata_json={"email": email}))
     await session.commit()
 
     # return updated session jwt token and user info
@@ -341,8 +329,9 @@ async def resend(
     session.add(db_code)
     await session.flush()
 
-    send_verification_email(email, code, lang=x_language, theme=x_theme)
     await session.commit()
+
+    asyncio.create_task(asyncio.to_thread(send_verification_email, email, code, lang=x_language, theme=x_theme))
 
     return ActionResponse(
         ok=True,
@@ -448,7 +437,8 @@ async def login(
     session: AsyncSession = Depends(get_session),
 ) -> AuthResponse:
     email = payload.email.strip().lower()
-    
+    await check_rate_limit(f"rate:email:{email[:255]}:login", 10, 3600, _GENERIC_TOO_MANY_MSG)
+
     # 1. fetch the verified user by email
     stmt = select(User).where(User.email == email, User.is_verified == True)
     result = await session.execute(stmt)
@@ -598,6 +588,7 @@ async def login(
         verified_user.language_code = miniapp_user.language_code
         verified_user.is_bot = miniapp_user.is_bot
 
+    session.add(UserActivityLog(user_id=verified_user.id, action="login", metadata_json={"email": email}))
     await session.commit()
 
     return AuthResponse(
@@ -699,6 +690,7 @@ async def update_nickname(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=err)
 
     user = await upsert_miniapp_user(session, miniapp_user)
+    await check_rate_limit(f"rate:user:{miniapp_user.id}:nickname", 5, 3600, _GENERIC_TOO_MANY_MSG)
     if not user.is_verified:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -715,7 +707,13 @@ async def update_nickname(
         )
 
     user.nickname = nickname
-    await session.commit()
+    try:
+        await session.commit()
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This nickname is already taken. Please choose another one.",
+        )
     await publish_miniapp_event(
         "friend_profile_changed",
         {
@@ -750,14 +748,12 @@ async def logout(
 # keep reset responses generic so emails and domain rules are not leaked
 _GENERIC_RESET_MSG = "If this email exists, a reset code has been sent."
 _GENERIC_INVALID_MSG = "Invalid or expired code."
-_GENERIC_TOO_MANY_MSG = "Too many attempts. Try again later."
 
 
 # start reset flow without revealing account existence
 @router.post("/forgot-password/request", response_model=ActionResponse)
 async def forgot_password_request(
     payload: ForgotPasswordRequestBody,
-    request: Request,
     miniapp_user: MiniAppUser = Depends(require_current_miniapp_user),
     session: AsyncSession = Depends(get_session),
 ) -> ActionResponse:
@@ -771,17 +767,7 @@ async def forgot_password_request(
     email = payload.email.strip().lower()
     now_utc = datetime.now(UTC)
 
-    if _rate_limited(
-        _rate_limit_key("forgot-request", request, email),
-        _RESET_REQUEST_LIMIT,
-        _RESET_REQUEST_WINDOW,
-        now_utc,
-    ):
-        logger.warning("Password reset request rate-limited for ip=%s", _client_ip(request))
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail=_GENERIC_TOO_MANY_MSG,
-        )
+    await check_rate_limit(_rl_email_key("fp_request", email), 5, 3600, _GENERIC_TOO_MANY_MSG)
 
     # hide domain policy from callers
     if not email.endswith("@nu.edu.kz"):
@@ -839,12 +825,8 @@ async def forgot_password_request(
     session.add(db_code)
     await session.commit()
 
-    # pass the plain code only to the mailer
-    threading.Thread(
-        target=send_password_reset_email,
-        args=(email, code),
-        daemon=True,
-    ).start()
+    # pass the plain code only to the mailer — task is tracked by the event loop, not a daemon thread
+    asyncio.create_task(asyncio.to_thread(send_password_reset_email, email, code))
 
     return ActionResponse(ok=True, message=_GENERIC_RESET_MSG)
 
@@ -853,7 +835,6 @@ async def forgot_password_request(
 @router.post("/forgot-password/verify", response_model=ActionResponse)
 async def forgot_password_verify(
     payload: ForgotPasswordVerifyBody,
-    request: Request,
     miniapp_user: MiniAppUser = Depends(require_current_miniapp_user),
     session: AsyncSession = Depends(get_session),
 ) -> ActionResponse:
@@ -866,17 +847,7 @@ async def forgot_password_verify(
     code_input = payload.code.strip()
     now_utc = datetime.now(UTC)
 
-    if _rate_limited(
-        _rate_limit_key("forgot-verify", request, email),
-        _RESET_VERIFY_LIMIT,
-        _RESET_VERIFY_WINDOW,
-        now_utc,
-    ):
-        logger.warning("Password reset verification rate-limited for ip=%s", _client_ip(request))
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail=_GENERIC_TOO_MANY_MSG,
-        )
+    await check_rate_limit(_rl_email_key("fp_verify", email), 20, 900, _GENERIC_TOO_MANY_MSG)
 
     # reject malformed input before querying reset state
     if len(email) > 255 or len(code_input) != 6 or not code_input.isdigit():
@@ -935,7 +906,9 @@ async def forgot_password_verify(
             detail=_GENERIC_INVALID_MSG,
         )
 
-    # leave consumption to the final reset step
+    # mark this code as verified so the reset step can confirm verify was called
+    db_code.verified_at = now_utc
+    await session.commit()
     return ActionResponse(ok=True, message="Code verified.")
 
 
@@ -943,7 +916,6 @@ async def forgot_password_verify(
 @router.post("/forgot-password/reset", response_model=ActionResponse)
 async def forgot_password_reset(
     payload: ForgotPasswordResetBody,
-    request: Request,
     miniapp_user: MiniAppUser = Depends(require_current_miniapp_user),
     session: AsyncSession = Depends(get_session),
 ) -> ActionResponse:
@@ -956,17 +928,7 @@ async def forgot_password_reset(
     new_password = payload.new_password  # preserve whitespace for explicit validation
     now_utc = datetime.now(UTC)
 
-    if _rate_limited(
-        _rate_limit_key("forgot-reset", request, email),
-        _RESET_VERIFY_LIMIT,
-        _RESET_VERIFY_WINDOW,
-        now_utc,
-    ):
-        logger.warning("Password reset completion rate-limited for ip=%s", _client_ip(request))
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail=_GENERIC_TOO_MANY_MSG,
-        )
+    await check_rate_limit(_rl_email_key("fp_reset", email), 20, 900, _GENERIC_TOO_MANY_MSG)
 
     # reject accidental whitespace without silently changing the password
     if new_password != new_password.strip():
@@ -1011,6 +973,23 @@ async def forgot_password_reset(
             detail=_GENERIC_INVALID_MSG,
         )
 
+    # require that the verify step was completed before allowing a reset
+    if not db_code.verified_at:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=_GENERIC_INVALID_MSG,
+        )
+
+    # enforce that verify → reset happens within 10 minutes to prevent delayed replay
+    verified_at = db_code.verified_at
+    if verified_at.tzinfo is None:
+        verified_at = verified_at.replace(tzinfo=UTC)
+    if (now_utc - verified_at).total_seconds() > 600:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=_GENERIC_INVALID_MSG,
+        )
+
     # stop brute-force attempts before hash comparison
     if db_code.attempts_count >= 5:
         raise HTTPException(
@@ -1041,9 +1020,11 @@ async def forgot_password_reset(
     # update password and consume the code in one transaction
     user.password_hash = hash_password(new_password)
     db_code.used_at = now_utc
-    
+
     # invalidate active miniapp sessions after password reset
     user.telegram_id = -abs(user.telegram_id)
+
+    session.add(AuditLog(actor_user_id=user.id, action="password_reset", target_type="user", target_id=str(user.id)))
 
     # flush both writes before committing together
     await session.flush()

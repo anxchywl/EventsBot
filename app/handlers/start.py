@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.handlers.message_cleanup import delete_messages_fast
+from app.services.rate_limit import check_bot_rate_limit
 from app.services.users import upsert_user_from_telegram
 
 router = Router(name="start")
@@ -67,13 +68,17 @@ async def handle_start(
 
 
 # tracks the last welcome message id for each user so it can be cleanly replaced
-last_welcome_messages = {}
+# bounded to avoid unbounded memory growth under long-running deployments
+last_welcome_messages: dict[int, int] = {}
+_MAX_WELCOME_CACHE = 5000
 
 
 # send main menu
 async def send_main_menu(
     message: Message, session: AsyncSession, state: FSMContext | None = None
 ) -> None:
+    if not await check_bot_rate_limit(message.from_user.id, "start", 20, 60):
+        return
     user = await upsert_user_from_telegram(session, message.from_user)
     settings = get_settings()
     is_admin = user.telegram_id in settings.admin_ids
@@ -100,6 +105,12 @@ async def send_main_menu(
         reply_markup=get_main_menu_keyboard(is_admin),
         parse_mode="Markdown",
     )
+    if len(last_welcome_messages) >= _MAX_WELCOME_CACHE:
+        try:
+            oldest_key = next(iter(last_welcome_messages))
+            last_welcome_messages.pop(oldest_key, None)
+        except StopIteration:
+            pass
     last_welcome_messages[user.telegram_id] = msg.message_id
     if state is not None:
         await state.update_data(main_menu_active=True, main_menu_warning_ids=[])

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from sqlalchemy import BigInteger, ForeignKey, Identity, Index, String
+from sqlalchemy import BigInteger, CheckConstraint, ForeignKey, Identity, Index, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin
@@ -16,6 +16,10 @@ if TYPE_CHECKING:
 class EventAnalytics(TimestampMixin, Base):
     __tablename__ = "event_analytics"
     __table_args__ = (
+        CheckConstraint(
+            "action IN ('open','open_from_share','register_click','favorite_add','favorite_remove','share_click','reminder_create','reminder_remove','reminder_click')",
+            name="ck_event_analytics_action",
+        ),
         Index("ix_event_analytics_event_action_created", "event_id", "action", "created_at"),
         Index("ix_event_analytics_user_action_created", "user_id", "action", "created_at"),
     )

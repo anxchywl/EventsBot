@@ -3,11 +3,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
-import time
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, status
-from aiogram import Bot
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -35,8 +33,9 @@ from app.services.telegram_links import (
     build_telegram_miniapp_invite_link,
     build_telegram_share_link,
 )
-from app.web.telegram import get_bot_username
+from app.web.telegram import get_bot_username, get_web_bot
 from app.web.auth import MiniAppUser, effective_web_role, optional_current_miniapp_user, require_verified_user, upsert_miniapp_user
+from app.web.limiter import check_rate_limit
 from app.web.realtime import publish_miniapp_event
 from app.web.schemas import (
     ActionResponse,
@@ -57,7 +56,6 @@ from app.web.schemas import (
 router = APIRouter(prefix="/api/friends", tags=["miniapp-friends"])
 logger = logging.getLogger("app.web.routers.friends")
 
-_FRIEND_RATE_LIMITS: dict[str, list[float]] = {}
 _INVITE_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{32,256}$")
 
 
@@ -69,29 +67,9 @@ def _validate_invite_token(token: str | None) -> str:
     return value
 
 
-# rate limit by user and client host
-def _client_key(request: Request, user: User, action: str) -> str:
-    host = request.client.host if request.client else "unknown"
-    return f"{action}:{user.id}:{host}"
-
-
-# limit bursty social actions in memory
-def _check_rate_limit(key: str, *, limit: int, window_seconds: int) -> None:
-    now = time.time()
-    cutoff = now - window_seconds
-    hits = [ts for ts in _FRIEND_RATE_LIMITS.get(key, []) if ts > cutoff]
-    if len(hits) >= limit:
-        _FRIEND_RATE_LIMITS[key] = hits
-        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Too many requests")
-    hits.append(now)
-    _FRIEND_RATE_LIMITS[key] = hits
-
-    # prevent memory leaks by pruning stale keys when dict grows large
-    if len(_FRIEND_RATE_LIMITS) > 10000:
-        for k in list(_FRIEND_RATE_LIMITS.keys()):
-            _FRIEND_RATE_LIMITS[k] = [ts for ts in _FRIEND_RATE_LIMITS[k] if ts > cutoff]
-            if not _FRIEND_RATE_LIMITS[k]:
-                del _FRIEND_RATE_LIMITS[k]
+# build namespaced rate-limit key for social actions
+def _rl_key(request: Request, user: User, action: str) -> str:
+    return f"rate:user:{user.id}:friend_{action}"
 
 # send telegram notifications without blocking the request
 def _notify_user(user: User | None, message: str) -> None:
@@ -100,15 +78,11 @@ def _notify_user(user: User | None, message: str) -> None:
     asyncio.create_task(_send_telegram_notification(user.telegram_id, message))
 
 
-# isolate bot session lifetime per background send
 async def _send_telegram_notification(telegram_id: int, message: str) -> None:
-    bot = Bot(token=get_settings().bot_token.get_secret_value())
     try:
-        await bot.send_message(telegram_id, message)
+        await get_web_bot().send_message(telegram_id, message)
     except Exception as exc:
         logger.info("failed to send friend notification to %s: %s", telegram_id, exc)
-    finally:
-        await bot.session.close()
 
 
 # list verified friends with public profile summaries
@@ -159,11 +133,23 @@ async def list_friend_requests(
         .order_by(FriendRequest.created_at.desc())
     )
     requests = list(result.scalars().all())[offset : offset + limit]
+
+    other_ids = [
+        row.requester_id if row.recipient_id == user.id else row.recipient_id
+        for row in requests
+    ]
+    users_by_id: dict[int, User] = {}
+    if other_ids:
+        users_result = await session.execute(
+            select(User).where(User.id.in_(other_ids))
+        )
+        users_by_id = {u.id: u for u in users_result.scalars()}
+
     incoming: list[FriendRequestItem] = []
     outgoing: list[FriendRequestItem] = []
     for request_row in requests:
         other_id = request_row.requester_id if request_row.recipient_id == user.id else request_row.recipient_id
-        other = await session.get(User, other_id)
+        other = users_by_id.get(other_id)
         if other is None or not other.is_verified:
             continue
         item = FriendRequestItem(
@@ -188,7 +174,7 @@ async def send_friend_request(
     user: User = Depends(require_verified_user),
     session: AsyncSession = Depends(get_session),
 ) -> FriendActionResponse:
-    _check_rate_limit(_client_key(request, user, "friend-request"), limit=20, window_seconds=3600)
+    await check_rate_limit(_rl_key(request, user, "request"), 20, 3600)
     invite: FriendInvite | None = None
     recipient: User | None = None
     if payload.invite_token:
@@ -226,7 +212,7 @@ async def accept_request(
     session: AsyncSession = Depends(get_session),
 ) -> ActionResponse:
     request_row = await session.get(FriendRequest, request_id)
-    if request_row is None:
+    if request_row is None or request_row.recipient_id != user.id or request_row.status != "pending":
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Friend request not found.")
     await accept_friend_request(session, request_row, recipient=user)
     requester_id = request_row.requester_id
@@ -349,7 +335,7 @@ async def search_users(
     session: AsyncSession = Depends(get_session),
 ) -> FriendSearchResponse:
     if effective_web_role(user, user.telegram_id) != "admin":
-        _check_rate_limit(_client_key(request, user, "friend-search"), limit=90, window_seconds=60)
+        await check_rate_limit(_rl_key(request, user, "search"), 90, 60)
     query = q.strip().lower()
     if len(query) < 2:
         return FriendSearchResponse(results=[], page=page, limit=limit, has_more=False)
@@ -392,7 +378,7 @@ async def create_invite(
     session: AsyncSession = Depends(get_session),
 ) -> FriendInviteResponse:
     if effective_web_role(user, user.telegram_id) != "admin":
-        _check_rate_limit(_client_key(request, user, "friend-invite"), limit=60, window_seconds=3600)
+        await check_rate_limit(_rl_key(request, user, "invite"), 60, 3600)
     invite, token = await create_friend_invite(session, user)
     await session.commit()
     

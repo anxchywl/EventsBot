@@ -11,6 +11,7 @@ from sqlalchemy import (
     Index,
     Integer,
     String,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -32,6 +33,7 @@ class PasswordResetCode(Base):
 
     __tablename__ = "password_reset_codes"
     __table_args__ = (
+        UniqueConstraint("user_id", name="uq_password_reset_codes_user_id"),
         Index("ix_password_reset_codes_user_id", "user_id"),
         Index("ix_password_reset_codes_expires_at", "expires_at"),
     )
@@ -57,6 +59,11 @@ class PasswordResetCode(Base):
     # throttle resend requests per user
     resend_available_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
+    )
+
+    # set after step 2 (verify) to ensure reset cannot skip the verify step
+    verified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=None
     )
 
     # prevent the same code from resetting twice

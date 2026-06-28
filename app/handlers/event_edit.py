@@ -23,6 +23,7 @@ from app.services.event_sync import (
     enqueue_event_sync,
 )
 from app.services.users import upsert_user_from_telegram
+from app.handlers.event_submission import validate_poster_image
 
 router = Router(name="event_edit")
 
@@ -523,6 +524,8 @@ async def process_poster_edit(message: Message, state: FSMContext):
         pass
     await _delete_temp_edit_messages(state, message.bot, message.chat.id)
     photo_id = message.photo[-1].file_id
+    if not await validate_poster_image(message, message.bot, photo_id):
+        return
     await state.update_data(poster_file_id=photo_id)
     await state.set_state(EventEdit.choosing_field)
     await show_edit_menu(message, state, is_new_message=True)

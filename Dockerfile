@@ -12,4 +12,7 @@ COPY alembic.ini .
 COPY alembic ./alembic
 COPY app ./app
 
+RUN addgroup --system app && adduser --system --ingroup app app
+USER app
+
 CMD ["python", "-m", "app.main"]

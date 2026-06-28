@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
@@ -14,6 +14,7 @@ from app.services.events import get_event_by_public_token
 from app.services.favorites import add_favorite, get_user_favorite_events, remove_favorite
 from app.services.friends import friend_ids, public_user_summary
 from app.web.auth import MiniAppUser, require_current_miniapp_user, upsert_miniapp_user
+from app.web.limiter import check_rate_limit
 from app.web.realtime import publish_miniapp_event
 from app.web.routers.events import event_cache, validate_public_token
 from app.web.schemas import EventListItem, FavoriteResponse
@@ -21,30 +22,6 @@ from app.web.serializers import event_list_items
 
 
 router = APIRouter(tags=["miniapp-favorites"])
-
-import time
-
-_FAVORITE_RATE_LIMITS: dict[str, list[float]] = {}
-
-# limit favorite toggles in memory
-def _check_rate_limit(request: Request, user_id: int, limit: int, window_seconds: int) -> None:
-    now = time.time()
-    cutoff = now - window_seconds
-    host = request.client.host if request.client else "unknown"
-    key = f"favorite:{user_id}:{host}"
-    hits = [ts for ts in _FAVORITE_RATE_LIMITS.get(key, []) if ts > cutoff]
-    if len(hits) >= limit:
-        _FAVORITE_RATE_LIMITS[key] = hits
-        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Too many favorite attempts. Try again later.")
-    hits.append(now)
-    _FAVORITE_RATE_LIMITS[key] = hits
-
-    # prevent memory leaks by pruning stale keys when dict grows large
-    if len(_FAVORITE_RATE_LIMITS) > 10000:
-        for k in list(_FAVORITE_RATE_LIMITS.keys()):
-            _FAVORITE_RATE_LIMITS[k] = [ts for ts in _FAVORITE_RATE_LIMITS[k] if ts > cutoff]
-            if not _FAVORITE_RATE_LIMITS[k]:
-                del _FAVORITE_RATE_LIMITS[k]
 
 # list saved events for the current user
 @router.get("/api/favorites", response_model=list[EventListItem])
@@ -64,12 +41,11 @@ async def list_favorites(
 @router.post("/api/events/{public_token}/favorite", response_model=FavoriteResponse)
 async def favorite_event(
     public_token: str,
-    request: Request,
     miniapp_user: MiniAppUser = Depends(require_current_miniapp_user),
     session: AsyncSession = Depends(get_session),
 ) -> FavoriteResponse:
     user = await upsert_miniapp_user(session, miniapp_user)
-    _check_rate_limit(request, user.id, limit=30, window_seconds=60)
+    await check_rate_limit(f"rate:user:{user.id}:fav", 30, 60, "Too many favorite attempts. Try again later.")
     public_token = validate_public_token(public_token)
     event = await get_event_by_public_token(session, public_token)
     if not event or event.status != EventStatus.APPROVED.value:
@@ -105,12 +81,11 @@ async def favorite_event(
 @router.delete("/api/events/{public_token}/favorite", response_model=FavoriteResponse)
 async def unfavorite_event(
     public_token: str,
-    request: Request,
     miniapp_user: MiniAppUser = Depends(require_current_miniapp_user),
     session: AsyncSession = Depends(get_session),
 ) -> FavoriteResponse:
     user = await upsert_miniapp_user(session, miniapp_user)
-    _check_rate_limit(request, user.id, limit=30, window_seconds=60)
+    await check_rate_limit(f"rate:user:{user.id}:fav", 30, 60, "Too many favorite attempts. Try again later.")
     public_token = validate_public_token(public_token)
     event = await get_event_by_public_token(session, public_token)
     if not event or event.status != EventStatus.APPROVED.value:
