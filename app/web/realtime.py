@@ -48,7 +48,9 @@ async def publish_review_deleted(payload: dict[str, Any]) -> None:
 
 
 # stream mini app events as server-sent events
-async def subscribe_miniapp_events(user_id: int | None = None) -> AsyncIterator[dict[str, Any]]:
+async def subscribe_miniapp_events(
+    user_id: int | None = None,
+) -> AsyncIterator[dict[str, Any]]:
     queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=20)
     subscriber = (user_id, queue)
     _subscribers.add(subscriber)

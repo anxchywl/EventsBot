@@ -1,6 +1,7 @@
 import unittest
 from datetime import datetime
 
+
 class DateTimeParsingTest(unittest.TestCase):
     def test_date_parsing_with_spaces_and_dots(self):
         input_std = "31.12.2023"
@@ -29,6 +30,7 @@ class DateTimeParsingTest(unittest.TestCase):
         time_space = datetime.strptime(clean_space, "%H:%M").time()
         self.assertEqual(time_space.hour, 18)
         self.assertEqual(time_space.minute, 30)
+
 
 if __name__ == "__main__":
     unittest.main()

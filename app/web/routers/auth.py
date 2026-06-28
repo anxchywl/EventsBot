@@ -29,7 +29,12 @@ from app.models.moderation import ModerationLog
 from app.models.chat import Chat
 from app.models.audit import AuditLog, UserActivityLog
 from app.services.email import send_verification_email, send_password_reset_email
-from app.services.security import hash_password, verify_password, validate_password_format, validate_nickname_format
+from app.services.security import (
+    hash_password,
+    verify_password,
+    validate_password_format,
+    validate_nickname_format,
+)
 from app.services.friends import canonical_pair, friend_ids
 from app.web.realtime import publish_miniapp_event
 from app.web.auth import (
@@ -112,12 +117,13 @@ async def register(
 ) -> ActionResponse:
     # 1. validate email domain
     email = payload.email.strip().lower()
-    await check_rate_limit(f"rate:email:{email[:255]}:register", 3, 3600, _GENERIC_TOO_MANY_MSG)
+    await check_rate_limit(
+        f"rate:email:{email[:255]}:register", 3, 3600, _GENERIC_TOO_MANY_MSG
+    )
     email_parts = email.split("@")
     if len(email_parts) != 2 or email_parts[1] != "nu.edu.kz":
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Only @nu.edu.kz addresses"
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Only @nu.edu.kz addresses"
         )
 
     # 2. check password format
@@ -133,7 +139,7 @@ async def register(
         settings = get_settings()
         return ActionResponse(
             ok=True,
-            message=f"Verification code sent to {email}. Code expires in {settings.email_code_ttl_minutes} minutes."
+            message=f"Verification code sent to {email}. Code expires in {settings.email_code_ttl_minutes} minutes.",
         )
 
     # get or create current user corresponding to this telegram id
@@ -164,15 +170,23 @@ async def register(
     session.add(db_code)
     await session.flush()
 
-    session.add(UserActivityLog(user_id=user.id, action="register", metadata_json={"email": email}))
+    session.add(
+        UserActivityLog(
+            user_id=user.id, action="register", metadata_json={"email": email}
+        )
+    )
     await session.commit()
 
     # offload blocking SMTP call so it does not block the event loop
-    asyncio.create_task(asyncio.to_thread(send_verification_email, email, code, lang=x_language, theme=x_theme))
+    asyncio.create_task(
+        asyncio.to_thread(
+            send_verification_email, email, code, lang=x_language, theme=x_theme
+        )
+    )
 
     return ActionResponse(
         ok=True,
-        message=f"Verification code sent to {email}. Code expires in {settings.email_code_ttl_minutes} minutes."
+        message=f"Verification code sent to {email}. Code expires in {settings.email_code_ttl_minutes} minutes.",
     )
 
 
@@ -189,15 +203,14 @@ async def verify(
     if len(code_input) != 6 or not code_input.isdigit():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Verification code must be exactly 6 digits."
+            detail="Verification code must be exactly 6 digits.",
         )
 
     user = await upsert_miniapp_user(session, miniapp_user)
 
     # retrieve code
     stmt = select(EmailVerificationCode).where(
-        EmailVerificationCode.user_id == user.id,
-        EmailVerificationCode.email == email
+        EmailVerificationCode.user_id == user.id, EmailVerificationCode.email == email
     )
     result = await session.execute(stmt)
     db_code = result.scalar_one_or_none()
@@ -205,7 +218,7 @@ async def verify(
     if not db_code:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No verification code found for this email. Please request a new code."
+            detail="No verification code found for this email. Please request a new code.",
         )
 
     # check attempts
@@ -216,7 +229,7 @@ async def verify(
         await session.commit()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Too many failed verification attempts. Please request a new code."
+            detail="Too many failed verification attempts. Please request a new code.",
         )
 
     # check expiry
@@ -233,7 +246,7 @@ async def verify(
         await session.commit()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Verification code has expired. Please request a new code."
+            detail="Verification code has expired. Please request a new code.",
         )
 
     # verify code
@@ -248,7 +261,7 @@ async def verify(
 
     # verification successful
     user.is_verified = True
-    
+
     # generate public nickname if not set
     if not user.nickname:
         base = email.split("@")[0]
@@ -259,7 +272,11 @@ async def verify(
         delete(EmailVerificationCode).where(EmailVerificationCode.id == db_code.id)
     )
 
-    session.add(UserActivityLog(user_id=user.id, action="email_verified", metadata_json={"email": email}))
+    session.add(
+        UserActivityLog(
+            user_id=user.id, action="email_verified", metadata_json={"email": email}
+        )
+    )
     await session.commit()
 
     # return updated session jwt token and user info
@@ -276,7 +293,7 @@ async def verify(
             "role": effective_web_role(user, miniapp_user.id),
             "is_blocked": user.is_blocked,
             "blocked_reason": user.blocked_reason,
-        }
+        },
     )
 
 
@@ -307,7 +324,7 @@ async def resend(
         if elapsed < cooldown:
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail=f"Please wait {int(cooldown - elapsed)} seconds before requesting a new code."
+                detail=f"Please wait {int(cooldown - elapsed)} seconds before requesting a new code.",
             )
 
     # invalidate old codes
@@ -331,11 +348,14 @@ async def resend(
 
     await session.commit()
 
-    asyncio.create_task(asyncio.to_thread(send_verification_email, email, code, lang=x_language, theme=x_theme))
+    asyncio.create_task(
+        asyncio.to_thread(
+            send_verification_email, email, code, lang=x_language, theme=x_theme
+        )
+    )
 
     return ActionResponse(
-        ok=True,
-        message=f"A new verification code has been sent to {email}."
+        ok=True, message=f"A new verification code has been sent to {email}."
     )
 
 
@@ -390,8 +410,12 @@ async def merge_friend_records(
         .all()
     )
     for row in request_rows:
-        next_requester_id = verified_user_id if row.requester_id == guest_user_id else row.requester_id
-        next_recipient_id = verified_user_id if row.recipient_id == guest_user_id else row.recipient_id
+        next_requester_id = (
+            verified_user_id if row.requester_id == guest_user_id else row.requester_id
+        )
+        next_recipient_id = (
+            verified_user_id if row.recipient_id == guest_user_id else row.recipient_id
+        )
         if next_requester_id == next_recipient_id:
             await session.delete(row)
             continue
@@ -437,7 +461,9 @@ async def login(
     session: AsyncSession = Depends(get_session),
 ) -> AuthResponse:
     email = payload.email.strip().lower()
-    await check_rate_limit(f"rate:email:{email[:255]}:login", 10, 3600, _GENERIC_TOO_MANY_MSG)
+    await check_rate_limit(
+        f"rate:email:{email[:255]}:login", 10, 3600, _GENERIC_TOO_MANY_MSG
+    )
 
     # 1. fetch the verified user by email
     stmt = select(User).where(User.email == email, User.is_verified == True)
@@ -446,15 +472,13 @@ async def login(
 
     if not verified_user or not verified_user.password_hash:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid email or password."
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid email or password."
         )
 
     # 2. verify password
     if not verify_password(payload.password, verified_user.password_hash):
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid email or password."
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid email or password."
         )
 
     # 3. check if the user is blocked
@@ -463,7 +487,7 @@ async def login(
     if verified_user.is_blocked and not is_admin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Your account has been blocked."
+            detail="Your account has been blocked.",
         )
 
     # 4. link verified email account to current telegram id
@@ -471,15 +495,19 @@ async def login(
 
     if current_guest_user.id != verified_user.id:
         # merge guest account details (favorites, reminders, ratings, comments) into the verified user
-        
+
         # 1. favorites: delete duplicates from guest first
-        existing_favs_stmt = select(Favorite.event_id).where(Favorite.user_id == verified_user.id)
+        existing_favs_stmt = select(Favorite.event_id).where(
+            Favorite.user_id == verified_user.id
+        )
         existing_favs_res = await session.execute(existing_favs_stmt)
         verified_fav_event_ids = set(existing_favs_res.scalars().all())
         if verified_fav_event_ids:
             await session.execute(
-                delete(Favorite)
-                .where(Favorite.user_id == current_guest_user.id, Favorite.event_id.in_(verified_fav_event_ids))
+                delete(Favorite).where(
+                    Favorite.user_id == current_guest_user.id,
+                    Favorite.event_id.in_(verified_fav_event_ids),
+                )
             )
         await session.execute(
             update(Favorite)
@@ -488,16 +516,17 @@ async def login(
         )
 
         # 2. reminders: delete duplicates from guest first
-        existing_rems_stmt = select(Reminder.event_id, Reminder.offset_minutes).where(Reminder.user_id == verified_user.id)
+        existing_rems_stmt = select(Reminder.event_id, Reminder.offset_minutes).where(
+            Reminder.user_id == verified_user.id
+        )
         existing_rems_res = await session.execute(existing_rems_stmt)
         verified_rem_tuples = set(existing_rems_res.all())
         for event_id, offset_minutes in verified_rem_tuples:
             await session.execute(
-                delete(Reminder)
-                .where(
+                delete(Reminder).where(
                     Reminder.user_id == current_guest_user.id,
                     Reminder.event_id == event_id,
-                    Reminder.offset_minutes == offset_minutes
+                    Reminder.offset_minutes == offset_minutes,
                 )
             )
         await session.execute(
@@ -507,13 +536,17 @@ async def login(
         )
 
         # 3. ratings: delete duplicates from guest first
-        existing_ratings_stmt = select(Rating.event_id).where(Rating.user_id == verified_user.id)
+        existing_ratings_stmt = select(Rating.event_id).where(
+            Rating.user_id == verified_user.id
+        )
         existing_ratings_res = await session.execute(existing_ratings_stmt)
         verified_rating_event_ids = set(existing_ratings_res.scalars().all())
         if verified_rating_event_ids:
             await session.execute(
-                delete(Rating)
-                .where(Rating.user_id == current_guest_user.id, Rating.event_id.in_(verified_rating_event_ids))
+                delete(Rating).where(
+                    Rating.user_id == current_guest_user.id,
+                    Rating.event_id.in_(verified_rating_event_ids),
+                )
             )
         await session.execute(
             update(Rating)
@@ -580,7 +613,7 @@ async def login(
 
         # update verified user's telegram id
         verified_user.telegram_id = miniapp_user.id
-        
+
         # sync current metadata
         verified_user.username = miniapp_user.username
         verified_user.first_name = miniapp_user.first_name
@@ -588,7 +621,11 @@ async def login(
         verified_user.language_code = miniapp_user.language_code
         verified_user.is_bot = miniapp_user.is_bot
 
-    session.add(UserActivityLog(user_id=verified_user.id, action="login", metadata_json={"email": email}))
+    session.add(
+        UserActivityLog(
+            user_id=verified_user.id, action="login", metadata_json={"email": email}
+        )
+    )
     await session.commit()
 
     return AuthResponse(
@@ -604,7 +641,7 @@ async def login(
             "role": effective_web_role(verified_user, miniapp_user.id),
             "is_blocked": verified_user.is_blocked,
             "blocked_reason": verified_user.blocked_reason,
-        }
+        },
     )
 
 
@@ -618,14 +655,19 @@ async def get_profile(
     if not user.is_verified:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Verification required to view profile."
+            detail="Verification required to view profile.",
         )
 
     # fetch comments and ratings
     from sqlalchemy.orm import selectinload
-    stmt = select(User).where(User.id == user.id).options(
-        selectinload(User.comments).selectinload(Comment.event),
-        selectinload(User.ratings).selectinload(Rating.event),
+
+    stmt = (
+        select(User)
+        .where(User.id == user.id)
+        .options(
+            selectinload(User.comments).selectinload(Comment.event),
+            selectinload(User.ratings).selectinload(Rating.event),
+        )
     )
     user_loaded = (await session.execute(stmt)).scalar_one()
 
@@ -690,20 +732,23 @@ async def update_nickname(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=err)
 
     user = await upsert_miniapp_user(session, miniapp_user)
-    await check_rate_limit(f"rate:user:{miniapp_user.id}:nickname", 5, 3600, _GENERIC_TOO_MANY_MSG)
+    await check_rate_limit(
+        f"rate:user:{miniapp_user.id}:nickname", 5, 3600, _GENERIC_TOO_MANY_MSG
+    )
     if not user.is_verified:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Verification required."
+            status_code=status.HTTP_403_FORBIDDEN, detail="Verification required."
         )
 
     # check if nickname is already taken by another verified user
-    stmt = select(User).where(User.nickname == nickname, User.is_verified == True, User.id != user.id)
+    stmt = select(User).where(
+        User.nickname == nickname, User.is_verified == True, User.id != user.id
+    )
     existing = await session.execute(stmt)
     if existing.scalar_one_or_none():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="This nickname is already taken. Please choose another one."
+            detail="This nickname is already taken. Please choose another one.",
         )
 
     user.nickname = nickname
@@ -741,7 +786,6 @@ async def logout(
     return ActionResponse(ok=True, message="Successfully logged out.")
 
 
-
 # forgot-password flow avoids account enumeration
 
 
@@ -767,7 +811,9 @@ async def forgot_password_request(
     email = payload.email.strip().lower()
     now_utc = datetime.now(UTC)
 
-    await check_rate_limit(_rl_email_key("fp_request", email), 5, 3600, _GENERIC_TOO_MANY_MSG)
+    await check_rate_limit(
+        _rl_email_key("fp_request", email), 5, 3600, _GENERIC_TOO_MANY_MSG
+    )
 
     # hide domain policy from callers
     if not email.endswith("@nu.edu.kz"):
@@ -787,9 +833,12 @@ async def forgot_password_request(
         return ActionResponse(ok=True, message=_GENERIC_RESET_MSG)
 
     # enforce per-account resend cooldown
-    stmt_existing = select(PasswordResetCode).where(
-        PasswordResetCode.user_id == user.id
-    ).order_by(PasswordResetCode.created_at.desc()).limit(1)
+    stmt_existing = (
+        select(PasswordResetCode)
+        .where(PasswordResetCode.user_id == user.id)
+        .order_by(PasswordResetCode.created_at.desc())
+        .limit(1)
+    )
     result_existing = await session.execute(stmt_existing)
     existing_code = result_existing.scalar_one_or_none()
 
@@ -808,7 +857,9 @@ async def forgot_password_request(
 
     settings = get_settings()
     expires_at = now_utc + timedelta(minutes=settings.email_code_ttl_minutes)
-    resend_available_at = now_utc + timedelta(seconds=settings.email_resend_cooldown_seconds)
+    resend_available_at = now_utc + timedelta(
+        seconds=settings.email_resend_cooldown_seconds
+    )
 
     # keep only one active reset code per user
     await session.execute(
@@ -847,7 +898,9 @@ async def forgot_password_verify(
     code_input = payload.code.strip()
     now_utc = datetime.now(UTC)
 
-    await check_rate_limit(_rl_email_key("fp_verify", email), 20, 900, _GENERIC_TOO_MANY_MSG)
+    await check_rate_limit(
+        _rl_email_key("fp_verify", email), 20, 900, _GENERIC_TOO_MANY_MSG
+    )
 
     # reject malformed input before querying reset state
     if len(email) > 255 or len(code_input) != 6 or not code_input.isdigit():
@@ -866,10 +919,15 @@ async def forgot_password_verify(
             detail=_GENERIC_INVALID_MSG,
         )
 
-    stmt_code = select(PasswordResetCode).where(
-        PasswordResetCode.user_id == user.id,
-        PasswordResetCode.used_at == None,  # noqa: E711
-    ).order_by(PasswordResetCode.created_at.desc()).limit(1)
+    stmt_code = (
+        select(PasswordResetCode)
+        .where(
+            PasswordResetCode.user_id == user.id,
+            PasswordResetCode.used_at == None,  # noqa: E711
+        )
+        .order_by(PasswordResetCode.created_at.desc())
+        .limit(1)
+    )
     result_code = await session.execute(stmt_code)
     db_code = result_code.scalar_one_or_none()
 
@@ -928,7 +986,9 @@ async def forgot_password_reset(
     new_password = payload.new_password  # preserve whitespace for explicit validation
     now_utc = datetime.now(UTC)
 
-    await check_rate_limit(_rl_email_key("fp_reset", email), 20, 900, _GENERIC_TOO_MANY_MSG)
+    await check_rate_limit(
+        _rl_email_key("fp_reset", email), 20, 900, _GENERIC_TOO_MANY_MSG
+    )
 
     # reject accidental whitespace without silently changing the password
     if new_password != new_password.strip():
@@ -960,10 +1020,15 @@ async def forgot_password_reset(
         )
 
     # only unused reset codes can complete password changes
-    stmt_code = select(PasswordResetCode).where(
-        PasswordResetCode.user_id == user.id,
-        PasswordResetCode.used_at == None,  # noqa: E711
-    ).order_by(PasswordResetCode.created_at.desc()).limit(1)
+    stmt_code = (
+        select(PasswordResetCode)
+        .where(
+            PasswordResetCode.user_id == user.id,
+            PasswordResetCode.used_at == None,  # noqa: E711
+        )
+        .order_by(PasswordResetCode.created_at.desc())
+        .limit(1)
+    )
     result_code = await session.execute(stmt_code)
     db_code = result_code.scalar_one_or_none()
 
@@ -1024,7 +1089,14 @@ async def forgot_password_reset(
     # invalidate active miniapp sessions after password reset
     user.telegram_id = -abs(user.telegram_id)
 
-    session.add(AuditLog(actor_user_id=user.id, action="password_reset", target_type="user", target_id=str(user.id)))
+    session.add(
+        AuditLog(
+            actor_user_id=user.id,
+            action="password_reset",
+            target_type="user",
+            target_id=str(user.id),
+        )
+    )
 
     # flush both writes before committing together
     await session.flush()

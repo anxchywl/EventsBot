@@ -2,7 +2,17 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from sqlalchemy import BigInteger, Boolean, Identity, Index, String, UniqueConstraint, text, DateTime, ForeignKey
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    Identity,
+    Index,
+    String,
+    UniqueConstraint,
+    text,
+    DateTime,
+    ForeignKey,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from datetime import datetime
 
@@ -19,7 +29,12 @@ if TYPE_CHECKING:
     from app.models.comment import Comment
     from app.models.code import EmailVerificationCode
     from app.models.password_reset import PasswordResetCode
-    from app.models.friend import FriendInvite, FriendRequest, Friendship, PrivacySettings
+    from app.models.friend import (
+        FriendInvite,
+        FriendRequest,
+        Friendship,
+        PrivacySettings,
+    )
 
 
 # stores telegram user profiles
@@ -56,7 +71,9 @@ class User(TimestampMixin, Base):
         Boolean, default=False, server_default="false"
     )
     photo_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
-    photo_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    photo_updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     # authentication & nu profile fields
     email: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -67,12 +84,22 @@ class User(TimestampMixin, Base):
     nickname: Mapped[str | None] = mapped_column(String(24), nullable=True)
 
     # admin and moderation fields
-    role: Mapped[str] = mapped_column(String(32), default="user", server_default="'user'")
-    is_blocked: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    role: Mapped[str] = mapped_column(
+        String(32), default="user", server_default="'user'"
+    )
+    is_blocked: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false"
+    )
     blocked_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    blocked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    blocked_by_admin_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
-    last_active_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    blocked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    blocked_by_admin_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    last_active_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     # links users to owned and created records
     owned_clubs: Mapped[list[Club]] = relationship(back_populates="owner")
@@ -92,7 +119,7 @@ class User(TimestampMixin, Base):
         back_populates="moderator",
     )
     event_analytics: Mapped[list[EventAnalytics]] = relationship(back_populates="user")
-    
+
     ratings: Mapped[list[Rating]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",

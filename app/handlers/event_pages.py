@@ -54,12 +54,12 @@ async def send_event_page_from_token(
             await bot.set_chat_menu_button(
                 chat_id=message.chat.id,
                 menu_button=MenuButtonWebApp(
-                    text="Open Event",
-                    web_app=WebAppInfo(url=miniapp_url)
-                )
+                    text="Open Event", web_app=WebAppInfo(url=miniapp_url)
+                ),
             )
         except Exception as e:
             import logging
+
             logging.error(f"Failed to set custom chat menu button: {e}")
 
     await record_event_action(

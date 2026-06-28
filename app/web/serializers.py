@@ -16,7 +16,11 @@ from app.models.reminder import Reminder
 from app.models.rating import Rating
 from app.models.comment import Comment
 from app.services.favorites import get_favorite_event_ids, is_event_favorite
-from app.services.friends import avatar_payload, bulk_event_friends_going, event_friends_going
+from app.services.friends import (
+    avatar_payload,
+    bulk_event_friends_going,
+    event_friends_going,
+)
 from app.services.telegram_links import build_telegram_share_link
 from app.web.auth import effective_web_role
 from app.web.schemas import EventDetail, EventListItem, ReviewDetail
@@ -74,7 +78,7 @@ async def event_list_items(
     attendee_counts = await get_attendee_counts(session, event_ids)
     ratings = await rating_summaries(session, event_ids)
     friends_going_map = await bulk_event_friends_going(session, user, event_ids)
-    
+
     return [
         EventListItem(
             token=event.public_token,
@@ -109,21 +113,38 @@ async def event_detail(
 ) -> EventDetail:
     total_attendees = await attendee_count(session, event.id)
     favorite = await is_event_favorite(session, user, event.id)
-    reminder_ids, reminder_offsets = await user_reminder_details(session, user, event.id)
+    reminder_ids, reminder_offsets = await user_reminder_details(
+        session, user, event.id
+    )
 
-    stmt_ratings = select(Rating).where(Rating.event_id == event.id, Rating.deleted_at.is_(None)).options(selectinload(Rating.user))
+    stmt_ratings = (
+        select(Rating)
+        .where(Rating.event_id == event.id, Rating.deleted_at.is_(None))
+        .options(selectinload(Rating.user))
+    )
     ratings = (await session.execute(stmt_ratings)).scalars().all()
     verified_ratings = [r for r in ratings if r.user.is_verified]
     rating_count = len(verified_ratings)
-    average_rating = sum(r.score for r in verified_ratings) / rating_count if rating_count > 0 else None
+    average_rating = (
+        sum(r.score for r in verified_ratings) / rating_count
+        if rating_count > 0
+        else None
+    )
 
-    stmt_comments = select(Comment).where(Comment.event_id == event.id, Comment.deleted_at.is_(None)).options(selectinload(Comment.user))
+    stmt_comments = (
+        select(Comment)
+        .where(Comment.event_id == event.id, Comment.deleted_at.is_(None))
+        .options(selectinload(Comment.user))
+    )
     comments = (await session.execute(stmt_comments)).scalars().all()
     verified_comments = [c for c in comments if c.user.is_verified]
 
     # merge one user rating and comment into one review row
     can_delete_all = False
-    if user is not None and effective_web_role(user, abs(user.telegram_id)) in ("admin", "moderator"):
+    if user is not None and effective_web_role(user, abs(user.telegram_id)) in (
+        "admin",
+        "moderator",
+    ):
         can_delete_all = True
 
     user_map = {}
@@ -247,7 +268,9 @@ async def get_reminder_counts(
 
 
 # batch rating aggregates for event lists
-async def rating_summaries(session: AsyncSession, event_ids: list[int]) -> dict[int, tuple[float | None, int]]:
+async def rating_summaries(
+    session: AsyncSession, event_ids: list[int]
+) -> dict[int, tuple[float | None, int]]:
     if not event_ids:
         return {}
     result = await session.execute(
@@ -262,7 +285,10 @@ async def rating_summaries(session: AsyncSession, event_ids: list[int]) -> dict[
     )
     summaries = {event_id: (None, 0) for event_id in event_ids}
     for event_id, average, count in result.all():
-        summaries[event_id] = (float(average) if average is not None else None, int(count or 0))
+        summaries[event_id] = (
+            float(average) if average is not None else None,
+            int(count or 0),
+        )
     return summaries
 
 

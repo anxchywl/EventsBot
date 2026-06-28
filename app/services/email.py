@@ -34,12 +34,14 @@ TEMPLATES = {
         "expires": "Бұл растау кодының жарамдылық мерзімі {ttl} минуттан кейін аяқталады.",
         "ignore": "Егер сіз бұл кодты сұрамаған болсаңыз, бұл хатты елемеуге болады.",
         "best_regards": "Құрметпен,<br>NU Events командасы",
-    }
+    },
 }
 
 
 # send localized verification emails for account signup
-def send_verification_email(email: str, code: str, lang: str = "en", theme: str = "light") -> None:
+def send_verification_email(
+    email: str, code: str, lang: str = "en", theme: str = "light"
+) -> None:
     """
     Sends a dynamically styled 6-digit verification code email.
     Subject is set to 'NU Events Verification'.
@@ -52,7 +54,7 @@ def send_verification_email(email: str, code: str, lang: str = "en", theme: str 
     lang_code = (lang or "en").lower()[:2]
     if lang_code not in TEMPLATES:
         lang_code = "en"
-    
+
     t = TEMPLATES[lang_code]
     subject = t["subject"]
 
@@ -236,11 +238,13 @@ def send_verification_email(email: str, code: str, lang: str = "en", theme: str 
         ctx = ssl.create_default_context()
 
         if use_ssl:
-            with smtplib.SMTP_SSL(settings.email_host, port, timeout=10, context=ctx) as smtp:
+            with smtplib.SMTP_SSL(
+                settings.email_host, port, timeout=10, context=ctx
+            ) as smtp:
                 if settings.email_username and settings.email_password:
                     smtp.login(
                         settings.email_username,
-                        settings.email_password.get_secret_value()
+                        settings.email_password.get_secret_value(),
                     )
                 smtp.send_message(msg)
         else:
@@ -252,14 +256,13 @@ def send_verification_email(email: str, code: str, lang: str = "en", theme: str 
                 if settings.email_username and settings.email_password:
                     smtp.login(
                         settings.email_username,
-                        settings.email_password.get_secret_value()
+                        settings.email_password.get_secret_value(),
                     )
                 smtp.send_message(msg)
         logger.info(f"Successfully sent verification email to {email}")
     except Exception as e:
         logger.error(f"Failed to send verification email to {email}: {e}")
         raise RuntimeError("Failed to send verification email due to SMTP error") from e
-
 
 
 # send password reset emails with neutral styling
@@ -436,9 +439,14 @@ def send_password_reset_email(email: str, code: str, lang: str = "en") -> None:
         ctx = ssl.create_default_context()
 
         if use_ssl:
-            with smtplib.SMTP_SSL(settings.email_host, port, timeout=10, context=ctx) as smtp:
+            with smtplib.SMTP_SSL(
+                settings.email_host, port, timeout=10, context=ctx
+            ) as smtp:
                 if settings.email_username and settings.email_password:
-                    smtp.login(settings.email_username, settings.email_password.get_secret_value())
+                    smtp.login(
+                        settings.email_username,
+                        settings.email_password.get_secret_value(),
+                    )
                 smtp.send_message(msg)
         else:
             with smtplib.SMTP(settings.email_host, port, timeout=10) as smtp:
@@ -447,9 +455,14 @@ def send_password_reset_email(email: str, code: str, lang: str = "en") -> None:
                     smtp.starttls(context=ctx)
                     smtp.ehlo()
                 if settings.email_username and settings.email_password:
-                    smtp.login(settings.email_username, settings.email_password.get_secret_value())
+                    smtp.login(
+                        settings.email_username,
+                        settings.email_password.get_secret_value(),
+                    )
                 smtp.send_message(msg)
         logger.info(f"Successfully sent password reset email to {email}")
     except Exception as e:
         logger.error(f"Failed to send password reset email to {email}: {e}")
-        raise RuntimeError("Failed to send password reset email due to SMTP error") from e
+        raise RuntimeError(
+            "Failed to send password reset email due to SMTP error"
+        ) from e

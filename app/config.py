@@ -29,7 +29,9 @@ class Settings(BaseSettings):
     session_secret: SecretStr | None = Field(default=None, alias="SESSION_SECRET")
     # IPs of reverse proxies whose X-Forwarded-For header should be trusted
     # e.g. TRUSTED_PROXY_IPS=127.0.0.1,10.0.0.1
-    trusted_proxy_ips: Annotated[list[str], NoDecode] = Field(default_factory=list, alias="TRUSTED_PROXY_IPS")
+    trusted_proxy_ips: Annotated[list[str], NoDecode] = Field(
+        default_factory=list, alias="TRUSTED_PROXY_IPS"
+    )
 
     @field_validator("trusted_proxy_ips", mode="before")
     @classmethod
@@ -41,7 +43,9 @@ class Settings(BaseSettings):
         return []
 
     moderator_chat_id: int | None = Field(default=None, alias="MODERATOR_CHAT_ID")
-    admin_ids: Annotated[list[int], NoDecode] = Field(default_factory=list, alias="ADMIN_IDS")
+    admin_ids: Annotated[list[int], NoDecode] = Field(
+        default_factory=list, alias="ADMIN_IDS"
+    )
 
     @field_validator("admin_ids", mode="before")
     @classmethod
@@ -55,6 +59,7 @@ class Settings(BaseSettings):
             if val.startswith("[") and val.endswith("]"):
                 try:
                     import json
+
                     parsed = json.loads(val)
                     if isinstance(parsed, list):
                         return [int(x) for x in parsed]
@@ -86,9 +91,13 @@ class Settings(BaseSettings):
     email_password: SecretStr | None = Field(default=None, alias="EMAIL_PASSWORD")
     email_from: str | None = Field(default=None, alias="EMAIL_FROM")
     email_code_ttl_minutes: int = Field(default=10, alias="EMAIL_CODE_TTL_MINUTES")
-    email_resend_cooldown_seconds: int = Field(default=60, alias="EMAIL_RESEND_COOLDOWN_SECONDS")
+    email_resend_cooldown_seconds: int = Field(
+        default=60, alias="EMAIL_RESEND_COOLDOWN_SECONDS"
+    )
 
-    media_max_upload_bytes: int = Field(default=5_000_000, alias="MEDIA_MAX_UPLOAD_BYTES")
+    media_max_upload_bytes: int = Field(
+        default=5_000_000, alias="MEDIA_MAX_UPLOAD_BYTES"
+    )
     media_cover_cache_ttl: int = Field(default=86400, alias="MEDIA_COVER_CACHE_TTL")
     media_avatar_cache_ttl: int = Field(default=21600, alias="MEDIA_AVATAR_CACHE_TTL")
 

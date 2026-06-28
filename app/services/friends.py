@@ -29,7 +29,11 @@ def invite_token_hash(token: str) -> str:
 def canonical_pair(user_id: int, other_user_id: int) -> tuple[int, int]:
     if user_id == other_user_id:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "You cannot friend yourself.")
-    return (user_id, other_user_id) if user_id < other_user_id else (other_user_id, user_id)
+    return (
+        (user_id, other_user_id)
+        if user_id < other_user_id
+        else (other_user_id, user_id)
+    )
 
 
 # derive a public display name without exposing raw ids
@@ -39,7 +43,7 @@ def display_name(user: User) -> str:
         name_part = user.email.split("@")[0]
     if not name_part:
         name_part = user.username or "NU student"
-        
+
     if name_part and "." in name_part:
         parts = name_part.split(".")
         if len(parts) == 2:
@@ -52,13 +56,19 @@ def display_name(user: User) -> str:
 # prefer telegram photos and fall back to initials
 def avatar_payload(user: User) -> dict[str, str | None]:
     name = display_name(user)
-    initials = "".join(part[:1] for part in name.replace("_", " ").replace(".", " ").split()[:2]).upper()
+    initials = "".join(
+        part[:1] for part in name.replace("_", " ").replace(".", " ").split()[:2]
+    ).upper()
     if getattr(user, "photo_url", None):
         url = user.photo_url
     else:
         url = None
         if user.telegram_id and user.telegram_id > 0:
-            version = user.photo_updated_at.isoformat() if user.photo_updated_at else str(user.telegram_id)
+            version = (
+                user.photo_updated_at.isoformat()
+                if user.photo_updated_at
+                else str(user.telegram_id)
+            )
             url = f"/api/events/avatar/{user.telegram_id}?{urlencode({'v': version})}"
     return {
         "url": url,
@@ -143,7 +153,9 @@ async def friend_count(session: AsyncSession, user_id: int) -> int:
 
 
 # count friendships for many users in one query
-async def friend_counts(session: AsyncSession, user_ids: Iterable[int]) -> dict[int, int]:
+async def friend_counts(
+    session: AsyncSession, user_ids: Iterable[int]
+) -> dict[int, int]:
     ids = set(user_ids)
     if not ids:
         return {}
@@ -162,7 +174,9 @@ async def friend_counts(session: AsyncSession, user_ids: Iterable[int]) -> dict[
 
 
 # compare friend sets for one profile
-async def mutual_friend_count(session: AsyncSession, user_id: int, other_user_id: int) -> int:
+async def mutual_friend_count(
+    session: AsyncSession, user_id: int, other_user_id: int
+) -> int:
     if user_id == other_user_id:
         return 0
     left = await friend_ids(session, user_id)
@@ -261,7 +275,9 @@ async def public_user_summary(
 
 
 # create a short-lived invite without storing the raw token
-async def create_friend_invite(session: AsyncSession, owner: User) -> tuple[FriendInvite, str]:
+async def create_friend_invite(
+    session: AsyncSession, owner: User
+) -> tuple[FriendInvite, str]:
     token = secrets.token_urlsafe(32)
     invite = FriendInvite(
         owner_id=owner.id,
@@ -274,7 +290,9 @@ async def create_friend_invite(session: AsyncSession, owner: User) -> tuple[Frie
 
 
 # resolve only active unexpired invites
-async def get_active_invite_by_token(session: AsyncSession, token: str) -> FriendInvite | None:
+async def get_active_invite_by_token(
+    session: AsyncSession, token: str
+) -> FriendInvite | None:
     await expire_stale_friend_rows(session)
     return await session.scalar(
         select(FriendInvite).where(
@@ -295,14 +313,19 @@ async def create_friend_request(
 ) -> FriendRequest:
     await expire_stale_friend_rows(session)
     if not requester.is_verified or not recipient.is_verified:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Nazarbayev University email verification required")
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Nazarbayev University email verification required",
+        )
     if requester.id == recipient.id:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "You cannot friend yourself.")
     if await are_friends(session, requester.id, recipient.id):
         raise HTTPException(status.HTTP_409_CONFLICT, "You are already friends.")
     recipient_privacy = await ensure_privacy_settings(session, recipient)
     if not recipient_privacy.allow_friend_requests:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "This user is not accepting friend requests.")
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "This user is not accepting friend requests."
+        )
 
     existing = await session.scalar(
         select(FriendRequest).where(
@@ -321,8 +344,12 @@ async def create_friend_request(
     )
     if existing is not None:
         if existing.requester_id == requester.id:
-            raise HTTPException(status.HTTP_409_CONFLICT, "Friend request already sent.")
-        raise HTTPException(status.HTTP_409_CONFLICT, "This user already sent you a friend request.")
+            raise HTTPException(
+                status.HTTP_409_CONFLICT, "Friend request already sent."
+            )
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "This user already sent you a friend request."
+        )
 
     request = FriendRequest(
         requester_id=requester.id,
@@ -388,7 +415,9 @@ async def accept_friend_request(
 
 
 # prevent stale invite links after friendship removal
-async def revoke_active_invites_for_pair(session: AsyncSession, first_user_id: int, second_user_id: int) -> None:
+async def revoke_active_invites_for_pair(
+    session: AsyncSession, first_user_id: int, second_user_id: int
+) -> None:
     await session.execute(
         update(FriendInvite)
         .where(
@@ -400,7 +429,9 @@ async def revoke_active_invites_for_pair(session: AsyncSession, first_user_id: i
 
 
 # show friends attending only when their privacy allows it
-async def event_friends_going(session: AsyncSession, user: User | None, event_id: int) -> list[dict]:
+async def event_friends_going(
+    session: AsyncSession, user: User | None, event_id: int
+) -> list[dict]:
     if user is None:
         return []
     ids = await friend_ids(session, user.id)
@@ -423,7 +454,9 @@ async def event_friends_going(session: AsyncSession, user: User | None, event_id
     )
     friends = list(result.scalars().all())
     counts = await friend_counts(session, [friend.id for friend in friends])
-    mutuals = await mutual_friend_counts(session, user.id, [friend.id for friend in friends])
+    mutuals = await mutual_friend_counts(
+        session, user.id, [friend.id for friend in friends]
+    )
     return [
         {
             "id": friend.id,
@@ -438,13 +471,15 @@ async def event_friends_going(session: AsyncSession, user: User | None, event_id
 
 
 # batch friends-going data for event lists
-async def bulk_event_friends_going(session: AsyncSession, user: User | None, event_ids: list[int]) -> dict[int, list[dict]]:
+async def bulk_event_friends_going(
+    session: AsyncSession, user: User | None, event_ids: list[int]
+) -> dict[int, list[dict]]:
     if user is None or not event_ids:
         return {event_id: [] for event_id in event_ids}
     ids = await friend_ids(session, user.id)
     if not ids:
         return {event_id: [] for event_id in event_ids}
-    
+
     result = await session.execute(
         select(Favorite.event_id, User)
         .join(User, User.id == Favorite.user_id)
@@ -460,19 +495,19 @@ async def bulk_event_friends_going(session: AsyncSession, user: User | None, eve
         )
         .order_by(Favorite.event_id, func.lower(User.nickname), func.lower(User.email))
     )
-    
+
     event_friends_map = {event_id: [] for event_id in event_ids}
     all_friends = {}
     for event_id, friend in result.all():
         event_friends_map[event_id].append(friend)
         all_friends[friend.id] = friend
-        
+
     if not all_friends:
         return {event_id: [] for event_id in event_ids}
-        
+
     counts = await friend_counts(session, list(all_friends.keys()))
     mutuals = await mutual_friend_counts(session, user.id, list(all_friends.keys()))
-    
+
     return {
         event_id: [
             {

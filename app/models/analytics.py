@@ -20,8 +20,15 @@ class EventAnalytics(TimestampMixin, Base):
             "action IN ('open','open_from_share','register_click','favorite_add','favorite_remove','share_click','reminder_create','reminder_remove','reminder_click')",
             name="ck_event_analytics_action",
         ),
-        Index("ix_event_analytics_event_action_created", "event_id", "action", "created_at"),
-        Index("ix_event_analytics_user_action_created", "user_id", "action", "created_at"),
+        Index(
+            "ix_event_analytics_event_action_created",
+            "event_id",
+            "action",
+            "created_at",
+        ),
+        Index(
+            "ix_event_analytics_user_action_created", "user_id", "action", "created_at"
+        ),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)

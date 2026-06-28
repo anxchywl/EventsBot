@@ -45,12 +45,7 @@ jobs:
         run: .venv/bin/ruff check app tests --select E9,F63,F7,F82
 
       - name: Formatting check
-        run: |
-          .venv/bin/ruff format --check --diff \
-            tests/test_auth_security.py \
-            tests/test_event_cards.py \
-            tests/test_miniapp_auth_security.py \
-            tests/test_user_interactions_security.py
+        run: .venv/bin/ruff format --check --diff app tests
 
       - name: Type check security-critical modules
         run: .venv/bin/mypy app/web/auth.py app/services/security.py app/services/telegram_links.py --ignore-missing-imports --check-untyped-defs
@@ -59,7 +54,7 @@ jobs:
         run: .venv/bin/bandit -q -r app -x tests --skip B104,B105,B110
 
       - name: Run tests with coverage
-        run: .venv/bin/pytest --cov=app --cov-report=term-missing:skip-covered --cov-fail-under=25 -q
+        run: .venv/bin/pytest --cov=app --cov-report=term-missing:skip-covered --cov-fail-under=30 -q
 
   migration-safety:
     name: Migration Safety

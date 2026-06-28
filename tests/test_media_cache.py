@@ -19,9 +19,13 @@ def test_ttl_cache_evicts_oldest_when_max_items_reached():
 
 
 def test_event_cover_url_is_versioned_by_poster_file_id():
-    event = SimpleNamespace(public_token="event-token", poster_file_id="telegram/file:id")
+    event = SimpleNamespace(
+        public_token="event-token", poster_file_id="telegram/file:id"
+    )
 
-    assert event_cover_url(event) == "/api/events/event-token/cover?v=telegram%2Ffile%3Aid"
+    assert (
+        event_cover_url(event) == "/api/events/event-token/cover?v=telegram%2Ffile%3Aid"
+    )
 
 
 def test_avatar_payload_versions_telegram_fallback_url():
@@ -36,5 +40,7 @@ def test_avatar_payload_versions_telegram_fallback_url():
 
     payload = avatar_payload(user)
 
-    assert payload["url"] == "/api/events/avatar/12345?v=2026-06-07T12%3A30%3A00%2B00%3A00"
+    assert (
+        payload["url"] == "/api/events/avatar/12345?v=2026-06-07T12%3A30%3A00%2B00%3A00"
+    )
     assert payload["initials"] == "AL"

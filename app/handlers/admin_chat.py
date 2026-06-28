@@ -135,7 +135,11 @@ async def handle_bot_removed(update: ChatMemberUpdated, session: AsyncSession) -
 # handles bot added to group or permissions changed
 @router.my_chat_member(
     F.new_chat_member.status.in_(
-        {ChatMemberStatus.MEMBER, ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.RESTRICTED}
+        {
+            ChatMemberStatus.MEMBER,
+            ChatMemberStatus.ADMINISTRATOR,
+            ChatMemberStatus.RESTRICTED,
+        }
     )
 )
 # handle bot membership update
@@ -219,6 +223,7 @@ async def handle_bot_membership_update(
 
     if req_del and req_edit:
         import asyncio
+
         await asyncio.sleep(1)
 
         try:

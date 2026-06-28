@@ -63,7 +63,7 @@ def validate_nickname_format(nickname: str) -> str | None:
         return "Nickname must be at least 3 characters long"
     if len(nickname) > 24:
         return "Nickname must be at most 24 characters long"
-    
+
     # block dangerous tags/html/script chars
     if re.search(r"[<>&\"'/`]", nickname):
         return "Nickname contains invalid characters"

@@ -78,7 +78,11 @@ async def cmd_moderate(message: Message, session: AsyncSession):
                 f"<b>Description:</b>\n{safe_desc}"
             )
 
-        safe_desc = escape_and_fit_description(event.description, render_text) if event.poster_file_id else html.escape(event.description)
+        safe_desc = (
+            escape_and_fit_description(event.description, render_text)
+            if event.poster_file_id
+            else html.escape(event.description)
+        )
         text = render_text(safe_desc)
 
         if event.poster_file_id:
@@ -101,12 +105,18 @@ async def cmd_moderate(message: Message, session: AsyncSession):
 @router.callback_query(F.data.startswith("mod_approve_"))
 async def process_approve(callback: CallbackQuery, session: AsyncSession, bot: Bot):
     if not await check_bot_rate_limit(callback.from_user.id, "moderation", 120, 3600):
-        await callback.answer("Too many moderation actions. Try again later.", show_alert=True)
+        await callback.answer(
+            "Too many moderation actions. Try again later.", show_alert=True
+        )
         return
     from app.config import get_settings
+
     settings = get_settings()
     moderator = await upsert_user_from_telegram(session, callback.from_user)
-    if callback.from_user.id not in settings.admin_ids and moderator.role not in ("moderator", "admin"):
+    if callback.from_user.id not in settings.admin_ids and moderator.role not in (
+        "moderator",
+        "admin",
+    ):
         await callback.answer("Unauthorized.", show_alert=True)
         return
 
@@ -167,13 +177,16 @@ async def process_approve(callback: CallbackQuery, session: AsyncSession, bot: B
     )
 
     from app.models.audit import AuditLog
-    session.add(AuditLog(
-        actor_user_id=moderator.id,
-        action="approve_event",
-        target_type="event",
-        target_id=str(target_event.id),
-        metadata_json={"is_update": is_update, "original_event_id": event_id}
-    ))
+
+    session.add(
+        AuditLog(
+            actor_user_id=moderator.id,
+            action="approve_event",
+            target_type="event",
+            target_id=str(target_event.id),
+            metadata_json={"is_update": is_update, "original_event_id": event_id},
+        )
+    )
 
     # commit the status change first publishing errors must not roll this back
     await session.commit()
@@ -200,6 +213,7 @@ async def process_approve(callback: CallbackQuery, session: AsyncSession, bot: B
 
 def _get_moderation_reason_keyboard():
     from aiogram.utils.keyboard import ReplyKeyboardBuilder
+
     builder = ReplyKeyboardBuilder()
     builder.button(text="Back")
     builder.button(text="Back to Menu")
@@ -212,7 +226,9 @@ def _get_moderation_reason_keyboard():
 @router.callback_query(F.data.startswith("mod_reject_"))
 async def process_reject_button(callback: CallbackQuery, state: FSMContext):
     if not await check_bot_rate_limit(callback.from_user.id, "moderation", 120, 3600):
-        await callback.answer("Too many moderation actions. Try again later.", show_alert=True)
+        await callback.answer(
+            "Too many moderation actions. Try again later.", show_alert=True
+        )
         return
     event_id = int(callback.data.split("_")[2])
     await state.update_data(mod_event_id=event_id)
@@ -229,7 +245,9 @@ async def process_reject_button(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data.startswith("mod_changes_"))
 async def process_changes_button(callback: CallbackQuery, state: FSMContext):
     if not await check_bot_rate_limit(callback.from_user.id, "moderation", 120, 3600):
-        await callback.answer("Too many moderation actions. Try again later.", show_alert=True)
+        await callback.answer(
+            "Too many moderation actions. Try again later.", show_alert=True
+        )
         return
     event_id = int(callback.data.split("_")[2])
     await state.update_data(mod_event_id=event_id)
@@ -243,9 +261,14 @@ async def process_changes_button(callback: CallbackQuery, state: FSMContext):
 
 # handles back navigation from rejection reason prompt
 # handle reject back
-@router.message(ModerationState.waiting_for_rejection_reason, F.text.in_({"Back", "Back to Menu"}))
-async def handle_reject_back(message: Message, state: FSMContext, session: AsyncSession):
+@router.message(
+    ModerationState.waiting_for_rejection_reason, F.text.in_({"Back", "Back to Menu"})
+)
+async def handle_reject_back(
+    message: Message, state: FSMContext, session: AsyncSession
+):
     from aiogram.types import ReplyKeyboardRemove
+
     data = await state.get_data()
     event_id = data.get("mod_event_id")
     if event_id:
@@ -268,9 +291,13 @@ async def process_rejection_reason(
     message: Message, state: FSMContext, session: AsyncSession
 ):
     from app.config import get_settings
+
     settings = get_settings()
     actor = await upsert_user_from_telegram(session, message.from_user)
-    if message.from_user.id not in settings.admin_ids and actor.role not in ("moderator", "admin"):
+    if message.from_user.id not in settings.admin_ids and actor.role not in (
+        "moderator",
+        "admin",
+    ):
         return
 
     data = await state.get_data()
@@ -278,7 +305,9 @@ async def process_rejection_reason(
     reason = message.text
 
     if len(reason) > 1000:
-        await message.answer("Reason is too long. Please keep it under 1000 characters.")
+        await message.answer(
+            "Reason is too long. Please keep it under 1000 characters."
+        )
         return
 
     # mark the event as rejected with the moderator comment
@@ -330,13 +359,16 @@ async def process_rejection_reason(
             snapshot=snapshot,
         )
         from app.models.audit import AuditLog
-        session.add(AuditLog(
-            actor_user_id=moderator.id,
-            action="reject_event",
-            target_type="event",
-            target_id=str(event_id),
-            metadata_json={"reason": reason, "is_update": False}
-        ))
+
+        session.add(
+            AuditLog(
+                actor_user_id=moderator.id,
+                action="reject_event",
+                target_type="event",
+                target_id=str(event_id),
+                metadata_json={"reason": reason, "is_update": False},
+            )
+        )
         await session.commit()
         await message.answer(
             f"❌ Event #{event_id} has been rejected with reason: {reason}"
@@ -357,9 +389,14 @@ async def process_rejection_reason(
 
 # handles back navigation from changes reason prompt
 # handle changes back
-@router.message(ModerationState.waiting_for_changes_reason, F.text.in_({"Back", "Back to Menu"}))
-async def handle_changes_back(message: Message, state: FSMContext, session: AsyncSession):
+@router.message(
+    ModerationState.waiting_for_changes_reason, F.text.in_({"Back", "Back to Menu"})
+)
+async def handle_changes_back(
+    message: Message, state: FSMContext, session: AsyncSession
+):
     from aiogram.types import ReplyKeyboardRemove
+
     data = await state.get_data()
     event_id = data.get("mod_event_id")
     if event_id:
@@ -382,9 +419,13 @@ async def process_changes_reason(
     message: Message, state: FSMContext, session: AsyncSession
 ):
     from app.config import get_settings
+
     settings = get_settings()
     actor = await upsert_user_from_telegram(session, message.from_user)
-    if message.from_user.id not in settings.admin_ids and actor.role not in ("moderator", "admin"):
+    if message.from_user.id not in settings.admin_ids and actor.role not in (
+        "moderator",
+        "admin",
+    ):
         return
 
     data = await state.get_data()
@@ -392,7 +433,9 @@ async def process_changes_reason(
     reason = message.text
 
     if len(reason) > 1000:
-        await message.answer("Reason is too long. Please keep it under 1000 characters.")
+        await message.answer(
+            "Reason is too long. Please keep it under 1000 characters."
+        )
         return
 
     # mark the event as needing changes with the moderator comment
@@ -415,13 +458,16 @@ async def process_changes_reason(
         snapshot=snapshot,
     )
     from app.models.audit import AuditLog
-    session.add(AuditLog(
-        actor_user_id=moderator.id,
-        action="needs_changes_event",
-        target_type="event",
-        target_id=str(event_id),
-        metadata_json={"reason": reason}
-    ))
+
+    session.add(
+        AuditLog(
+            actor_user_id=moderator.id,
+            action="needs_changes_event",
+            target_type="event",
+            target_id=str(event_id),
+            metadata_json={"reason": reason},
+        )
+    )
     await session.commit()
     await message.answer(
         f"📝 Event #{event_id} marked as 'Needs Changes' with reason: {reason}"

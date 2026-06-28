@@ -41,7 +41,6 @@ class DashboardBus:
         self._task: asyncio.Task | None = None
         self._lock = asyncio.Lock()
 
-
     def start(self) -> None:
         """launch the background worker. call once at bot startup."""
         self._task = asyncio.create_task(self._worker(), name="dashboard_bus_worker")
@@ -59,7 +58,6 @@ class DashboardBus:
         if not chat_ids:
             return
         self._queue.put_nowait(chat_ids)
-
 
     async def _worker(self) -> None:
         """
@@ -130,7 +128,9 @@ class DashboardBus:
                         await session.commit()
                     except Exception as exc:
                         await session.rollback()
-                        if isinstance(exc, TelegramForbiddenError) or is_bot_removed_error(exc):
+                        if isinstance(
+                            exc, TelegramForbiddenError
+                        ) or is_bot_removed_error(exc):
                             inactive_chat = await session.get(Chat, chat_id)
                             if inactive_chat is not None:
                                 await delete_chat_data(session, inactive_chat)
@@ -202,8 +202,7 @@ async def get_all_active_dashboard_chat_ids(session: "AsyncSession") -> set[int]
     from sqlalchemy import select
 
     result = await session.execute(
-        select(Chat.id)
-        .where(
+        select(Chat.id).where(
             Chat.chat_type != "private",
             Chat.is_active.is_(True),
             Chat.categories_selected.is_(True),

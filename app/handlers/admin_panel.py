@@ -84,8 +84,7 @@ async def _record_admin_panel_message(state: FSMContext, message: Message) -> No
     if message.message_id not in msg_ids:
         msg_ids.append(message.message_id)
     await state.update_data(
-        admin_panel_msg_id=message.message_id,
-        admin_msg_ids=msg_ids
+        admin_panel_msg_id=message.message_id, admin_msg_ids=msg_ids
     )
 
 
@@ -96,8 +95,7 @@ async def _record_admin_panel_user_message(state: FSMContext, message: Message) 
     if message.message_id not in msg_ids:
         msg_ids.append(message.message_id)
     await state.update_data(
-        admin_panel_user_msg_id=message.message_id,
-        admin_msg_ids=msg_ids
+        admin_panel_user_msg_id=message.message_id, admin_msg_ids=msg_ids
     )
 
 
@@ -120,18 +118,18 @@ async def _cleanup_admin_panel_messages(
 ) -> None:
     data = await state.get_data()
     msg_ids = data.get("admin_msg_ids") or []
-    
+
     legacy_msg_id = data.get("admin_panel_msg_id")
     user_msg_id = data.get("admin_panel_user_msg_id")
-    
+
     all_ids = set(msg_ids)
     if legacy_msg_id:
         all_ids.add(legacy_msg_id)
     if preserve_user_message and user_msg_id:
         all_ids.discard(user_msg_id)
-        
+
     await delete_messages_fast(bot, chat_id, all_ids)
-            
+
     if preserve_user_message and user_msg_id:
         await state.update_data(
             admin_panel_msg_id=None,
@@ -230,19 +228,21 @@ async def _send_web_admin_panel_link(
     await _record_admin_panel_message(state, sent)
 
 
-
-
 # opens the admin panel via callback
 # process admin panel
 @router.callback_query(F.data == "admin_panel")
-async def process_admin_panel(callback: CallbackQuery, session: AsyncSession, state: FSMContext):
+async def process_admin_panel(
+    callback: CallbackQuery, session: AsyncSession, state: FSMContext
+):
     await show_admin_panel(callback.message, session, state, is_callback=True)
 
 
 # opens the admin panel via message
 # process admin panel message
 @router.message(F.text.in_(["Admin Panel", "⚙️ Admin Panel"]), F.chat.type == "private")
-async def process_admin_panel_message(message: Message, session: AsyncSession, state: FSMContext):
+async def process_admin_panel_message(
+    message: Message, session: AsyncSession, state: FSMContext
+):
     from app.handlers.start import cleanup_main_menu_warnings
 
     await cleanup_main_menu_warnings(message, state)
@@ -253,7 +253,9 @@ async def process_admin_panel_message(message: Message, session: AsyncSession, s
 # returns to the admin panel by message text
 # process admin panel back message
 @router.message(F.text == "Back", F.chat.type == "private")
-async def process_admin_panel_back_message(message: Message, session: AsyncSession, state: FSMContext):
+async def process_admin_panel_back_message(
+    message: Message, session: AsyncSession, state: FSMContext
+):
     await _cleanup_admin_temp_messages(state, message.bot, message.chat.id)
     try:
         await message.delete()
@@ -272,7 +274,9 @@ async def process_admin_panel_back_message(message: Message, session: AsyncSessi
 # returns to the admin panel by callback
 # process admin panel back
 @router.callback_query(F.data == "admin_panel_back")
-async def process_admin_panel_back(callback: CallbackQuery, session: AsyncSession, state: FSMContext):
+async def process_admin_panel_back(
+    callback: CallbackQuery, session: AsyncSession, state: FSMContext
+):
     await show_admin_panel(callback.message, session, state, is_callback=True)
 
 
@@ -338,13 +342,19 @@ async def show_admin_panel(
 # lists pending events for moderation
 # process admin mod queue
 @router.callback_query(F.data == "admin_mod_queue")
-async def process_admin_mod_queue(callback: CallbackQuery, session: AsyncSession, state: FSMContext):
-    await show_admin_mod_queue(callback.message, session, state, is_callback=True, event_obj=callback)
+async def process_admin_mod_queue(
+    callback: CallbackQuery, session: AsyncSession, state: FSMContext
+):
+    await show_admin_mod_queue(
+        callback.message, session, state, is_callback=True, event_obj=callback
+    )
 
 
 # process admin mod queue message
 @router.message(F.text == "Moderation Queue", F.chat.type == "private")
-async def process_admin_mod_queue_message(message: Message, session: AsyncSession, state: FSMContext):
+async def process_admin_mod_queue_message(
+    message: Message, session: AsyncSession, state: FSMContext
+):
     await _cleanup_admin_temp_messages(state, message.bot, message.chat.id)
     await show_admin_mod_queue(message, session, state, is_callback=False)
 
@@ -358,8 +368,13 @@ async def show_admin_mod_queue(
     event_obj: CallbackQuery | None = None,
 ):
     from app.config import get_settings
+
     settings = get_settings()
-    user_id = message_obj.from_user.id if message_obj.from_user else (event_obj.from_user.id if event_obj else None)
+    user_id = (
+        message_obj.from_user.id
+        if message_obj.from_user
+        else (event_obj.from_user.id if event_obj else None)
+    )
     chat_id = message_obj.chat.id
     if not user_id:
         return
@@ -439,7 +454,9 @@ async def show_admin_mod_queue(
         delete_ids |= await _detach_admin_temp_messages(state)
         await _record_admin_navigation_message(state, message_obj)
 
-    sent = await message_obj.answer(text, reply_markup=reply_markup, parse_mode="Markdown")
+    sent = await message_obj.answer(
+        text, reply_markup=reply_markup, parse_mode="Markdown"
+    )
     if is_callback and event_obj is not None:
         await event_obj.answer()
 
@@ -454,15 +471,19 @@ async def show_admin_mod_queue(
 
 from aiogram.filters import Filter
 
+
 # filter admin mod queue event callbacks
 class AdminModQueueEventFilter(Filter):
-    async def __call__(self, message: Message, state: FSMContext) -> bool | dict[str, int]:
+    async def __call__(
+        self, message: Message, state: FSMContext
+    ) -> bool | dict[str, int]:
         data = await state.get_data()
         if data.get("admin_mod_queue_mode") is True:
             event_map = data.get("admin_mod_queue_map")
             if event_map and message.text in event_map:
                 return {"event_id": event_map[message.text]}
         return False
+
 
 # filter admin mod action callbacks
 class AdminModActionFilter(Filter):
@@ -475,16 +496,21 @@ class AdminModActionFilter(Filter):
             return False
 
         data = await state.get_data()
-        return (
-            data.get("admin_mod_current_event_id") is not None
-            and message.text in {"Approve", "Reject", "Needs Changes", "Back to Queue"}
-        )
+        return data.get("admin_mod_current_event_id") is not None and message.text in {
+            "Approve",
+            "Reject",
+            "Needs Changes",
+            "Back to Queue",
+        }
 
 
 # process admin mod action
 @router.message(F.chat.type == "private", AdminModActionFilter())
-async def process_admin_mod_action(message: Message, session: AsyncSession, state: FSMContext):
+async def process_admin_mod_action(
+    message: Message, session: AsyncSession, state: FSMContext
+):
     from app.config import get_settings
+
     settings = get_settings()
     if not message.from_user or message.from_user.id not in settings.admin_ids:
         # allow if they are acting in the moderator chat
@@ -534,12 +560,16 @@ async def process_admin_mod_action(message: Message, session: AsyncSession, stat
 # handles back navigation from rejection reason in admin panel
 # handle admin reject back to queue
 @router.message(ModerationState.waiting_for_rejection_reason, F.text == "Back to Queue")
-async def handle_admin_reject_back_to_queue(message: Message, session: AsyncSession, state: FSMContext):
+async def handle_admin_reject_back_to_queue(
+    message: Message, session: AsyncSession, state: FSMContext
+):
     data = await state.get_data()
     event_id = data.get("mod_back_to_event_id")
     await state.clear()
     if event_id:
-        await _show_admin_mod_event(message, session, state, event_id, is_callback=False)
+        await _show_admin_mod_event(
+            message, session, state, event_id, is_callback=False
+        )
     else:
         await show_admin_mod_queue(message, session, state, is_callback=False)
 
@@ -547,12 +577,16 @@ async def handle_admin_reject_back_to_queue(message: Message, session: AsyncSess
 # handles back navigation from changes reason in admin panel
 # handle admin changes back to queue
 @router.message(ModerationState.waiting_for_changes_reason, F.text == "Back to Queue")
-async def handle_admin_changes_back_to_queue(message: Message, session: AsyncSession, state: FSMContext):
+async def handle_admin_changes_back_to_queue(
+    message: Message, session: AsyncSession, state: FSMContext
+):
     data = await state.get_data()
     event_id = data.get("mod_back_to_event_id")
     await state.clear()
     if event_id:
-        await _show_admin_mod_event(message, session, state, event_id, is_callback=False)
+        await _show_admin_mod_event(
+            message, session, state, event_id, is_callback=False
+        )
     else:
         await show_admin_mod_queue(message, session, state, is_callback=False)
 
@@ -560,15 +594,22 @@ async def handle_admin_changes_back_to_queue(message: Message, session: AsyncSes
 # shows one event in the moderation panel
 # process admin mod event
 @router.callback_query(F.data.startswith("admin_mod_event_"))
-async def process_admin_mod_event(callback: CallbackQuery, session: AsyncSession, state: FSMContext):
+async def process_admin_mod_event(
+    callback: CallbackQuery, session: AsyncSession, state: FSMContext
+):
     event_id = int(callback.data.split("_")[3])
-    await _show_admin_mod_event(callback.message, session, state, event_id, is_callback=True, event_obj=callback)
+    await _show_admin_mod_event(
+        callback.message, session, state, event_id, is_callback=True, event_obj=callback
+    )
 
 
 # process admin mod event message
 @router.message(F.chat.type == "private", AdminModQueueEventFilter())
-async def process_admin_mod_event_message(message: Message, session: AsyncSession, state: FSMContext, event_id: int):
+async def process_admin_mod_event_message(
+    message: Message, session: AsyncSession, state: FSMContext, event_id: int
+):
     await _show_admin_mod_event(message, session, state, event_id, is_callback=False)
+
 
 # show admin mod event
 async def _show_admin_mod_event(
@@ -595,7 +636,9 @@ async def _show_admin_mod_event(
     safe_title = html.escape(event.title)
     safe_location = html.escape(event.location or "")
     safe_cat = html.escape(event.category.name if event.category else "")
-    safe_creator = html.escape(f"{event.creator.first_name} (@{event.creator.username})")
+    safe_creator = html.escape(
+        f"{event.creator.first_name} (@{event.creator.username})"
+    )
     safe_registration = html.escape(event.registration_url or "")
 
     def render_text(safe_desc: str) -> str:
@@ -776,13 +819,21 @@ async def _admin_approve_event(
 # lists approved root events for admins
 # process admin active events
 @router.callback_query(F.data == "admin_active_events")
-async def process_admin_active_events(callback: CallbackQuery, session: AsyncSession, state: FSMContext):
-    await show_admin_active_events(callback.message, session, state, is_callback=True, event_obj=callback)
+async def process_admin_active_events(
+    callback: CallbackQuery, session: AsyncSession, state: FSMContext
+):
+    await show_admin_active_events(
+        callback.message, session, state, is_callback=True, event_obj=callback
+    )
 
 
 # process admin active events message
-@router.message(F.text.in_(["Active Events", "Back to Active Events"]), F.chat.type == "private")
-async def process_admin_active_events_message(message: Message, session: AsyncSession, state: FSMContext):
+@router.message(
+    F.text.in_(["Active Events", "Back to Active Events"]), F.chat.type == "private"
+)
+async def process_admin_active_events_message(
+    message: Message, session: AsyncSession, state: FSMContext
+):
     await _cleanup_admin_temp_messages(state, message.bot, message.chat.id)
     await show_admin_active_events(message, session, state, is_callback=False)
 
@@ -796,8 +847,13 @@ async def show_admin_active_events(
     event_obj: CallbackQuery | None = None,
 ):
     from app.config import get_settings
+
     settings = get_settings()
-    user_id = message_obj.from_user.id if message_obj.from_user else (event_obj.from_user.id if event_obj else None)
+    user_id = (
+        message_obj.from_user.id
+        if message_obj.from_user
+        else (event_obj.from_user.id if event_obj else None)
+    )
     if not user_id or user_id not in settings.admin_ids:
         if is_callback and event_obj:
             await event_obj.answer("Unauthorized.", show_alert=True)
@@ -805,7 +861,9 @@ async def show_admin_active_events(
 
     result = await session.execute(
         select(Event)
-        .where(Event.status.in_([EventStatus.APPROVED.value, EventStatus.ARCHIVED.value]))
+        .where(
+            Event.status.in_([EventStatus.APPROVED.value, EventStatus.ARCHIVED.value])
+        )
         .where(Event.parent_event_id.is_(None))
         .order_by(Event.event_date.asc(), Event.event_time.asc(), Event.id.asc())
     )
@@ -816,7 +874,9 @@ async def show_admin_active_events(
         if is_callback and event_obj:
             await event_obj.answer("No active events.", show_alert=True)
         else:
-            await _cleanup_admin_panel_messages(state, message_obj.bot, message_obj.chat.id)
+            await _cleanup_admin_panel_messages(
+                state, message_obj.bot, message_obj.chat.id
+            )
             sent = await message_obj.answer("No active events.")
             await _record_admin_panel_user_message(state, message_obj)
             await _record_admin_panel_message(state, sent)
@@ -850,26 +910,36 @@ async def show_admin_active_events(
     # don't cleanup on first entry from admin panel via callback
     data = await state.get_data()
     was_in_active_events = data.get("admin_active_events_mode") is True
-    should_cleanup = (was_in_active_events and is_callback) or (message_obj.text and "Back" in message_obj.text)
+    should_cleanup = (was_in_active_events and is_callback) or (
+        message_obj.text and "Back" in message_obj.text
+    )
 
     if should_cleanup:
         await _cleanup_admin_panel_messages(state, message_obj.bot, message_obj.chat.id)
-        await delete_messages_fast(message_obj.bot, message_obj.chat.id, [message_obj.message_id])
+        await delete_messages_fast(
+            message_obj.bot, message_obj.chat.id, [message_obj.message_id]
+        )
     else:
         await _cleanup_admin_temp_messages(state, message_obj.bot, message_obj.chat.id)
         await _record_admin_panel_user_message(state, message_obj)
 
-    sent = await message_obj.answer(text, reply_markup=reply_markup, parse_mode="Markdown")
+    sent = await message_obj.answer(
+        text, reply_markup=reply_markup, parse_mode="Markdown"
+    )
     if is_callback and event_obj is not None:
         await event_obj.answer()
 
     await _record_admin_panel_message(state, sent)
-    await state.update_data(admin_active_events_map=event_map, admin_active_events_mode=True)
+    await state.update_data(
+        admin_active_events_map=event_map, admin_active_events_mode=True
+    )
 
 
 # filter admin active event callbacks
 class AdminActiveEventFilter(Filter):
-    async def __call__(self, message: Message, state: FSMContext) -> bool | dict[str, int]:
+    async def __call__(
+        self, message: Message, state: FSMContext
+    ) -> bool | dict[str, int]:
         data = await state.get_data()
         if data.get("admin_active_events_mode") is True:
             event_map = data.get("admin_active_events_map")
@@ -877,17 +947,24 @@ class AdminActiveEventFilter(Filter):
                 return {"event_id": event_map[message.text]}
         return False
 
+
 # shows admin controls for one active event
 # process admin manage event
 @router.callback_query(F.data.startswith("admin_manage_event_"))
-async def process_admin_manage_event(callback: CallbackQuery, session: AsyncSession, state: FSMContext):
+async def process_admin_manage_event(
+    callback: CallbackQuery, session: AsyncSession, state: FSMContext
+):
     event_id = int(callback.data.split("_")[3])
-    await _show_admin_manage_event(callback.message, session, state, event_id, is_callback=True, event_obj=callback)
+    await _show_admin_manage_event(
+        callback.message, session, state, event_id, is_callback=True, event_obj=callback
+    )
 
 
 # process admin manage event message
 @router.message(F.chat.type == "private", AdminActiveEventFilter())
-async def process_admin_manage_event_message(message: Message, session: AsyncSession, state: FSMContext, event_id: int):
+async def process_admin_manage_event_message(
+    message: Message, session: AsyncSession, state: FSMContext, event_id: int
+):
     await _cleanup_admin_temp_messages(state, message.bot, message.chat.id)
     await _show_admin_manage_event(message, session, state, event_id, is_callback=False)
 
@@ -955,7 +1032,9 @@ async def _show_admin_manage_event(
     safe_title = html.escape(event.title)
     safe_location = html.escape(event.location or "")
     safe_cat = html.escape(event.category.name if event.category else "")
-    safe_creator = html.escape(f"{event.creator.first_name} (@{event.creator.username})")
+    safe_creator = html.escape(
+        f"{event.creator.first_name} (@{event.creator.username})"
+    )
 
     render_text = lambda safe_desc: _render_admin_manage_event_text(
         event,
@@ -965,7 +1044,11 @@ async def _show_admin_manage_event(
         safe_cat=safe_cat,
         safe_desc=safe_desc,
     )
-    safe_desc = escape_and_fit_description(event.description or "", render_text) if event.poster_file_id else html.escape(event.description or "")
+    safe_desc = (
+        escape_and_fit_description(event.description or "", render_text)
+        if event.poster_file_id
+        else html.escape(event.description or "")
+    )
     text = render_text(safe_desc)
 
     builder = ReplyKeyboardBuilder()
@@ -985,20 +1068,28 @@ async def _show_admin_manage_event(
     data = await state.get_data()
     was_viewing_event = data.get("manage_event_id") is not None
 
-    await state.update_data(
-        manage_event_id=event.id,
-        is_admin_edit=True
-    )
+    await state.update_data(manage_event_id=event.id, is_admin_edit=True)
 
     if is_callback and event_obj is not None:
         if was_viewing_event:
-            await _cleanup_admin_panel_messages(state, message_obj.bot, message_obj.chat.id)
-            await delete_messages_fast(message_obj.bot, message_obj.chat.id, [message_obj.message_id])
+            await _cleanup_admin_panel_messages(
+                state, message_obj.bot, message_obj.chat.id
+            )
+            await delete_messages_fast(
+                message_obj.bot, message_obj.chat.id, [message_obj.message_id]
+            )
         else:
-            await _cleanup_admin_temp_messages(state, message_obj.bot, message_obj.chat.id)
-        
+            await _cleanup_admin_temp_messages(
+                state, message_obj.bot, message_obj.chat.id
+            )
+
         if event.poster_file_id:
-            sent = await message_obj.answer_photo(event.poster_file_id, caption=text, parse_mode="HTML", reply_markup=reply_markup)
+            sent = await message_obj.answer_photo(
+                event.poster_file_id,
+                caption=text,
+                parse_mode="HTML",
+                reply_markup=reply_markup,
+            )
         else:
             sent = await message_obj.answer(
                 text,
@@ -1011,7 +1102,12 @@ async def _show_admin_manage_event(
         await _record_admin_panel_user_message(state, message_obj)
 
         if event.poster_file_id:
-            sent = await message_obj.answer_photo(event.poster_file_id, caption=text, parse_mode="HTML", reply_markup=reply_markup)
+            sent = await message_obj.answer_photo(
+                event.poster_file_id,
+                caption=text,
+                parse_mode="HTML",
+                reply_markup=reply_markup,
+            )
         else:
             sent = await message_obj.answer(
                 text,
@@ -1064,5 +1160,7 @@ class AdminPanelModeFilter(Filter):
 @router.message(F.chat.type == "private", AdminPanelModeFilter())
 async def process_admin_invalid_input(message: Message, state: FSMContext):
     await _record_admin_temp_message(state, message)
-    sent = await message.answer("Please choose an action from the panels. There is no such option as you wrote.")
+    sent = await message.answer(
+        "Please choose an action from the panels. There is no such option as you wrote."
+    )
     await _record_admin_temp_message(state, sent)

@@ -26,6 +26,7 @@ class SendRichMessage(TelegramMethod[Message]):
     rich_message: Dict[str, Any]
     disable_notification: Optional[bool] = None
 
+
 class EditMessageTextRich(TelegramMethod[Union[Message, bool]]):
     __returning__ = Union[Message, bool]
     __api_method__ = "editMessageText"
@@ -56,7 +57,11 @@ def render_dashboard(
         tz = ZoneInfo(settings.app_timezone)
         today = datetime.now(tz).date()
 
-        grouped_events: dict[str, list[str]] = {"Today": [], "Tomorrow": [], "This Week": []}
+        grouped_events: dict[str, list[str]] = {
+            "Today": [],
+            "Tomorrow": [],
+            "This Week": [],
+        }
 
         for event in upcoming_events:
             days_diff = (event.event_date - today).days
@@ -79,7 +84,7 @@ def render_dashboard(
                     group_name = event.event_date.strftime("%B")
                 else:
                     group_name = event.event_date.strftime("%B %Y")
-                
+
                 if group_name not in grouped_events:
                     grouped_events[group_name] = []
                 grouped_events[group_name].append(event_line)
@@ -88,7 +93,7 @@ def render_dashboard(
             if events:
                 is_immediate = group_name in {"Today", "Tomorrow", "This Week"}
                 details_tag = "<details open>" if is_immediate else "<details>"
-                
+
                 lines.append(f"{details_tag}<summary><b>{group_name}</b></summary>")
                 lines.append(("<br><br>\n").join(events))
                 lines.append("</details>")
@@ -135,7 +140,9 @@ async def create_or_update_dashboard_message(
     from sqlalchemy import false
 
     if chat.chat_type == "private":
-        raise ValueError("Dashboards are only sent to groups, supergroups, and channels.")
+        raise ValueError(
+            "Dashboards are only sent to groups, supergroups, and channels."
+        )
 
     enabled_categories = await get_enabled_categories(session, chat.id)
     enabled_cat_ids = [c.id for c in enabled_categories]
@@ -179,11 +186,13 @@ async def create_or_update_dashboard_message(
     # create the message once or edit the existing one
     if dashboard_message is None:
         sent_message = await call_with_telegram_backoff(
-            lambda: bot(SendRichMessage(
-                chat_id=chat.telegram_chat_id,
-                rich_message={"html": text},
-                disable_notification=True,
-            )),
+            lambda: bot(
+                SendRichMessage(
+                    chat_id=chat.telegram_chat_id,
+                    rich_message={"html": text},
+                    disable_notification=True,
+                )
+            ),
             context=f"send dashboard to chat {chat.telegram_chat_id}",
         )
         dashboard_message = DashboardMessage(
@@ -232,11 +241,13 @@ async def edit_or_recreate_dashboard_message(
 ) -> None:
     try:
         await call_with_telegram_backoff(
-            lambda: bot(EditMessageTextRich(
-                chat_id=chat.telegram_chat_id,
-                message_id=dashboard_message.message_id,
-                rich_message={"html": text},
-            )),
+            lambda: bot(
+                EditMessageTextRich(
+                    chat_id=chat.telegram_chat_id,
+                    message_id=dashboard_message.message_id,
+                    rich_message={"html": text},
+                )
+            ),
             context=f"edit dashboard in chat {chat.telegram_chat_id}",
         )
     except TelegramBadRequest as error:
@@ -249,11 +260,13 @@ async def edit_or_recreate_dashboard_message(
             or "message can't be edited" in message
         ):
             sent_message = await call_with_telegram_backoff(
-                lambda: bot(SendRichMessage(
-                    chat_id=chat.telegram_chat_id,
-                    rich_message={"html": text},
-                    disable_notification=True,
-                )),
+                lambda: bot(
+                    SendRichMessage(
+                        chat_id=chat.telegram_chat_id,
+                        rich_message={"html": text},
+                        disable_notification=True,
+                    )
+                ),
                 context=f"recreate dashboard in chat {chat.telegram_chat_id}",
             )
             dashboard_message.message_id = sent_message.message_id

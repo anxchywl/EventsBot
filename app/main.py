@@ -95,7 +95,10 @@ async def main() -> None:
 
     # initialize the dashboard bus before routers so handlers can call get_bus()
     from app.services.dashboard_bus import init_bus
-    from app.services.event_sync import EventSyncWorker, listen_for_event_sync_notifications
+    from app.services.event_sync import (
+        EventSyncWorker,
+        listen_for_event_sync_notifications,
+    )
 
     bus = init_bus(bot=bot, session_factory=async_session_maker)
     bus.start()

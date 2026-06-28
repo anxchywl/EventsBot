@@ -120,13 +120,17 @@ async def _resolve_review_user_id(
 ) -> int | None:
     if rating_id is not None:
         user_id = await session.scalar(
-            select(Rating.user_id).where(Rating.event_id == event_id, Rating.id == rating_id)
+            select(Rating.user_id).where(
+                Rating.event_id == event_id, Rating.id == rating_id
+            )
         )
         if user_id is not None:
             return int(user_id)
     if comment_id is not None:
         user_id = await session.scalar(
-            select(Comment.user_id).where(Comment.event_id == event_id, Comment.id == comment_id)
+            select(Comment.user_id).where(
+                Comment.event_id == event_id, Comment.id == comment_id
+            )
         )
         if user_id is not None:
             return int(user_id)
@@ -134,7 +138,9 @@ async def _resolve_review_user_id(
 
 
 # return a stable result when no review existed
-def _not_deleted_result(event: Event, *, target_user_id: int | None = None) -> dict[str, Any]:
+def _not_deleted_result(
+    event: Event, *, target_user_id: int | None = None
+) -> dict[str, Any]:
     return {
         "deleted": False,
         "event_id": event.id,

@@ -11,7 +11,11 @@ from app.db.session import get_session
 from app.models.enums import EventStatus
 from app.services.analytics import record_event_action_by_ids
 from app.services.events import get_event_by_public_token
-from app.services.favorites import add_favorite, get_user_favorite_events, remove_favorite
+from app.services.favorites import (
+    add_favorite,
+    get_user_favorite_events,
+    remove_favorite,
+)
 from app.services.friends import friend_ids, public_user_summary
 from app.web.auth import MiniAppUser, require_current_miniapp_user, upsert_miniapp_user
 from app.web.limiter import check_rate_limit
@@ -22,6 +26,7 @@ from app.web.serializers import event_list_items
 
 
 router = APIRouter(tags=["miniapp-favorites"])
+
 
 # list saved events for the current user
 @router.get("/api/favorites", response_model=list[EventListItem])
@@ -45,7 +50,12 @@ async def favorite_event(
     session: AsyncSession = Depends(get_session),
 ) -> FavoriteResponse:
     user = await upsert_miniapp_user(session, miniapp_user)
-    await check_rate_limit(f"rate:user:{user.id}:fav", 30, 60, "Too many favorite attempts. Try again later.")
+    await check_rate_limit(
+        f"rate:user:{user.id}:fav",
+        30,
+        60,
+        "Too many favorite attempts. Try again later.",
+    )
     public_token = validate_public_token(public_token)
     event = await get_event_by_public_token(session, public_token)
     if not event or event.status != EventStatus.APPROVED.value:
@@ -85,7 +95,12 @@ async def unfavorite_event(
     session: AsyncSession = Depends(get_session),
 ) -> FavoriteResponse:
     user = await upsert_miniapp_user(session, miniapp_user)
-    await check_rate_limit(f"rate:user:{user.id}:fav", 30, 60, "Too many favorite attempts. Try again later.")
+    await check_rate_limit(
+        f"rate:user:{user.id}:fav",
+        30,
+        60,
+        "Too many favorite attempts. Try again later.",
+    )
     public_token = validate_public_token(public_token)
     event = await get_event_by_public_token(session, public_token)
     if not event or event.status != EventStatus.APPROVED.value:

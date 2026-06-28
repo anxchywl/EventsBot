@@ -34,7 +34,13 @@ from app.services.telegram_links import (
     build_telegram_share_link,
 )
 from app.web.telegram import get_bot_username, get_web_bot
-from app.web.auth import MiniAppUser, effective_web_role, optional_current_miniapp_user, require_verified_user, upsert_miniapp_user
+from app.web.auth import (
+    MiniAppUser,
+    effective_web_role,
+    optional_current_miniapp_user,
+    require_verified_user,
+    upsert_miniapp_user,
+)
 from app.web.limiter import check_rate_limit
 from app.web.realtime import publish_miniapp_event
 from app.web.schemas import (
@@ -70,6 +76,7 @@ def _validate_invite_token(token: str | None) -> str:
 # build namespaced rate-limit key for social actions
 def _rl_key(request: Request, user: User, action: str) -> str:
     return f"rate:user:{user.id}:friend_{action}"
+
 
 # send telegram notifications without blocking the request
 def _notify_user(user: User | None, message: str) -> None:
@@ -140,15 +147,17 @@ async def list_friend_requests(
     ]
     users_by_id: dict[int, User] = {}
     if other_ids:
-        users_result = await session.execute(
-            select(User).where(User.id.in_(other_ids))
-        )
+        users_result = await session.execute(select(User).where(User.id.in_(other_ids)))
         users_by_id = {u.id: u for u in users_result.scalars()}
 
     incoming: list[FriendRequestItem] = []
     outgoing: list[FriendRequestItem] = []
     for request_row in requests:
-        other_id = request_row.requester_id if request_row.recipient_id == user.id else request_row.recipient_id
+        other_id = (
+            request_row.requester_id
+            if request_row.recipient_id == user.id
+            else request_row.recipient_id
+        )
         other = users_by_id.get(other_id)
         if other is None or not other.is_verified:
             continue
@@ -178,7 +187,9 @@ async def send_friend_request(
     invite: FriendInvite | None = None
     recipient: User | None = None
     if payload.invite_token:
-        invite = await get_active_invite_by_token(session, _validate_invite_token(payload.invite_token))
+        invite = await get_active_invite_by_token(
+            session, _validate_invite_token(payload.invite_token)
+        )
         if invite is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Invite expired or revoked.")
         recipient = await session.get(User, invite.owner_id)
@@ -187,7 +198,9 @@ async def send_friend_request(
     if recipient is None or not recipient.is_verified:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found.")
 
-    friend_request = await create_friend_request(session, user, recipient, invite=invite)
+    friend_request = await create_friend_request(
+        session, user, recipient, invite=invite
+    )
     await session.commit()
     requester_name = display_name(user)
     _notify_user(recipient, f"{requester_name} sent you a friend request.")
@@ -201,7 +214,9 @@ async def send_friend_request(
             "notification": f"{requester_name} sent you a friend request.",
         },
     )
-    return FriendActionResponse(ok=True, message="Friend request sent.", request_id=friend_request.id)
+    return FriendActionResponse(
+        ok=True, message="Friend request sent.", request_id=friend_request.id
+    )
 
 
 # accept an incoming request and notify both users
@@ -212,14 +227,20 @@ async def accept_request(
     session: AsyncSession = Depends(get_session),
 ) -> ActionResponse:
     request_row = await session.get(FriendRequest, request_id)
-    if request_row is None or request_row.recipient_id != user.id or request_row.status != "pending":
+    if (
+        request_row is None
+        or request_row.recipient_id != user.id
+        or request_row.status != "pending"
+    ):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Friend request not found.")
     await accept_friend_request(session, request_row, recipient=user)
     requester_id = request_row.requester_id
     requester = await session.get(User, requester_id)
     await session.commit()
     accepter_name = display_name(user)
-    requester_name = display_name(requester) if requester is not None else "this NU student"
+    requester_name = (
+        display_name(requester) if requester is not None else "this NU student"
+    )
     _notify_user(requester, f"You and {accepter_name} are now friends.")
     _notify_user(user, f"You and {requester_name} are now friends.")
     await publish_miniapp_event(
@@ -243,7 +264,11 @@ async def decline_request(
     session: AsyncSession = Depends(get_session),
 ) -> ActionResponse:
     request_row = await session.get(FriendRequest, request_id)
-    if request_row is None or request_row.recipient_id != user.id or request_row.status != "pending":
+    if (
+        request_row is None
+        or request_row.recipient_id != user.id
+        or request_row.status != "pending"
+    ):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Friend request not found.")
     request_row.status = "declined"
     request_row.responded_at = datetime.now(UTC)
@@ -273,7 +298,11 @@ async def cancel_request(
     session: AsyncSession = Depends(get_session),
 ) -> ActionResponse:
     request_row = await session.get(FriendRequest, request_id)
-    if request_row is None or request_row.requester_id != user.id or request_row.status != "pending":
+    if (
+        request_row is None
+        or request_row.requester_id != user.id
+        or request_row.status != "pending"
+    ):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Friend request not found.")
     request_row.status = "cancelled"
     request_row.responded_at = datetime.now(UTC)
@@ -298,7 +327,11 @@ async def remove_friend(
     user: User = Depends(require_verified_user),
     session: AsyncSession = Depends(get_session),
 ) -> ActionResponse:
-    first_id, second_id = (user.id, friend_user_id) if user.id < friend_user_id else (friend_user_id, user.id)
+    first_id, second_id = (
+        (user.id, friend_user_id)
+        if user.id < friend_user_id
+        else (friend_user_id, user.id)
+    )
     friendship = await session.scalar(
         select(Friendship).where(
             Friendship.user_id == first_id,
@@ -381,14 +414,14 @@ async def create_invite(
         await check_rate_limit(_rl_key(request, user, "invite"), 60, 3600)
     invite, token = await create_friend_invite(session, user)
     await session.commit()
-    
+
     bot_name = await get_bot_username()
     direct_link = build_telegram_miniapp_invite_link(
         bot_username=bot_name,
         miniapp_short_name=get_settings().telegram_miniapp_short_name,
         token=token,
     ) or invite_url(token)
-    
+
     inviter_name = display_name(user)
     message_text = (
         f"{inviter_name} invited you to be friends on NU Events! "
@@ -398,7 +431,7 @@ async def create_invite(
         url=direct_link,
         text=message_text,
     )
-    
+
     return FriendInviteResponse(
         id=invite.id,
         token=token,
@@ -434,23 +467,25 @@ async def lookup_invite(
     invite = await get_active_invite_by_token(session, _validate_invite_token(token))
     if invite is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Invite expired or revoked.")
-    
+
     owner = await session.get(User, invite.owner_id)
     if owner is None or not owner.is_verified:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Invite expired or revoked.")
-        
+
     if miniapp_user is None:
         inviter = await public_user_summary(session, owner, current_user=None)
         await session.commit()
         return FriendInviteLookupResponse(state="requires_start", inviter=inviter)
-        
+
     current_user = await upsert_miniapp_user(session, miniapp_user)
-    
+
     if not current_user.is_verified:
         inviter = await public_user_summary(session, owner, current_user=None)
         await session.commit()
-        return FriendInviteLookupResponse(state="requires_verification", inviter=inviter)
-        
+        return FriendInviteLookupResponse(
+            state="requires_verification", inviter=inviter
+        )
+
     inviter = await public_user_summary(session, owner, current_user=current_user)
     await session.commit()
     return FriendInviteLookupResponse(
@@ -482,7 +517,11 @@ async def update_privacy_settings(
     session: AsyncSession = Depends(get_session),
 ) -> PrivacySettingsResponse:
     settings = await ensure_privacy_settings(session, user)
-    for key in ("show_favorites_to_friends", "show_profile_to_friends", "allow_friend_requests"):
+    for key in (
+        "show_favorites_to_friends",
+        "show_profile_to_friends",
+        "allow_friend_requests",
+    ):
         value = getattr(payload, key)
         if value is not None:
             setattr(settings, key, value)

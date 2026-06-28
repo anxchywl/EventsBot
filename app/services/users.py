@@ -21,6 +21,7 @@ async def upsert_user_from_telegram(
         session.add(user)
 
     from app.config import get_settings
+
     settings = get_settings()
     if telegram_user.id in settings.admin_ids:
         user.role = "admin"

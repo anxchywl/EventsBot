@@ -29,17 +29,22 @@ async def share_event(
     session: AsyncSession = Depends(get_session),
 ) -> ActionResponse:
     user = await upsert_miniapp_user(session, miniapp_user)
-    await check_rate_limit(f"rate:user:{user.id}:share", 30, 60, "Too many requests. Try again later.")
+    await check_rate_limit(
+        f"rate:user:{user.id}:share", 30, 60, "Too many requests. Try again later."
+    )
     public_token = validate_public_token(public_token)
     event = await get_available_event_by_public_token(session, public_token)
     if not event:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Event no longer available")
 
-    target = build_telegram_miniapp_direct_link(
-        bot_username=await get_bot_username(),
-        miniapp_short_name=get_settings().telegram_miniapp_short_name,
-        public_token=event.public_token,
-    ) or f"/events/{event.public_token}"
+    target = (
+        build_telegram_miniapp_direct_link(
+            bot_username=await get_bot_username(),
+            miniapp_short_name=get_settings().telegram_miniapp_short_name,
+            public_token=event.public_token,
+        )
+        or f"/events/{event.public_token}"
+    )
     await record_event_action_by_ids(
         session,
         event_id=event.id,

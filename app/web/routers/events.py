@@ -28,11 +28,27 @@ from app.services.events import (
     get_event_by_public_token,
 )
 from app.services.event_sync import latest_completed_sync_version
-from app.services.telegram_links import build_telegram_miniapp_direct_link, build_telegram_text_share_link
-from app.web.auth import MiniAppUser, get_real_ip, optional_current_miniapp_user, require_current_miniapp_user, upsert_miniapp_user, verify_session_token
+from app.services.telegram_links import (
+    build_telegram_miniapp_direct_link,
+    build_telegram_text_share_link,
+)
+from app.web.auth import (
+    MiniAppUser,
+    get_real_ip,
+    optional_current_miniapp_user,
+    require_current_miniapp_user,
+    upsert_miniapp_user,
+    verify_session_token,
+)
 from app.web.limiter import check_rate_limit
 from app.web.cache import TTLCache
-from app.web.schemas import EventDetail, EventFilterOption, EventFiltersResponse, EventListItem, RegisterResponse
+from app.web.schemas import (
+    EventDetail,
+    EventFilterOption,
+    EventFiltersResponse,
+    EventListItem,
+    RegisterResponse,
+)
 from app.web.serializers import event_detail as serialize_event_detail
 from app.web.serializers import event_list_items
 from app.web.telegram import get_bot_username
@@ -180,6 +196,7 @@ async def review_updates(
     token: str = Query(..., min_length=1, max_length=4096),
 ) -> StreamingResponse:
     verify_session_token(token)
+
     async def stream():
         yield ": connected\n\n"
         iterator = subscribe_miniapp_events()
@@ -212,6 +229,7 @@ async def miniapp_updates(
     token: str = Query(..., min_length=1, max_length=4096),
 ) -> StreamingResponse:
     from app.db.session import async_session_maker
+
     miniapp_user = verify_session_token(token)
     async with async_session_maker() as session:
         user = await upsert_miniapp_user(session, miniapp_user)
@@ -294,7 +312,12 @@ async def register_event_click(
     session: AsyncSession = Depends(get_session),
 ) -> RegisterResponse:
     user = await upsert_miniapp_user(session, miniapp_user)
-    await check_rate_limit(f"rate:user:{user.id}:event_register", 20, 60, "Too many requests. Try again later.")
+    await check_rate_limit(
+        f"rate:user:{user.id}:event_register",
+        20,
+        60,
+        "Too many requests. Try again later.",
+    )
     public_token = validate_public_token(public_token)
     event = await get_event_by_public_token(session, public_token)
     if not event or event.status != EventStatus.APPROVED.value:
@@ -389,10 +412,9 @@ async def _filtered_events(
         .group_by(Favorite.event_id)
         .subquery()
     )
-    participant_total = (
-        func.coalesce(reminder_counts.c.reminder_total, 0)
-        + func.coalesce(favorite_counts.c.favorite_total, 0)
-    )
+    participant_total = func.coalesce(
+        reminder_counts.c.reminder_total, 0
+    ) + func.coalesce(favorite_counts.c.favorite_total, 0)
 
     stmt = (
         select(Event)
@@ -406,13 +428,18 @@ async def _filtered_events(
     )
 
     event_start_utc = func.timezone(
-        "UTC", 
+        "UTC",
         func.timezone(
-            Event.timezone, 
-            func.cast(func.cast(Event.event_date, String) + ' ' + func.cast(Event.event_time, String), TIMESTAMP)
-        )
+            Event.timezone,
+            func.cast(
+                func.cast(Event.event_date, String)
+                + " "
+                + func.cast(Event.event_time, String),
+                TIMESTAMP,
+            ),
+        ),
     )
-    
+
     if favorite_only:
         if user is None:
             return []
@@ -424,9 +451,13 @@ async def _filtered_events(
         )
 
     if relevance == "active":
-        stmt = stmt.where(event_start_utc + timedelta(hours=2) >= func.timezone("UTC", func.now()))
+        stmt = stmt.where(
+            event_start_utc + timedelta(hours=2) >= func.timezone("UTC", func.now())
+        )
     elif relevance == "archived":
-        stmt = stmt.where(event_start_utc + timedelta(hours=2) < func.timezone("UTC", func.now()))
+        stmt = stmt.where(
+            event_start_utc + timedelta(hours=2) < func.timezone("UTC", func.now())
+        )
 
     if categories:
         stmt = stmt.where(EventCategory.slug.in_(categories))
@@ -436,13 +467,25 @@ async def _filtered_events(
         stmt = stmt.where(Event.location.in_(locations))
 
     if sort == "time_desc":
-        stmt = stmt.order_by(Event.event_date.desc(), Event.event_time.desc(), Event.id.desc())
+        stmt = stmt.order_by(
+            Event.event_date.desc(), Event.event_time.desc(), Event.id.desc()
+        )
     elif sort == "reminders_desc":
-        stmt = stmt.order_by(func.coalesce(reminder_counts.c.reminder_total, 0).desc(), Event.event_date, Event.event_time)
+        stmt = stmt.order_by(
+            func.coalesce(reminder_counts.c.reminder_total, 0).desc(),
+            Event.event_date,
+            Event.event_time,
+        )
     elif sort == "reminders_asc":
-        stmt = stmt.order_by(func.coalesce(reminder_counts.c.reminder_total, 0), Event.event_date, Event.event_time)
+        stmt = stmt.order_by(
+            func.coalesce(reminder_counts.c.reminder_total, 0),
+            Event.event_date,
+            Event.event_time,
+        )
     elif sort == "participants_desc":
-        stmt = stmt.order_by(participant_total.desc(), Event.event_date, Event.event_time)
+        stmt = stmt.order_by(
+            participant_total.desc(), Event.event_date, Event.event_time
+        )
     elif sort == "participants_asc":
         stmt = stmt.order_by(participant_total, Event.event_date, Event.event_time)
     else:
@@ -455,8 +498,12 @@ async def _filtered_events(
 # parse comma-separated filter query values
 def _split_filter_values(value: str) -> list[str]:
     items = sorted({item.strip() for item in value.split(",") if item.strip()})
-    if len(items) > MAX_FILTER_VALUES or any(len(item) > FILTER_VALUE_MAX_LEN for item in items):
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Too many filter values")
+    if len(items) > MAX_FILTER_VALUES or any(
+        len(item) > FILTER_VALUE_MAX_LEN for item in items
+    ):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT, "Too many filter values"
+        )
     return items
 
 
@@ -477,11 +524,14 @@ def _today():
 # choose the safest share target for one event
 async def _event_share_target(public_token: str) -> str:
     settings = get_settings()
-    return build_telegram_miniapp_direct_link(
-        bot_username=await get_bot_username(),
-        miniapp_short_name=settings.telegram_miniapp_short_name,
-        public_token=public_token,
-    ) or f"/events/{public_token}"
+    return (
+        build_telegram_miniapp_direct_link(
+            bot_username=await get_bot_username(),
+            miniapp_short_name=settings.telegram_miniapp_short_name,
+            public_token=public_token,
+        )
+        or f"/events/{public_token}"
+    )
 
 
 # build public share urls from event tokens

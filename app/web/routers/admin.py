@@ -35,10 +35,17 @@ async def admin_delete_review(
     admin: User = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ) -> ActionResponse:
-    await check_rate_limit(f"rate:user:{admin.id}:admin_action", 20, 3600, "Too many admin actions. Try again later.")
+    await check_rate_limit(
+        f"rate:user:{admin.id}:admin_action",
+        20,
+        3600,
+        "Too many admin actions. Try again later.",
+    )
     event = await session.get(Event, event_id)
     if not event:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Event not found"
+        )
 
     result = await permanently_delete_review(
         session,
@@ -47,7 +54,9 @@ async def admin_delete_review(
         admin=admin,
     )
     if not result["deleted"]:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Review already deleted")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Review already deleted"
+        )
     await session.commit()
     invalidate_review_caches()
     await publish_review_deleted(result)
@@ -56,18 +65,27 @@ async def admin_delete_review(
 
 
 # delete a review from the global feed by token
-@router.delete("/reviews/by-token/{public_token}/{user_id}", response_model=ActionResponse)
+@router.delete(
+    "/reviews/by-token/{public_token}/{user_id}", response_model=ActionResponse
+)
 async def admin_delete_review_by_token(
     public_token: str,
     user_id: int = Path(..., ge=1),
     admin: User = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ) -> ActionResponse:
-    await check_rate_limit(f"rate:user:{admin.id}:admin_action", 20, 3600, "Too many admin actions. Try again later.")
+    await check_rate_limit(
+        f"rate:user:{admin.id}:admin_action",
+        20,
+        3600,
+        "Too many admin actions. Try again later.",
+    )
     public_token = validate_public_token(public_token)
     event = await get_event_by_public_token(session, public_token)
     if not event:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Event not found"
+        )
 
     result = await permanently_delete_review(
         session,
@@ -76,7 +94,9 @@ async def admin_delete_review_by_token(
         admin=admin,
     )
     if not result["deleted"]:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Review already deleted")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Review already deleted"
+        )
     await session.commit()
     invalidate_review_caches()
     await publish_review_deleted(result)
@@ -87,12 +107,14 @@ async def admin_delete_review_by_token(
 from pydantic import BaseModel, Field, field_validator
 from typing import Any
 
+
 # shape aggregate admin dashboard stats
 class AdminStatsResponse(BaseModel):
     total_bot_users: int
     total_miniapp_users: int
     total_nu_accounts: int
     total_blocked: int
+
 
 # shape user rows for admin moderation
 class AdminUserItem(BaseModel):
@@ -110,6 +132,7 @@ class AdminUserItem(BaseModel):
     registered_date: str
     last_active_date: str | None
 
+
 # shape audit log rows for admin review
 class AuditLogItem(BaseModel):
     id: int
@@ -119,6 +142,7 @@ class AuditLogItem(BaseModel):
     target_id: str | None
     created_at: str
     metadata_json: Any | None
+
 
 # shape connected group setup status rows
 class ConnectedGroupItem(BaseModel):
@@ -139,6 +163,7 @@ class ConnectedGroupItem(BaseModel):
     dashboard_message_id: int | None
     setup_message_id: int | None
 
+
 # shape connected group totals
 class ConnectedGroupsSummary(BaseModel):
     total_groups: int
@@ -146,10 +171,12 @@ class ConnectedGroupsSummary(BaseModel):
     setup_required: int
     missing_permissions: int
 
+
 # return groups with summary metadata
 class ConnectedGroupsResponse(BaseModel):
     summary: ConnectedGroupsSummary
     groups: list[ConnectedGroupItem]
+
 
 # validate admin block requests
 class BlockUserRequest(BaseModel):
@@ -172,16 +199,27 @@ class BlockUserRequest(BaseModel):
         reason = value.strip()
         return reason or None
 
+
 # aggregate user and review counts for admins
 @router.get("/stats", response_model=AdminStatsResponse)
 async def get_admin_stats(
     admin: User = Depends(require_admin_or_moderator),
     session: AsyncSession = Depends(get_session),
 ) -> AdminStatsResponse:
-    bot_users = (await session.execute(select(func.count()).select_from(User))).scalar() or 0
+    bot_users = (
+        await session.execute(select(func.count()).select_from(User))
+    ).scalar() or 0
     miniapp_users = bot_users
-    nu_accounts = (await session.execute(select(func.count()).select_from(User).where(User.is_verified == True))).scalar() or 0
-    blocked_users = (await session.execute(select(func.count()).select_from(User).where(User.is_blocked == True))).scalar() or 0
+    nu_accounts = (
+        await session.execute(
+            select(func.count()).select_from(User).where(User.is_verified == True)
+        )
+    ).scalar() or 0
+    blocked_users = (
+        await session.execute(
+            select(func.count()).select_from(User).where(User.is_blocked == True)
+        )
+    ).scalar() or 0
 
     return AdminStatsResponse(
         total_bot_users=bot_users,
@@ -274,13 +312,17 @@ def _connected_group_item(chat: Chat) -> ConnectedGroupItem:
         invite_link=chat.invite_link,
         member_count=chat.member_count,
         connected_at=chat.connected_at.isoformat() if chat.connected_at else None,
-        last_activity_at=chat.last_activity_at.isoformat() if chat.last_activity_at else None,
+        last_activity_at=chat.last_activity_at.isoformat()
+        if chat.last_activity_at
+        else None,
         removed_at=chat.removed_at.isoformat() if chat.removed_at else None,
         registration_status=chat.registration_status,
         status=connected_group_status(chat),
         permissions=permissions,
         categories_selected=chat.categories_selected,
-        dashboard_message_id=chat.dashboard_message.message_id if chat.dashboard_message else None,
+        dashboard_message_id=chat.dashboard_message.message_id
+        if chat.dashboard_message
+        else None,
         setup_message_id=chat.setup_message_id,
     )
 
@@ -294,6 +336,7 @@ def _current_bot_id() -> int | None:
     except ValueError:
         return None
 
+
 # prevent a user from auth-protected actions
 @router.post("/users/block", response_model=ActionResponse)
 async def block_user(
@@ -301,13 +344,20 @@ async def block_user(
     admin: User = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ) -> ActionResponse:
-    await check_rate_limit(f"rate:user:{admin.id}:admin_action", 20, 3600, "Too many admin actions. Try again later.")
-    user = (await session.execute(select(User).where(User.email == payload.email))).scalar_one_or_none()
+    await check_rate_limit(
+        f"rate:user:{admin.id}:admin_action",
+        20,
+        3600,
+        "Too many admin actions. Try again later.",
+    )
+    user = (
+        await session.execute(select(User).where(User.email == payload.email))
+    ).scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     if user.role == "admin":
         raise HTTPException(status_code=403, detail="Admins cannot block other admins")
-    
+
     user.is_blocked = True
     user.blocked_reason = payload.reason
     user.blocked_at = datetime.now(UTC)
@@ -318,11 +368,14 @@ async def block_user(
         action="block_user",
         target_type="user",
         target_id=str(user.id),
-        metadata_json={"reason": payload.reason, "email": payload.email}
+        metadata_json={"reason": payload.reason, "email": payload.email},
     )
     session.add(audit_log)
     await session.commit()
-    return ActionResponse(ok=True, message=f"User {payload.email} blocked successfully.")
+    return ActionResponse(
+        ok=True, message=f"User {payload.email} blocked successfully."
+    )
+
 
 # restore a blocked user account
 @router.post("/users/unblock", response_model=ActionResponse)
@@ -331,11 +384,18 @@ async def unblock_user(
     admin: User = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ) -> ActionResponse:
-    await check_rate_limit(f"rate:user:{admin.id}:admin_action", 20, 3600, "Too many admin actions. Try again later.")
-    user = (await session.execute(select(User).where(User.email == payload.email))).scalar_one_or_none()
+    await check_rate_limit(
+        f"rate:user:{admin.id}:admin_action",
+        20,
+        3600,
+        "Too many admin actions. Try again later.",
+    )
+    user = (
+        await session.execute(select(User).where(User.email == payload.email))
+    ).scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    
+
     user.is_blocked = False
     user.blocked_reason = None
     user.blocked_at = None
@@ -346,11 +406,14 @@ async def unblock_user(
         action="unblock_user",
         target_type="user",
         target_id=str(user.id),
-        metadata_json={"email": payload.email}
+        metadata_json={"email": payload.email},
     )
     session.add(audit_log)
     await session.commit()
-    return ActionResponse(ok=True, message=f"User {payload.email} unblocked successfully.")
+    return ActionResponse(
+        ok=True, message=f"User {payload.email} unblocked successfully."
+    )
+
 
 # list verified users for admin search
 @router.get("/users", response_model=list[AdminUserItem])
@@ -361,7 +424,9 @@ async def list_users(
     admin: User = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ) -> list[AdminUserItem]:
-    stmt = select(User).order_by(User.last_active_at.desc().nullslast(), User.created_at.desc())
+    stmt = select(User).order_by(
+        User.last_active_at.desc().nullslast(), User.created_at.desc()
+    )
     if q:
         needle = f"%{q.strip()}%"
         stmt = stmt.where(
@@ -377,7 +442,7 @@ async def list_users(
         )
     stmt = stmt.limit(limit).offset(offset)
     users = (await session.execute(stmt)).scalars().all()
-    
+
     settings = get_settings()
     return [
         AdminUserItem(
@@ -393,8 +458,9 @@ async def list_users(
             is_verified=u.is_verified,
             is_blocked=u.is_blocked,
             registered_date=u.created_at.isoformat(),
-            last_active_date=u.last_active_at.isoformat() if u.last_active_at else None
-        ) for u in users
+            last_active_date=u.last_active_at.isoformat() if u.last_active_at else None,
+        )
+        for u in users
     ]
 
 
@@ -406,9 +472,14 @@ async def list_audit_logs(
     admin: User = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ) -> list[AuditLogItem]:
-    stmt = select(AuditLog).order_by(AuditLog.created_at.desc()).limit(limit).offset(offset)
+    stmt = (
+        select(AuditLog)
+        .order_by(AuditLog.created_at.desc())
+        .limit(limit)
+        .offset(offset)
+    )
     logs = (await session.execute(stmt)).scalars().all()
-    
+
     return [
         AuditLogItem(
             id=log.id,
@@ -417,6 +488,7 @@ async def list_audit_logs(
             target_type=log.target_type,
             target_id=log.target_id,
             created_at=log.created_at.isoformat(),
-            metadata_json=log.metadata_json
-        ) for log in logs
+            metadata_json=log.metadata_json,
+        )
+        for log in logs
     ]

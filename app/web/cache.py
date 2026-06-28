@@ -25,7 +25,9 @@ class TTLCache:
         if self.max_items is not None and len(self._items) >= self.max_items:
             self._evict_expired()
             if len(self._items) >= self.max_items:
-                oldest_key = min(self._items, key=lambda item_key: self._items[item_key][0])
+                oldest_key = min(
+                    self._items, key=lambda item_key: self._items[item_key][0]
+                )
                 self._items.pop(oldest_key, None)
         self._items[key] = (time.time() + self.ttl_seconds, value)
 
@@ -34,6 +36,8 @@ class TTLCache:
 
     def _evict_expired(self) -> None:
         now = time.time()
-        expired = [key for key, (expires_at, _) in self._items.items() if expires_at <= now]
+        expired = [
+            key for key, (expires_at, _) in self._items.items() if expires_at <= now
+        ]
         for key in expired:
             self._items.pop(key, None)

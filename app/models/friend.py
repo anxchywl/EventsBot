@@ -36,7 +36,9 @@ class Friendship(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
-    friend_user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    friend_user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE")
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -64,16 +66,36 @@ class FriendRequest(TimestampMixin, Base):
             postgresql_where=text("status = 'pending'"),
             sqlite_where=text("status = 'pending'"),
         ),
-        Index("ix_friend_requests_recipient_status", "recipient_id", "status", "created_at"),
-        Index("ix_friend_requests_requester_status", "requester_id", "status", "created_at"),
+        Index(
+            "ix_friend_requests_recipient_status",
+            "recipient_id",
+            "status",
+            "created_at",
+        ),
+        Index(
+            "ix_friend_requests_requester_status",
+            "requester_id",
+            "status",
+            "created_at",
+        ),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
-    requester_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
-    recipient_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
-    invite_id: Mapped[int | None] = mapped_column(ForeignKey("friend_invites.id", ondelete="SET NULL"))
-    status: Mapped[str] = mapped_column(String(16), default="pending", server_default="pending")
-    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    requester_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE")
+    )
+    recipient_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE")
+    )
+    invite_id: Mapped[int | None] = mapped_column(
+        ForeignKey("friend_invites.id", ondelete="SET NULL")
+    )
+    status: Mapped[str] = mapped_column(
+        String(16), default="pending", server_default="pending"
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
     responded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     requester: Mapped[User] = relationship(foreign_keys=[requester_id])
@@ -85,7 +107,9 @@ class FriendRequest(TimestampMixin, Base):
 class FriendInvite(TimestampMixin, Base):
     __tablename__ = "friend_invites"
     __table_args__ = (
-        CheckConstraint("status IN ('active', 'revoked', 'expired')", name="friend_invite_status"),
+        CheckConstraint(
+            "status IN ('active', 'revoked', 'expired')", name="friend_invite_status"
+        ),
         UniqueConstraint("token_hash", name="uq_friend_invites_token_hash"),
         Index("ix_friend_invites_owner_status", "owner_id", "status", "expires_at"),
     )
@@ -93,8 +117,12 @@ class FriendInvite(TimestampMixin, Base):
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
     owner_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     token_hash: Mapped[str] = mapped_column(String(64), nullable=False)
-    status: Mapped[str] = mapped_column(String(16), default="active", server_default="active")
-    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(16), default="active", server_default="active"
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     owner: Mapped[User] = relationship(foreign_keys=[owner_id])
@@ -104,14 +132,20 @@ class FriendInvite(TimestampMixin, Base):
 # store friend visibility and contact preferences
 class PrivacySettings(TimestampMixin, Base):
     __tablename__ = "privacy_settings"
-    __table_args__ = (
-        UniqueConstraint("user_id", name="uq_privacy_settings_user_id"),
-    )
+    __table_args__ = (UniqueConstraint("user_id", name="uq_privacy_settings_user_id"),)
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
-    show_favorites_to_friends: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
-    show_profile_to_friends: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
-    allow_friend_requests: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    show_favorites_to_friends: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="true"
+    )
+    show_profile_to_friends: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="true"
+    )
+    allow_friend_requests: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="true"
+    )
 
-    user: Mapped[User] = relationship(back_populates="privacy_settings", foreign_keys=[user_id])
+    user: Mapped[User] = relationship(
+        back_populates="privacy_settings", foreign_keys=[user_id]
+    )

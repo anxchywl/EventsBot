@@ -89,12 +89,12 @@ async def send_main_menu(
             await message.bot.set_chat_menu_button(
                 chat_id=message.chat.id,
                 menu_button=MenuButtonWebApp(
-                    text="Launch App",
-                    web_app=WebAppInfo(url=settings.miniapp_base_url)
-                )
+                    text="Launch App", web_app=WebAppInfo(url=settings.miniapp_base_url)
+                ),
             )
         except Exception as e:
             import logging
+
             logging.error(f"Failed to set default chat menu button: {e}")
 
     # send the main menu with admin controls when allowed
@@ -134,16 +134,18 @@ async def process_start_menu(
             await callback.bot.set_chat_menu_button(
                 chat_id=callback.message.chat.id,
                 menu_button=MenuButtonWebApp(
-                    text="Launch App",
-                    web_app=WebAppInfo(url=settings.miniapp_base_url)
-                )
+                    text="Launch App", web_app=WebAppInfo(url=settings.miniapp_base_url)
+                ),
             )
         except Exception as e:
             import logging
+
             logging.error(f"Failed to set default chat menu button: {e}")
 
     # delete the old welcome message and any stateful menu messages first
-    await _cleanup_menu_messages(callback.message, state, extra_ids=[callback.message.message_id])
+    await _cleanup_menu_messages(
+        callback.message, state, extra_ids=[callback.message.message_id]
+    )
     await state.clear()
 
     await send_main_menu(callback.message, session, state)
@@ -224,7 +226,9 @@ async def cleanup_main_menu_warnings(message: Message, state: FSMContext) -> Non
     MainMenuActiveFilter(),
     F.chat.type == "private",
     F.text,
-    ~F.text.in_({"Create Event", "My Events", "Admin Panel", "⚙️ Admin Panel", "Back to Menu"}),
+    ~F.text.in_(
+        {"Create Event", "My Events", "Admin Panel", "⚙️ Admin Panel", "Back to Menu"}
+    ),
 )
 # handle main menu unknown text
 async def handle_main_menu_unknown_text(

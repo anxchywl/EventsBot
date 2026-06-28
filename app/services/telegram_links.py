@@ -127,7 +127,11 @@ def is_public_https_url(url: str | None) -> bool:
 # create telegram share url with optional target link
 def build_telegram_share_link(*, url: str, text: str | None = None) -> str:
     if not url:
-        return f"https://t.me/share/url?text={quote_plus(text)}" if text else "https://t.me/share/url"
+        return (
+            f"https://t.me/share/url?text={quote_plus(text)}"
+            if text
+            else "https://t.me/share/url"
+        )
     share_url = f"https://t.me/share/url?url={quote_plus(url)}"
     if text:
         share_url += f"&text={quote_plus(text)}"

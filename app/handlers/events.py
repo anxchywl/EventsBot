@@ -114,6 +114,8 @@ async def cmd_favorites(message: Message, session: AsyncSession, bot: Bot):
         )
         time_str = event.event_time.strftime("%H:%M")
         date_str = event.event_date.strftime("%b %d")
-        lines.append(f"• {date_str} {time_str} — {title}, {html.escape(event.location)}")
+        lines.append(
+            f"• {date_str} {time_str} — {title}, {html.escape(event.location)}"
+        )
 
     await message.answer("\n".join(lines), parse_mode="HTML")

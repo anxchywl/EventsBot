@@ -210,9 +210,7 @@ async def process_categories_done(
         from collections import namedtuple
 
         CatProxy = namedtuple("CatProxy", ["id", "name"])
-        categories = [
-            CatProxy(id=c["id"], name=c["name"]) for c in all_categories
-        ]
+        categories = [CatProxy(id=c["id"], name=c["name"]) for c in all_categories]
         await save_category_selection(session, chat_id, enabled_ids, categories)
 
         await session.commit()
@@ -226,7 +224,7 @@ async def process_categories_done(
             chat = await session.get(Chat, chat_id)
             if chat:
                 chat.categories_selected = True
-                
+
                 if chat.setup_message_id:
                     try:
                         await bot.delete_message(
@@ -236,16 +234,19 @@ async def process_categories_done(
                     except Exception as e:
                         logger.warning(f"failed to delete setup message: {e}")
                     chat.setup_message_id = None
-                
+
                 await session.commit()
 
                 # automatically create or update the dashboard immediately
-                await create_or_update_dashboard_message(session=session, bot=bot, chat=chat)
+                await create_or_update_dashboard_message(
+                    session=session, bot=bot, chat=chat
+                )
                 await session.commit()
 
             # signal dashboard bus to refresh this chat just in case
             try:
                 from app.services.dashboard_bus import get_bus
+
                 get_bus().schedule_refresh({chat_id})
             except Exception:
                 pass

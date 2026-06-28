@@ -27,7 +27,9 @@ class _LimitedBytesIO(BytesIO):
 
     def write(self, data: bytes) -> int:
         if self.tell() + len(data) > self._max_size_bytes:
-            raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "File is too large to cache")
+            raise HTTPException(
+                status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "File is too large to cache"
+            )
         return super().write(data)
 
 
@@ -37,7 +39,12 @@ async def event_cover(
     request: Request,
     session: AsyncSession = Depends(get_session),
 ) -> StreamingResponse:
-    await check_rate_limit(f"rate:ip:{get_real_ip(request)}:cover_media", 60, 60, "Too many media requests. Try again later.")
+    await check_rate_limit(
+        f"rate:ip:{get_real_ip(request)}:cover_media",
+        60,
+        60,
+        "Too many media requests. Try again later.",
+    )
     public_token = validate_public_token(public_token)
     event = await get_available_event_by_public_token(session, public_token)
     if not event or not event.poster_file_id:
@@ -49,13 +56,22 @@ async def event_cover(
     try:
         cached = await get_media_redis().get(redis_key)
         if cached is not None:
-            return _media_response(cached, max_age=settings.media_cover_cache_ttl, immutable=True, public=True)
+            return _media_response(
+                cached,
+                max_age=settings.media_cover_cache_ttl,
+                immutable=True,
+                public=True,
+            )
     except Exception:
         pass
 
-    raw = await _download_raw(event.poster_file_id, "Cover", settings.media_max_upload_bytes)
+    raw = await _download_raw(
+        event.poster_file_id, "Cover", settings.media_max_upload_bytes
+    )
     try:
-        webp = process_image(raw, max_px=800, max_size_bytes=settings.media_max_upload_bytes)
+        webp = process_image(
+            raw, max_px=800, max_size_bytes=settings.media_max_upload_bytes
+        )
     except ValueError:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Invalid image")
 
@@ -64,7 +80,9 @@ async def event_cover(
     except Exception:
         pass
 
-    return _media_response(webp, max_age=settings.media_cover_cache_ttl, immutable=True, public=True)
+    return _media_response(
+        webp, max_age=settings.media_cover_cache_ttl, immutable=True, public=True
+    )
 
 
 @router.get("/avatar/{telegram_id}")
@@ -74,7 +92,12 @@ async def user_avatar(
     v: str = Query("", max_length=128),
     miniapp_user: MiniAppUser = Depends(require_current_miniapp_user),
 ) -> StreamingResponse:
-    await check_rate_limit(f"rate:ip:{get_real_ip(request)}:avatar_media", 60, 60, "Too many media requests. Try again later.")
+    await check_rate_limit(
+        f"rate:ip:{get_real_ip(request)}:avatar_media",
+        60,
+        60,
+        "Too many media requests. Try again later.",
+    )
     if telegram_id <= 0 or telegram_id != miniapp_user.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Avatar not found")
 
@@ -84,12 +107,16 @@ async def user_avatar(
     try:
         cached = await get_media_redis().get(redis_key)
         if cached is not None:
-            return _media_response(cached, max_age=settings.media_avatar_cache_ttl, public=False)
+            return _media_response(
+                cached, max_age=settings.media_avatar_cache_ttl, public=False
+            )
     except Exception:
         pass
 
     try:
-        photos = await get_web_bot().get_user_profile_photos(user_id=telegram_id, limit=1)
+        photos = await get_web_bot().get_user_profile_photos(
+            user_id=telegram_id, limit=1
+        )
         if not photos or photos.total_count == 0:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "No profile photos found")
         photo = photos.photos[0][0]
@@ -107,7 +134,9 @@ async def user_avatar(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Avatar fetch failed")
 
     try:
-        webp = process_image(raw, max_px=100, max_size_bytes=settings.media_max_upload_bytes)
+        webp = process_image(
+            raw, max_px=100, max_size_bytes=settings.media_max_upload_bytes
+        )
     except ValueError:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Avatar not found")
 
@@ -126,7 +155,10 @@ async def _download_raw(file_id: str, label: str, max_size_bytes: int) -> bytes:
         if not file.file_path:
             raise HTTPException(status.HTTP_404_NOT_FOUND, f"{label} not found")
         if file.file_size and file.file_size > max_size_bytes:
-            raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, f"{label} is too large to cache")
+            raise HTTPException(
+                status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                f"{label} is too large to cache",
+            )
         buffer = _LimitedBytesIO(max_size_bytes)
         await bot.download_file(file.file_path, destination=buffer)
         return buffer.getvalue()
@@ -136,7 +168,9 @@ async def _download_raw(file_id: str, label: str, max_size_bytes: int) -> bytes:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"{label} fetch failed")
 
 
-def _media_response(data: bytes, *, max_age: int, immutable: bool = False, public: bool = True) -> StreamingResponse:
+def _media_response(
+    data: bytes, *, max_age: int, immutable: bool = False, public: bool = True
+) -> StreamingResponse:
     cache_control = f"{'public' if public else 'private'}, max-age={max_age}"
     if immutable:
         cache_control = f"{cache_control}, immutable"

@@ -47,10 +47,14 @@ def verify_init_data(init_data: str) -> MiniAppUser:
     try:
         pairs = parse_qsl(init_data, keep_blank_values=True, strict_parsing=True)
     except ValueError as exc:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid Telegram initData") from exc
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED, "Invalid Telegram initData"
+        ) from exc
     for key, value in pairs:
         if key in values:
-            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid Telegram initData")
+            raise HTTPException(
+                status.HTTP_401_UNAUTHORIZED, "Invalid Telegram initData"
+            )
         values[key] = value
 
     received_hash = values.pop("hash", None)
@@ -77,7 +81,9 @@ def verify_init_data(init_data: str) -> MiniAppUser:
     try:
         auth_date = int(values.get("auth_date", "0") or "0")
     except ValueError as exc:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid Telegram initData") from exc
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED, "Invalid Telegram initData"
+        ) from exc
 
     now = int(time.time())
     if (
@@ -95,7 +101,9 @@ def verify_init_data(init_data: str) -> MiniAppUser:
         user_data = json.loads(raw_user)
         telegram_id = int(user_data["id"])
     except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid Telegram user") from exc
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED, "Invalid Telegram user"
+        ) from exc
 
     if telegram_id <= 0 or bool(user_data.get("is_bot", False)):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid Telegram user")
@@ -176,7 +184,13 @@ def verify_session_token(token: str) -> MiniAppUser:
         telegram_id = int(payload["telegram_id"])
         exp = int(payload.get("exp", 0))
         nbf = int(payload.get("nbf", 0) or 0)
-    except (KeyError, TypeError, ValueError, BinasciiError, json.JSONDecodeError) as exc:
+    except (
+        KeyError,
+        TypeError,
+        ValueError,
+        BinasciiError,
+        json.JSONDecodeError,
+    ) as exc:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid session") from exc
 
     now = int(time.time())
@@ -277,6 +291,7 @@ async def upsert_miniapp_user(session: AsyncSession, miniapp_user: MiniAppUser) 
         session.add(user)
 
     from app.config import get_settings
+
     settings = get_settings()
     if miniapp_user.id in settings.admin_ids:
         user.role = "admin"
@@ -335,7 +350,9 @@ def _pad_b64(value: str) -> bytes:
 def _session_signing_key() -> bytes:
     settings = get_settings()
     if settings.session_secret is None:
-        raise RuntimeError("SESSION_SECRET must be set — do not leave session signing unkeyed")
+        raise RuntimeError(
+            "SESSION_SECRET must be set — do not leave session signing unkeyed"
+        )
     return settings.session_secret.get_secret_value().encode()
 
 
@@ -364,6 +381,7 @@ async def require_verified_user(
 ) -> User:
     user = await upsert_miniapp_user(session, miniapp_user)
     from app.config import get_settings
+
     settings = get_settings()
     is_admin = miniapp_user.id in settings.admin_ids
     if user.is_blocked and not is_admin:
@@ -381,6 +399,7 @@ async def require_verified_user(
     await session.commit()
     return user
 
+
 # allow blocked users only where logout/history still need access
 async def require_verified_user_allow_blocked(
     miniapp_user: MiniAppUser = Depends(require_current_miniapp_user),
@@ -388,6 +407,7 @@ async def require_verified_user_allow_blocked(
 ) -> User:
     user = await upsert_miniapp_user(session, miniapp_user)
     from app.config import get_settings
+
     settings = get_settings()
     is_admin = miniapp_user.id in settings.admin_ids
     if not user.is_verified and not is_admin:
@@ -399,6 +419,7 @@ async def require_verified_user_allow_blocked(
     user.last_active_at = datetime.now(UTC)
     await session.commit()
     return user
+
 
 # guard moderation endpoints by elevated role
 async def require_admin_or_moderator(
@@ -414,6 +435,7 @@ async def require_admin_or_moderator(
         )
     await session.commit()
     return user
+
 
 # guard admin-only endpoints
 async def require_admin(

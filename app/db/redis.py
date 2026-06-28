@@ -10,6 +10,7 @@ def get_redis() -> aioredis.Redis:
     global _client
     if _client is None:
         from app.config import get_settings
+
         _client = aioredis.from_url(
             get_settings().redis_url,
             encoding="utf-8",
@@ -30,6 +31,7 @@ def get_media_redis() -> aioredis.Redis:
     global _media_client
     if _media_client is None:
         from app.config import get_settings
+
         _media_client = aioredis.from_url(
             get_settings().redis_url,
             decode_responses=False,

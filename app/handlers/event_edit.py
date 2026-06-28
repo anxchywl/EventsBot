@@ -16,7 +16,11 @@ from app.handlers.message_cleanup import delete_messages_fast
 from app.models.enums import EventStatus, ModerationAction
 from app.models.event import Event
 from app.models.moderation import ModerationLog
-from app.services.events import get_event_by_id, cleanup_previous_drafts, replace_pending_drafts_for_parent
+from app.services.events import (
+    get_event_by_id,
+    cleanup_previous_drafts,
+    replace_pending_drafts_for_parent,
+)
 from app.services.event_sync import (
     acquire_event_lock,
     capture_event_snapshot,
@@ -114,6 +118,7 @@ async def start_edit_event(
         return
 
     from app.config import get_settings
+
     settings = get_settings()
     user_id = source.from_user.id
     if event.creator_user_id != user_id and user_id not in settings.admin_ids:
@@ -188,7 +193,9 @@ async def show_edit_menu(
 
     text = "Select a field to edit, or submit the update when you're done."
 
-    use_reply_keyboard = use_reply_keyboard or data.get("edit_use_reply_keyboard", False)
+    use_reply_keyboard = use_reply_keyboard or data.get(
+        "edit_use_reply_keyboard", False
+    )
     if use_reply_keyboard:
         builder = ReplyKeyboardBuilder()
         builder.button(text="Title")
@@ -214,7 +221,9 @@ async def show_edit_menu(
         builder.button(text="Location", callback_data="edit_field_location")
         builder.button(text="Organizer", callback_data="edit_field_organizer")
         builder.button(text="Poster", callback_data="edit_field_poster")
-        builder.button(text="Registration Link", callback_data="edit_field_registration_link")
+        builder.button(
+            text="Registration Link", callback_data="edit_field_registration_link"
+        )
         builder.button(text="Submit Update", callback_data="edit_submit")
         builder.button(text="Back to Event", callback_data="edit_cancel")
         builder.adjust(1)
@@ -231,7 +240,9 @@ async def show_edit_menu(
 # routes the selected field to its edit state via callback or reply keyboard
 # process edit field choice
 @router.callback_query(EventEdit.choosing_field, F.data.startswith("edit_field_"))
-async def process_edit_field_choice(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
+async def process_edit_field_choice(
+    callback: CallbackQuery, state: FSMContext, session: AsyncSession
+):
     await _process_edit_field_choice(
         callback.data.split("_")[2],
         callback.message,
@@ -244,26 +255,33 @@ async def process_edit_field_choice(callback: CallbackQuery, state: FSMContext, 
 
 # cancel edit from any state
 @router.message(F.text == "Back to Event")
-async def cancel_edit_from_any_state(message: Message, state: FSMContext, session: AsyncSession):
+async def cancel_edit_from_any_state(
+    message: Message, state: FSMContext, session: AsyncSession
+):
     current_state = await state.get_state()
     if not current_state or not current_state.startswith("EventEdit"):
         return
     return await _back_to_event_from_message(message, state, session)
 
 
-@router.message(StateFilter(EventEdit.choosing_field), F.text.in_([
-    "Title",
-    "Description",
-    "Category",
-    "Date",
-    "Time",
-    "Location",
-    "Organizer",
-    "Poster",
-    "Registration Link",
-    "Submit Update",
-    "Back to Event",
-]))
+@router.message(
+    StateFilter(EventEdit.choosing_field),
+    F.text.in_(
+        [
+            "Title",
+            "Description",
+            "Category",
+            "Date",
+            "Time",
+            "Location",
+            "Organizer",
+            "Poster",
+            "Registration Link",
+            "Submit Update",
+            "Back to Event",
+        ]
+    ),
+)
 # process edit field choice text
 async def process_edit_field_choice_text(
     message: Message, state: FSMContext, session: AsyncSession
@@ -284,7 +302,9 @@ async def process_edit_field_choice_text(
 @router.message(StateFilter(EventEdit.choosing_field))
 async def invalid_choosing_field_edit(message: Message, state: FSMContext):
     await _record_temp_edit_message(state, message)
-    sent = await message.answer("Please use the panels/keyboard to select an option. There is no such option as you wrote.")
+    sent = await message.answer(
+        "Please use the panels/keyboard to select an option. There is no such option as you wrote."
+    )
     await _record_temp_edit_message(state, sent)
 
 
@@ -314,9 +334,10 @@ async def _process_edit_field_choice(
         # delete temporary wrong inputs and warnings from the previous steps
         await _delete_temp_edit_messages(state, message.bot, message.chat.id)
         await state.set_state(next_state)
-        
+
         if field == "category":
             from app.services.events import get_active_categories
+
             categories = await get_active_categories(session)
             builder = ReplyKeyboardBuilder()
             for cat in categories:
@@ -326,7 +347,9 @@ async def _process_edit_field_choice(
 
             prompt = "Please choose a new category for the event:"
             if replace_menu_message:
-                await delete_messages_fast(message.bot, message.chat.id, [message.message_id])
+                await delete_messages_fast(
+                    message.bot, message.chat.id, [message.message_id]
+                )
                 sent = await message.answer(
                     prompt,
                     reply_markup=builder.as_markup(resize_keyboard=True),
@@ -399,7 +422,9 @@ async def process_text_edit(message: Message, state: FSMContext):
         val = _parse_edit_date(message.text)
         if val is None:
             await _record_temp_edit_message(state, message)
-            sent = await message.answer("Invalid date. Use DD MM YYYY, for example 22 11 2026.")
+            sent = await message.answer(
+                "Invalid date. Use DD MM YYYY, for example 22 11 2026."
+            )
             await _record_temp_edit_message(state, sent)
             return
         if val < now.date():
@@ -409,7 +434,9 @@ async def process_text_edit(message: Message, state: FSMContext):
             return
         if val > now.date() + timedelta(days=365):
             await _record_temp_edit_message(state, message)
-            sent = await message.answer("Date cannot be more than 1 year in the future.")
+            sent = await message.answer(
+                "Date cannot be more than 1 year in the future."
+            )
             await _record_temp_edit_message(state, sent)
             return
         await state.update_data(event_date=val.isoformat())
@@ -460,14 +487,18 @@ async def process_text_edit(message: Message, state: FSMContext):
     elif field == "organizer":
         if len(message.text) > 100:
             await _record_temp_edit_message(state, message)
-            sent = await message.answer("Organizer name is too long. Max 100 characters.")
+            sent = await message.answer(
+                "Organizer name is too long. Max 100 characters."
+            )
             await _record_temp_edit_message(state, sent)
             return
         await state.update_data(organizer=message.text)
     elif field == "registration_link":
         if not _is_valid_url(message.text) or len(message.text) > 2048:
             await _record_temp_edit_message(state, message)
-            sent = await message.answer("Please send a valid URL that starts with http:// or https:// (max 2048 chars).")
+            sent = await message.answer(
+                "Please send a valid URL that starts with http:// or https:// (max 2048 chars)."
+            )
             await _record_temp_edit_message(state, sent)
             return
         await state.update_data(registration_url=message.text)
@@ -482,19 +513,24 @@ async def process_text_edit(message: Message, state: FSMContext):
 # validates and stores category edit
 # process category edit
 @router.message(StateFilter(EventEdit.editing_category))
-async def process_category_edit(message: Message, state: FSMContext, session: AsyncSession):
+async def process_category_edit(
+    message: Message, state: FSMContext, session: AsyncSession
+):
     await _record_edit_message(state, message)
 
     if message.text == "Back to Event":
         return await _back_to_event_from_message(message, state, session)
 
     from app.services.events import get_active_categories
+
     categories = await get_active_categories(session)
     category = next((c for c in categories if c.name == message.text), None)
 
     if not category:
         await _record_temp_edit_message(state, message)
-        sent = await message.answer("Category not found. Please choose from the keyboard.")
+        sent = await message.answer(
+            "Category not found. Please choose from the keyboard."
+        )
         await _record_temp_edit_message(state, sent)
         return
 
@@ -534,7 +570,9 @@ async def process_poster_edit(message: Message, state: FSMContext):
 # cancels the edit workflow / back to event
 # cancel edit
 @router.callback_query(EventEdit.choosing_field, F.data == "edit_cancel")
-async def cancel_edit(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
+async def cancel_edit(
+    callback: CallbackQuery, state: FSMContext, session: AsyncSession
+):
     data = await state.get_data()
     event_id = data.get("original_event_id")
     if event_id:
@@ -543,20 +581,30 @@ async def cancel_edit(callback: CallbackQuery, state: FSMContext, session: Async
             await _delete_edit_messages(state, callback.bot, callback.message.chat.id)
             await state.set_state(None)
             keys_to_remove = [
-                "original_event_id", "category_id", "category_name", "title",
-                "description", "event_date", "event_time", "location",
-                "organizer", "poster_file_id", "registration_url",
-                "edit_use_reply_keyboard", "edit_bot_message_ids",
-                "edit_temp_message_ids"
+                "original_event_id",
+                "category_id",
+                "category_name",
+                "title",
+                "description",
+                "event_date",
+                "event_time",
+                "location",
+                "organizer",
+                "poster_file_id",
+                "registration_url",
+                "edit_use_reply_keyboard",
+                "edit_bot_message_ids",
+                "edit_temp_message_ids",
             ]
             for key in keys_to_remove:
                 data.pop(key, None)
             data["manage_event_id"] = event_id
             await state.set_data(data)
-            
+
             # edit the message back to the clean event card details
             import html
             from aiogram.utils.keyboard import InlineKeyboardBuilder
+
             safe_title = html.escape(event.title)
             safe_location = html.escape(event.location)
             safe_cat = html.escape(event.category.name)
@@ -566,7 +614,10 @@ async def cancel_edit(callback: CallbackQuery, state: FSMContext, session: Async
                 # clean up edit message and resend the admin panel manage event view
                 await callback.message.delete()
                 from app.handlers.admin_panel import _show_admin_manage_event
-                await _show_admin_manage_event(callback.message, session, state, event.id, is_callback=False)
+
+                await _show_admin_manage_event(
+                    callback.message, session, state, event.id, is_callback=False
+                )
                 await callback.answer()
                 return
 
@@ -588,7 +639,9 @@ async def cancel_edit(callback: CallbackQuery, state: FSMContext, session: Async
             builder.button(text="Back to My Events", callback_data="my_events_back")
             builder.adjust(1)
 
-            await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML")
+            await callback.message.edit_text(
+                text, reply_markup=builder.as_markup(), parse_mode="HTML"
+            )
             await callback.answer()
             return
 
@@ -610,18 +663,20 @@ async def _record_edit_message(state: FSMContext, message: Message) -> None:
 # record temp edit message
 async def _record_temp_edit_message(state: FSMContext, message: Message) -> None:
     data = await state.get_data()
-    
+
     # record in general bot message list
     message_ids = list(data.get("edit_bot_message_ids", []))
     if message.message_id not in message_ids:
         message_ids.append(message.message_id)
-        
+
     # record in temp/wrong messages list
     temp_ids = list(data.get("edit_temp_message_ids", []))
     if message.message_id not in temp_ids:
         temp_ids.append(message.message_id)
-        
-    await state.update_data(edit_bot_message_ids=message_ids, edit_temp_message_ids=temp_ids)
+
+    await state.update_data(
+        edit_bot_message_ids=message_ids, edit_temp_message_ids=temp_ids
+    )
 
 
 # delete temp edit messages
@@ -646,6 +701,7 @@ async def _delete_edit_messages(state: FSMContext, bot, chat_id: int) -> None:
 
 def _is_valid_url(value: str) -> bool:
     from urllib.parse import urlparse
+
     parsed = urlparse(value.strip())
     return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
 
@@ -684,11 +740,20 @@ async def _back_to_event_from_message(
         *(data.get("edit_bot_message_ids") or []),
     ]
     keys_to_remove = [
-        "original_event_id", "category_id", "category_name", "title",
-        "description", "event_date", "event_time", "location",
-        "organizer", "poster_file_id", "registration_url",
-        "edit_use_reply_keyboard", "edit_bot_message_ids",
-        "edit_temp_message_ids"
+        "original_event_id",
+        "category_id",
+        "category_name",
+        "title",
+        "description",
+        "event_date",
+        "event_time",
+        "location",
+        "organizer",
+        "poster_file_id",
+        "registration_url",
+        "edit_use_reply_keyboard",
+        "edit_bot_message_ids",
+        "edit_temp_message_ids",
     ]
     for key in keys_to_remove:
         data.pop(key, None)
@@ -700,11 +765,16 @@ async def _back_to_event_from_message(
     # resend the event page fresh so that the event-management keyboard is restored
     if data.get("is_admin_edit"):
         from app.handlers.admin_panel import _show_admin_manage_event
-        await _show_admin_manage_event(message, session, state, event_id, is_callback=False)
+
+        await _show_admin_manage_event(
+            message, session, state, event_id, is_callback=False
+        )
     else:
         from app.handlers.user_events import send_manage_event_message
-        await send_manage_event_message(message, event, state=state, cleanup_previous=False)
 
+        await send_manage_event_message(
+            message, event, state=state, cleanup_previous=False
+        )
 
 
 # perform submit edit
@@ -728,7 +798,7 @@ async def _perform_submit_edit(
         if not original_event:
             await message.answer("Event not found.")
             return
-            
+
         original_event.title = data["title"]
         original_event.description = data["description"]
         original_event.event_date = event_date
@@ -757,21 +827,26 @@ async def _perform_submit_edit(
         )
         await session.commit()
         await state.set_state(None)
-        
+
         # clear edit state but keep admin edit active
-        await state.set_data({
-            "is_admin_edit": True,
-            "admin_active_events_mode": True,
-            "manage_event_id": original_event_id,
-            "my_events_choose_msg_id": data.get("my_events_choose_msg_id"),
-            "my_events_selection_msg_id": data.get("my_events_selection_msg_id"),
-            "my_events_cmd_msg_id": data.get("my_events_cmd_msg_id")
-        })
-        
+        await state.set_data(
+            {
+                "is_admin_edit": True,
+                "admin_active_events_mode": True,
+                "manage_event_id": original_event_id,
+                "my_events_choose_msg_id": data.get("my_events_choose_msg_id"),
+                "my_events_selection_msg_id": data.get("my_events_selection_msg_id"),
+                "my_events_cmd_msg_id": data.get("my_events_cmd_msg_id"),
+            }
+        )
+
         await message.answer("✅ Event updated immediately (Admin mode).")
-        
+
         from app.handlers.admin_panel import _show_admin_manage_event
-        await _show_admin_manage_event(message, session, state, original_event_id, is_callback=False)
+
+        await _show_admin_manage_event(
+            message, session, state, original_event_id, is_callback=False
+        )
         return
 
     draft = Event(
@@ -815,6 +890,7 @@ async def _perform_submit_edit(
     await state.clear()
     await message.answer("Update submitted for moderation.")
     from app.handlers.start import send_main_menu
+
     await send_main_menu(message, session)
 
 
@@ -843,7 +919,7 @@ async def submit_edit(
         if not original_event:
             await callback.answer("Event not found.", show_alert=True)
             return
-            
+
         original_event.title = data["title"]
         original_event.description = data["description"]
         original_event.event_date = event_date
@@ -872,22 +948,27 @@ async def submit_edit(
         )
         await session.commit()
         await state.set_state(None)
-        
+
         # clear edit state but keep admin edit active
-        await state.set_data({
-            "is_admin_edit": True,
-            "admin_active_events_mode": True,
-            "manage_event_id": original_event_id,
-            "my_events_choose_msg_id": data.get("my_events_choose_msg_id"),
-            "my_events_selection_msg_id": data.get("my_events_selection_msg_id"),
-            "my_events_cmd_msg_id": data.get("my_events_cmd_msg_id")
-        })
-        
+        await state.set_data(
+            {
+                "is_admin_edit": True,
+                "admin_active_events_mode": True,
+                "manage_event_id": original_event_id,
+                "my_events_choose_msg_id": data.get("my_events_choose_msg_id"),
+                "my_events_selection_msg_id": data.get("my_events_selection_msg_id"),
+                "my_events_cmd_msg_id": data.get("my_events_cmd_msg_id"),
+            }
+        )
+
         await callback.message.answer("✅ Event updated immediately (Admin mode).")
         await callback.answer()
-        
+
         from app.handlers.admin_panel import _show_admin_manage_event
-        await _show_admin_manage_event(callback.message, session, state, original_event_id, is_callback=False)
+
+        await _show_admin_manage_event(
+            callback.message, session, state, original_event_id, is_callback=False
+        )
         return
 
     # create the draft event
@@ -934,4 +1015,5 @@ async def submit_edit(
     await callback.message.answer("Your update has been submitted for moderation.")
     await callback.answer()
     from app.handlers.start import send_main_menu
+
     await send_main_menu(callback.message, session)

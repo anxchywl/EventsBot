@@ -25,7 +25,9 @@ async def check_rate_limit(
     if results[2] < 0:
         await r.expire(key, window_seconds)
     if count > limit:
-        logger.warning("rate_limit_exceeded key=%s limit=%d window=%d", key, limit, window_seconds)
+        logger.warning(
+            "rate_limit_exceeded key=%s limit=%d window=%d", key, limit, window_seconds
+        )
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail={"detail": detail, "retry_after": window_seconds},

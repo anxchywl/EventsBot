@@ -40,10 +40,12 @@ STATIC_DIR = Path(__file__).parent / "static"
 
 from contextlib import asynccontextmanager
 
+
 # open and close shared web resources around app lifetime
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     from app.web.sync_listener import start_event_cache_invalidation_listener
+
     app.state.event_cache_listener_task = start_event_cache_invalidation_listener()
     yield
     task = getattr(app.state, "event_cache_listener_task", None)
@@ -57,8 +59,8 @@ async def lifespan(app: FastAPI):
 web_app = FastAPI(
     title="Events Bot Mini App",
     lifespan=lifespan,
-    docs_url=None,     # disable swagger ui in production
-    redoc_url=None,    # disable redoc in production
+    docs_url=None,  # disable swagger ui in production
+    redoc_url=None,  # disable redoc in production
     openapi_url=None,  # disable openapi schema endpoint
 )
 web_app.add_middleware(
@@ -66,7 +68,13 @@ web_app.add_middleware(
     allow_origins=["https://web.telegram.org", "https://k.snek.sh"],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "X-Telegram-Init-Data", "X-Language", "X-Theme"],
+    allow_headers=[
+        "Authorization",
+        "Content-Type",
+        "X-Telegram-Init-Data",
+        "X-Language",
+        "X-Theme",
+    ],
 )
 web_app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 web_app.include_router(events_router)
@@ -84,17 +92,21 @@ web_app.include_router(admin_router)
 @web_app.middleware("http")
 async def security_headers(request: Request, call_next):
     response = await call_next(request)
-    
+
     # restrict framing to telegram clients
     response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-    response.headers["Content-Security-Policy"] = "frame-ancestors https://*.telegram.org https://*.telegram.me;"
+    response.headers["Strict-Transport-Security"] = (
+        "max-age=31536000; includeSubDomains"
+    )
+    response.headers["Content-Security-Policy"] = (
+        "frame-ancestors https://*.telegram.org https://*.telegram.me;"
+    )
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-    
+
     # cache static assets aggressively after versioned urls
     if request.url.path.startswith("/static/"):
         response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
-        
+
     return response
 
 
@@ -117,7 +129,9 @@ async def rate_limit(request: Request, call_next):
     key = get_real_ip(request)
     if auth_header and auth_header.startswith("Bearer "):
         try:
-            miniapp_user = verify_session_token(auth_header.removeprefix("Bearer ").strip())
+            miniapp_user = verify_session_token(
+                auth_header.removeprefix("Bearer ").strip()
+            )
             key = f"user:{miniapp_user.id}"
         except Exception:
             key = f"bad-auth:{sha256(auth_header.encode()).hexdigest()[:16]}"
@@ -128,24 +142,57 @@ async def rate_limit(request: Request, call_next):
 
         # endpoint-specific limits
         if path == "/api/auth/session":
-            await _rl(r, f"rate:ip:{key}:session", 30, 60, "Too many session requests. Try again later.")
+            await _rl(
+                r,
+                f"rate:ip:{key}:session",
+                30,
+                60,
+                "Too many session requests. Try again later.",
+            )
         elif path == "/api/auth/register":
-            await _rl(r, f"rate:ip:{key}:register", 5, 900,
-                      "Too many registration attempts. Please try again in 15 minutes.")
+            await _rl(
+                r,
+                f"rate:ip:{key}:register",
+                5,
+                900,
+                "Too many registration attempts. Please try again in 15 minutes.",
+            )
         elif path == "/api/auth/login":
-            await _rl(r, f"rate:ip:{key}:login", 5, 900,
-                      "Too many login attempts. Please try again in 15 minutes.")
+            await _rl(
+                r,
+                f"rate:ip:{key}:login",
+                5,
+                900,
+                "Too many login attempts. Please try again in 15 minutes.",
+            )
         elif path == "/api/auth/resend":
-            await _rl(r, f"rate:ip:{key}:resend", 3, 300,
-                      "Too many code resend requests. Please try again in 5 minutes.")
+            await _rl(
+                r,
+                f"rate:ip:{key}:resend",
+                3,
+                300,
+                "Too many code resend requests. Please try again in 5 minutes.",
+            )
         elif path == "/api/auth/verify":
-            await _rl(r, f"rate:ip:{key}:verify", 10, 300,
-                      "Too many verification attempts. Please try again in 5 minutes.")
+            await _rl(
+                r,
+                f"rate:ip:{key}:verify",
+                10,
+                300,
+                "Too many verification attempts. Please try again in 5 minutes.",
+            )
         elif path.startswith("/api/auth/forgot-password/"):
-            await _rl(r, f"rate:ip:{key}:fp", 10, 900, "Too many attempts. Try again later.")
+            await _rl(
+                r, f"rate:ip:{key}:fp", 10, 900, "Too many attempts. Try again later."
+            )
         elif path in {"/api/events/review-updates", "/api/events/updates"}:
-            await _rl(r, f"rate:ip:{key}:sse", 15, 60,
-                      "Too many streaming connections. Try again later.")
+            await _rl(
+                r,
+                f"rate:ip:{key}:sse",
+                15,
+                60,
+                "Too many streaming connections. Try again later.",
+            )
 
         # global burst guard (skip the session exchange endpoint — it has its own auth)
         if path != "/api/auth/session":
@@ -156,7 +203,11 @@ async def rate_limit(request: Request, call_next):
             await _rl(r, f"rate:global:{key}", burst, 60)
 
     except HTTPException as exc:
-        headers = {"Retry-After": str(exc.headers["Retry-After"])} if exc.headers and "Retry-After" in exc.headers else {}
+        headers = (
+            {"Retry-After": str(exc.headers["Retry-After"])}
+            if exc.headers and "Retry-After" in exc.headers
+            else {}
+        )
         return JSONResponse(
             status_code=exc.status_code,
             content={"detail": exc.detail},
@@ -169,7 +220,9 @@ async def rate_limit(request: Request, call_next):
     return await call_next(request)
 
 
-async def _rl(r, key: str, limit: int, window: int, detail: str = "Too many requests.") -> None:
+async def _rl(
+    r, key: str, limit: int, window: int, detail: str = "Too many requests."
+) -> None:
     pipe = r.pipeline(transaction=True)
     pipe.incr(key)
     pipe.expire(key, window, nx=True)
@@ -179,7 +232,10 @@ async def _rl(r, key: str, limit: int, window: int, detail: str = "Too many requ
         await r.expire(key, window)
     if results[0] > limit:
         import logging
-        logging.getLogger(__name__).warning("rate_limit_exceeded key=%s limit=%d window=%d", key, limit, window)
+
+        logging.getLogger(__name__).warning(
+            "rate_limit_exceeded key=%s limit=%d window=%d", key, limit, window
+        )
         raise HTTPException(
             status.HTTP_429_TOO_MANY_REQUESTS,
             detail,

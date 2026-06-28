@@ -122,14 +122,23 @@ async def record_chat_activity(
 
 # normalize telegram administrator permissions
 def permissions_from_chat_member(member, chat_type: str | None = None) -> dict:
-    is_admin = member.status in {ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.CREATOR}
-    can_edit_messages = bool(getattr(member, "can_edit_messages", False)) if is_admin else False
+    is_admin = member.status in {
+        ChatMemberStatus.ADMINISTRATOR,
+        ChatMemberStatus.CREATOR,
+    }
+    can_edit_messages = (
+        bool(getattr(member, "can_edit_messages", False)) if is_admin else False
+    )
     if is_admin and chat_type in {"group", "supergroup"}:
         can_edit_messages = True
     permissions = {
-        "can_delete_messages": bool(getattr(member, "can_delete_messages", False)) if is_admin else False,
+        "can_delete_messages": bool(getattr(member, "can_delete_messages", False))
+        if is_admin
+        else False,
         "can_edit_messages": can_edit_messages,
-        "can_pin_messages": bool(getattr(member, "can_pin_messages", False)) if is_admin else False,
+        "can_pin_messages": bool(getattr(member, "can_pin_messages", False))
+        if is_admin
+        else False,
     }
     permissions["required_granted"] = all(
         permissions[key] for key in REQUIRED_PERMISSION_KEYS
@@ -192,7 +201,9 @@ async def sync_chat_telegram_metadata(
 
     try:
         bot_member = await bot.get_chat_member(chat.telegram_chat_id, bot.id)
-        chat.permissions_status = permissions_from_chat_member(bot_member, chat.chat_type)
+        chat.permissions_status = permissions_from_chat_member(
+            bot_member, chat.chat_type
+        )
         chat.is_active = bot_member.status not in {
             ChatMemberStatus.KICKED,
             ChatMemberStatus.LEFT,

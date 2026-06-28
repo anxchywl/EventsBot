@@ -25,16 +25,22 @@ router = Router()
 # process my events
 @router.callback_query(F.data == "my_events")
 @router.callback_query(F.data == "my_events_back")
-async def process_my_events(callback: CallbackQuery, session: AsyncSession, state: FSMContext):
+async def process_my_events(
+    callback: CallbackQuery, session: AsyncSession, state: FSMContext
+):
     await show_my_events(callback, session, state=state)
 
 
 # opens the current user's events list via message
 # process my events message
 @router.message(F.text == "My Events", F.chat.type == "private")
-async def process_my_events_message(message: Message, session: AsyncSession, state: FSMContext):
+async def process_my_events_message(
+    message: Message, session: AsyncSession, state: FSMContext
+):
     await cleanup_main_menu_warnings(message, state)
-    await show_my_events(message, session, state=state, answer=False, cmd_msg_id=message.message_id)
+    await show_my_events(
+        message, session, state=state, answer=False, cmd_msg_id=message.message_id
+    )
 
 
 # renders events created by the current user
@@ -89,7 +95,11 @@ async def show_my_events(
                 parse_mode="Markdown",
             )
         current_data = await state.get_data()
-        final_cmd_msg_id = cmd_msg_id if cmd_msg_id is not None else current_data.get("my_events_cmd_msg_id")
+        final_cmd_msg_id = (
+            cmd_msg_id
+            if cmd_msg_id is not None
+            else current_data.get("my_events_cmd_msg_id")
+        )
         await state.update_data(
             my_events_mode=False,
             my_events_event_map=None,
@@ -134,7 +144,11 @@ async def show_my_events(
         )
 
     current_data = await state.get_data()
-    final_cmd_msg_id = cmd_msg_id if cmd_msg_id is not None else current_data.get("my_events_cmd_msg_id")
+    final_cmd_msg_id = (
+        cmd_msg_id
+        if cmd_msg_id is not None
+        else current_data.get("my_events_cmd_msg_id")
+    )
 
     await state.update_data(
         my_events_mode=True,
@@ -217,13 +231,13 @@ async def process_confirm_delete_text(
     success = await delete_event_completely(session, bot, event_id)
     if success:
         await session.commit()
-        
+
         # clean up delete-workflow messages
         msg_ids = [
             data.get("manage_event_msg_id"),
             data.get("delete_command_msg_id"),
             data.get("confirm_delete_msg_id"),
-            message.message_id
+            message.message_id,
         ]
         await delete_messages_fast(bot, message.chat.id, msg_ids)
 
@@ -232,6 +246,7 @@ async def process_confirm_delete_text(
         await state.clear()
         if is_admin:
             from app.handlers.admin_panel import show_admin_active_events
+
             await show_admin_active_events(message, session, state, is_callback=False)
         else:
             await show_my_events(message, session, state=state, answer=False)
@@ -260,17 +275,22 @@ async def process_cancel_delete_text(
             data.get("manage_event_msg_id"),
             data.get("delete_command_msg_id"),
             data.get("confirm_delete_msg_id"),
-            message.message_id
+            message.message_id,
         ]
         await delete_messages_fast(message.bot, message.chat.id, msg_ids)
 
         await state.update_data(confirm_delete_event_id=None)
-        
+
         if data.get("is_admin_edit"):
             from app.handlers.admin_panel import _show_admin_manage_event
-            await _show_admin_manage_event(message, session, state, event_id, is_callback=False)
+
+            await _show_admin_manage_event(
+                message, session, state, event_id, is_callback=False
+            )
         else:
-            await send_manage_event_message(message, event, state=state, cleanup_previous=False)
+            await send_manage_event_message(
+                message, event, state=state, cleanup_previous=False
+            )
 
 
 # process back to my events
@@ -280,10 +300,10 @@ async def process_back_to_my_events(
 ):
     await _delete_manage_temp_messages(state, message.bot, message.chat.id)
     data = await state.get_data()
-    
+
     # 1. delete the event card message
     msg_id = data.get("manage_event_msg_id")
-    
+
     # 2. delete the user's event selection message
     selection_msg_id = data.get("my_events_selection_msg_id")
 
@@ -291,8 +311,11 @@ async def process_back_to_my_events(
     choose_msg_id = data.get("my_events_choose_msg_id")
 
     import logging
+
     logging.info(f"DEBUG BACK FULL DATA: {data}")
-    logging.info(f"DEBUG BACK: msg_id={msg_id}, selection_msg_id={selection_msg_id}, choose_msg_id={choose_msg_id}")
+    logging.info(
+        f"DEBUG BACK: msg_id={msg_id}, selection_msg_id={selection_msg_id}, choose_msg_id={choose_msg_id}"
+    )
 
     await delete_messages_fast(
         message.bot,
@@ -304,7 +327,22 @@ async def process_back_to_my_events(
 
 
 # process my events selection
-@router.message(F.text, ~F.text.in_(["Back to Menu", "Back to My Events", "Edit", "Delete", "Cancel", "Yes, Delete", "⚙️ Admin Panel", "Admin Panel"]), F.chat.type == "private")
+@router.message(
+    F.text,
+    ~F.text.in_(
+        [
+            "Back to Menu",
+            "Back to My Events",
+            "Edit",
+            "Delete",
+            "Cancel",
+            "Yes, Delete",
+            "⚙️ Admin Panel",
+            "Admin Panel",
+        ]
+    ),
+    F.chat.type == "private",
+)
 async def process_my_events_selection(
     message: Message, state: FSMContext, session: AsyncSession
 ):
@@ -312,7 +350,9 @@ async def process_my_events_selection(
     if not data.get("my_events_mode"):
         if data.get("manage_event_id"):
             # user typed something wrong while viewing the event details page
-            sent = await message.answer("Please use the keyboard buttons below to manage the event. Direct messages are not supported here.")
+            sent = await message.answer(
+                "Please use the keyboard buttons below to manage the event. Direct messages are not supported here."
+            )
             temp_ids = list(data.get("manage_temp_msg_ids", []))
             temp_ids.extend([message.message_id, sent.message_id])
             await state.update_data(manage_temp_msg_ids=temp_ids)
@@ -322,7 +362,9 @@ async def process_my_events_selection(
     event_id = event_map.get(message.text)
     if not event_id:
         # user typed something wrong while choosing the event
-        sent = await message.answer("Please choose an event from the keyboard list or click Back to Menu.")
+        sent = await message.answer(
+            "Please choose an event from the keyboard list or click Back to Menu."
+        )
         temp_ids = list(data.get("manage_temp_msg_ids", []))
         temp_ids.extend([message.message_id, sent.message_id])
         await state.update_data(manage_temp_msg_ids=temp_ids)
@@ -370,6 +412,7 @@ async def send_manage_event_message(
     safe_title = html.escape(event.title)
     safe_location = html.escape(event.location)
     safe_cat = html.escape(event.category.name)
+
     def render_text(safe_desc: str) -> str:
         date_str = event.event_date.strftime("%d.%m.%Y")
         time_str = event.event_time.strftime("%H:%M")
@@ -383,7 +426,11 @@ async def send_manage_event_message(
             f"Description:\n{safe_desc}\n"
         )
 
-    safe_desc = escape_and_fit_description(event.description, render_text) if event.poster_file_id else html.escape(event.description)
+    safe_desc = (
+        escape_and_fit_description(event.description, render_text)
+        if event.poster_file_id
+        else html.escape(event.description)
+    )
     text = render_text(safe_desc)
 
     builder = ReplyKeyboardBuilder()
@@ -469,7 +516,7 @@ async def process_edit_event(
 @router.callback_query(F.data.startswith("delete_event_"))
 async def process_delete_event(callback: CallbackQuery, session: AsyncSession):
     event_id = int(callback.data.split("_")[2])
-    
+
     event = await get_event_by_id(session, event_id)
     if not event:
         await callback.answer("Event not found.", show_alert=True)
@@ -500,7 +547,7 @@ async def process_confirm_delete(
     callback: CallbackQuery, session: AsyncSession, bot: Bot
 ):
     event_id = int(callback.data.split("_")[2])
-    
+
     event = await get_event_by_id(session, event_id)
     if not event:
         await callback.answer("Event not found.", show_alert=True)

@@ -32,7 +32,13 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 EVENT_SYNC_NOTIFY_CHANNEL = "event_sync_changed"
-DELETE_LIKE_OPERATIONS = {"rejected", "needs_changes", "cancelled", "archived", "deleted"}
+DELETE_LIKE_OPERATIONS = {
+    "rejected",
+    "needs_changes",
+    "cancelled",
+    "archived",
+    "deleted",
+}
 VISIBLE_STATUSES = {EventStatus.APPROVED.value}
 MAX_ATTEMPTS = 5
 POLL_SECONDS = 5.0
@@ -50,7 +56,9 @@ def asyncpg_database_url(database_url: str) -> str:
 
 # serialize sync work per event across workers
 async def acquire_event_lock(session: AsyncSession, event_id: int) -> None:
-    await session.execute(text("SELECT pg_advisory_xact_lock(:lock_id)"), {"lock_id": int(event_id)})
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(:lock_id)"), {"lock_id": int(event_id)}
+    )
 
 
 # freeze event data before queued sync delivery
@@ -78,7 +86,9 @@ async def capture_event_snapshot(
         "detail_messages": [
             {
                 "chat_id": detail.chat_id,
-                "telegram_chat_id": detail.chat.telegram_chat_id if detail.chat else None,
+                "telegram_chat_id": detail.chat.telegram_chat_id
+                if detail.chat
+                else None,
                 "chat_type": detail.chat.chat_type if detail.chat else None,
                 "chat_username": detail.chat.username if detail.chat else None,
                 "message_id": detail.message_id,
@@ -108,10 +118,17 @@ async def enqueue_event_sync(
         text("SELECT pg_notify(:channel, :payload)"),
         {
             "channel": EVENT_SYNC_NOTIFY_CHANNEL,
-            "payload": json.dumps({"job_id": job.id, "event_id": event_id, "operation": operation}),
+            "payload": json.dumps(
+                {"job_id": job.id, "event_id": event_id, "operation": operation}
+            ),
         },
     )
-    logger.info("queued event sync job %s for event %s operation=%s", job.id, event_id, operation)
+    logger.info(
+        "queued event sync job %s for event %s operation=%s",
+        job.id,
+        event_id,
+        operation,
+    )
     return job
 
 
@@ -119,9 +136,9 @@ async def enqueue_event_sync(
 async def latest_completed_sync_version(session: AsyncSession) -> dict[str, Any]:
     row = (
         await session.execute(
-            select(func.max(EventSyncJob.id), func.max(EventSyncJob.processed_at)).where(
-                EventSyncJob.status == "completed"
-            )
+            select(
+                func.max(EventSyncJob.id), func.max(EventSyncJob.processed_at)
+            ).where(EventSyncJob.status == "completed")
         )
     ).one()
     version, completed_at = row
@@ -219,7 +236,9 @@ class EventSyncWorker:
             )
             job_ids = list(result.scalars().all())
             if job_ids:
-                logger.warning("reset %d stale processing event sync jobs", len(job_ids))
+                logger.warning(
+                    "reset %d stale processing event sync jobs", len(job_ids)
+                )
             await session.commit()
 
     async def _process_pending_jobs(self) -> None:
@@ -230,7 +249,9 @@ class EventSyncWorker:
                     return
                 await session.commit()
 
-            event_lock_id = job.event_id or int((job.payload_json or {}).get("snapshot", {}).get("event_id") or 0)
+            event_lock_id = job.event_id or int(
+                (job.payload_json or {}).get("snapshot", {}).get("event_id") or 0
+            )
             lock = self._event_locks.setdefault(event_lock_id, asyncio.Lock())
             async with lock:
                 await self._process_job_id(job.id)
@@ -240,7 +261,12 @@ class EventSyncWorker:
             job = await session.get(EventSyncJob, job_id)
             if job is None:
                 return
-            logger.info("event sync job %s started event=%s operation=%s", job.id, job.event_id, job.operation)
+            logger.info(
+                "event sync job %s started event=%s operation=%s",
+                job.id,
+                job.event_id,
+                job.operation,
+            )
             try:
                 await self._apply_job(session, job)
             except Exception as exc:
@@ -257,7 +283,7 @@ class EventSyncWorker:
             logger.info("event sync job %s completed", job.id)
 
     async def _apply_job(self, session: AsyncSession, job: EventSyncJob) -> None:
-        snapshot = ((job.payload_json or {}).get("snapshot") or {})
+        snapshot = (job.payload_json or {}).get("snapshot") or {}
         operation = job.operation
         event_id = job.event_id or snapshot.get("event_id")
 
@@ -266,14 +292,25 @@ class EventSyncWorker:
             event = await session.get(
                 Event,
                 int(event_id),
-                options=[selectinload(Event.category), selectinload(Event.detail_messages)],
+                options=[
+                    selectinload(Event.category),
+                    selectinload(Event.detail_messages),
+                ],
             )
 
         old_chat_ids = _snapshot_chat_ids(snapshot)
-        if event is None or operation in DELETE_LIKE_OPERATIONS or event.status not in VISIBLE_STATUSES:
+        if (
+            event is None
+            or operation in DELETE_LIKE_OPERATIONS
+            or event.status not in VISIBLE_STATUSES
+        ):
             await self._delete_snapshot_detail_messages(session, snapshot)
             if event_id is not None:
-                await session.execute(delete(EventDetailMessage).where(EventDetailMessage.event_id == int(event_id)))
+                await session.execute(
+                    delete(EventDetailMessage).where(
+                        EventDetailMessage.event_id == int(event_id)
+                    )
+                )
             await session.flush()
             await _schedule_dashboard_refresh(old_chat_ids)
             return
@@ -288,30 +325,47 @@ class EventSyncWorker:
             detail = current_details[chat_id]
             await _delete_detail_message(self._bot, detail)
             await session.delete(detail)
-            logger.info("deleted obsolete detail message event=%s chat=%s", event.id, chat_id)
+            logger.info(
+                "deleted obsolete detail message event=%s chat=%s", event.id, chat_id
+            )
 
         bot_user = await self._bot.get_me()
         delivery_failures: list[str] = []
         for chat in new_chats:
             detail = current_details.get(chat.id)
             if detail is None:
-                detail = EventDetailMessage(event_id=event.id, chat_id=chat.id, message_id=0)
+                detail = EventDetailMessage(
+                    event_id=event.id, chat_id=chat.id, message_id=0
+                )
                 session.add(detail)
                 await session.flush()
             try:
-                await _upsert_detail_message(self._bot, event, chat, detail, bot_user.username)
+                await _upsert_detail_message(
+                    self._bot, event, chat, detail, bot_user.username
+                )
             except Exception as exc:
                 if is_bot_removed_error(exc):
                     await delete_chat_by_id(session, chat.id)
-                    logger.warning("removed chat %s after sync delivery failed: %s", chat.telegram_chat_id, exc)
+                    logger.warning(
+                        "removed chat %s after sync delivery failed: %s",
+                        chat.telegram_chat_id,
+                        exc,
+                    )
                     continue
-                logger.warning("failed to sync detail message event=%s chat=%s: %s", event.id, chat.id, exc)
+                logger.warning(
+                    "failed to sync detail message event=%s chat=%s: %s",
+                    event.id,
+                    chat.id,
+                    exc,
+                )
                 delivery_failures.append(f"chat {chat.id}: {exc}")
                 if not detail.message_id:
                     await session.delete(detail)
                 continue
             if not detail.message_id:
-                delivery_failures.append(f"chat {chat.id}: missing Telegram message id after delivery")
+                delivery_failures.append(
+                    f"chat {chat.id}: missing Telegram message id after delivery"
+                )
                 await session.delete(detail)
                 continue
             affected_chat_ids.add(chat.id)
@@ -341,13 +395,24 @@ class EventSyncWorker:
                     ),
                     context=f"delete event detail in chat {telegram_chat_id}",
                 )
-                logger.info("deleted detail message chat=%s message=%s", telegram_chat_id, message_id)
+                logger.info(
+                    "deleted detail message chat=%s message=%s",
+                    telegram_chat_id,
+                    message_id,
+                )
             except Exception as exc:
                 if chat_id and is_bot_removed_error(exc):
                     await delete_chat_by_id(session, int(chat_id))
-                    logger.warning("removed chat %s after delete failed: %s", telegram_chat_id, exc)
+                    logger.warning(
+                        "removed chat %s after delete failed: %s", telegram_chat_id, exc
+                    )
                     continue
-                logger.warning("failed to delete detail message chat=%s message=%s: %s", telegram_chat_id, message_id, exc)
+                logger.warning(
+                    "failed to delete detail message chat=%s message=%s: %s",
+                    telegram_chat_id,
+                    message_id,
+                    exc,
+                )
 
 
 # claim one pending sync job without racing other workers
@@ -372,7 +437,9 @@ async def _claim_next_job(session: AsyncSession) -> EventSyncJob | None:
 
 
 # persist failed sync attempts for retry visibility
-async def _mark_job_failed(session: AsyncSession, job: EventSyncJob, exc: Exception) -> None:
+async def _mark_job_failed(
+    session: AsyncSession, job: EventSyncJob, exc: Exception
+) -> None:
     job.status = "failed"
     job.last_error = str(exc)
     logger.exception("event sync job %s failed: %s", job.id, exc)
@@ -385,7 +452,9 @@ async def _notify_sync_completed(session: AsyncSession, job: EventSyncJob) -> No
         text("SELECT pg_notify(:channel, :payload)"),
         {
             "channel": EVENT_SYNC_NOTIFY_CHANNEL,
-            "payload": json.dumps({"job_id": job.id, "event_id": job.event_id, "status": "completed"}),
+            "payload": json.dumps(
+                {"job_id": job.id, "event_id": job.event_id, "status": "completed"}
+            ),
         },
     )
 
@@ -416,7 +485,9 @@ async def _matching_chats(session: AsyncSession, event: Event) -> list[Chat]:
 
 
 # index existing detail messages by chat for reconciliation
-async def _detail_messages_by_chat(session: AsyncSession, event_id: int) -> dict[int, EventDetailMessage]:
+async def _detail_messages_by_chat(
+    session: AsyncSession, event_id: int
+) -> dict[int, EventDetailMessage]:
     result = await session.execute(
         select(EventDetailMessage)
         .where(EventDetailMessage.event_id == event_id)
@@ -542,7 +613,12 @@ async def _upsert_detail_message(
         username=chat.username,
         chat_type=chat.chat_type,
     )
-    logger.info("created detail message event=%s chat=%s message=%s", event.id, chat.id, sent.message_id)
+    logger.info(
+        "created detail message event=%s chat=%s message=%s",
+        event.id,
+        chat.id,
+        sent.message_id,
+    )
 
 
 # queue dashboard refreshes after detail message changes

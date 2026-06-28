@@ -14,7 +14,9 @@ from app.models.user import User
 
 
 # check whether the user saved an event
-async def is_event_favorite(session: AsyncSession, user: User | None, event_id: int) -> bool:
+async def is_event_favorite(
+    session: AsyncSession, user: User | None, event_id: int
+) -> bool:
     if not user:
         return False
     favorite_id = await session.scalar(
@@ -49,6 +51,7 @@ async def add_favorite(session: AsyncSession, user: User, event: Event) -> bool:
         return False
     session.add(Favorite(user_id=user.id, event_id=event.id))
     from sqlalchemy.exc import IntegrityError
+
     try:
         await session.flush()
         return True
@@ -68,7 +71,9 @@ async def remove_favorite(session: AsyncSession, user: User, event: Event) -> bo
 
 
 # load upcoming favorites for the user profile
-async def get_user_favorite_events(session: AsyncSession, user: User, limit: int, offset: int, today: date) -> Sequence[Event]:
+async def get_user_favorite_events(
+    session: AsyncSession, user: User, limit: int, offset: int, today: date
+) -> Sequence[Event]:
     result = await session.execute(
         select(Event)
         .join(Favorite, Favorite.event_id == Event.id)

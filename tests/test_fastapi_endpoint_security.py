@@ -21,8 +21,7 @@ async def _asgi_request(
     sent: list[dict] = []
     parsed = urlsplit(target)
     raw_headers = [
-        (key.lower().encode(), value.encode())
-        for key, value in (headers or {}).items()
+        (key.lower().encode(), value.encode()) for key, value in (headers or {}).items()
     ]
     if body:
         raw_headers.append((b"content-length", str(len(body)).encode()))
@@ -158,7 +157,9 @@ class FastAPIEndpointSecurityTest(unittest.TestCase):
 
         message = asyncio.run(run_check())
         self.assertEqual(message["type"], "review_deleted")
-        self.assertEqual(message["event_token"], "event_123e4567-e89b-12d3-a456-426614174000")
+        self.assertEqual(
+            message["event_token"], "event_123e4567-e89b-12d3-a456-426614174000"
+        )
         self.assertNotIn("event_id", message)
         self.assertNotIn("target_user_id", message)
         self.assertNotIn("rating_ids", message)

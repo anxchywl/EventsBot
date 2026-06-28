@@ -18,7 +18,7 @@ class ValidationTest(unittest.TestCase):
                 organizer="G",
                 category="H",
                 attendee_count=0,
-                share_url="http://test.com"
+                share_url="http://test.com",
             )
             self.fail("Expected ValidationError for over-length token")
         except ValidationError:
@@ -29,21 +29,18 @@ class ValidationTest(unittest.TestCase):
                 nickname="user",
                 content="A" * 1025,
                 score=3,
-                created_at="2023-01-01T12:00:00Z"
+                created_at="2023-01-01T12:00:00Z",
             )
             self.fail("Expected ValidationError for over-length content")
         except ValidationError:
             pass
 
         try:
-            FriendUserSummary(
-                id=1,
-                nickname="N" * 65,
-                avatar={"initials": "AB"}
-            )
+            FriendUserSummary(id=1, nickname="N" * 65, avatar={"initials": "AB"})
             self.fail("Expected ValidationError for over-length nickname")
         except ValidationError:
             pass
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -52,7 +52,12 @@ async def create_reminder(
     session: AsyncSession = Depends(get_session),
 ) -> ActionResponse:
     user = await upsert_miniapp_user(session, miniapp_user)
-    await check_rate_limit(f"rate:user:{user.id}:reminder", 20, 3600, "Too many reminder attempts. Try again later.")
+    await check_rate_limit(
+        f"rate:user:{user.id}:reminder",
+        20,
+        3600,
+        "Too many reminder attempts. Try again later.",
+    )
     public_token = validate_public_token(public_token)
     event = await get_available_event_by_public_token(session, public_token)
     if not event:
@@ -76,7 +81,12 @@ async def delete_reminder(
     session: AsyncSession = Depends(get_session),
 ) -> ActionResponse:
     user = await upsert_miniapp_user(session, miniapp_user)
-    await check_rate_limit(f"rate:user:{user.id}:reminder_delete", 50, 3600, "Too many requests. Try again later.")
+    await check_rate_limit(
+        f"rate:user:{user.id}:reminder_delete",
+        50,
+        3600,
+        "Too many requests. Try again later.",
+    )
     event_id = await cancel_reminder(session, user, reminder_id)
     if event_id is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Reminder not found.")

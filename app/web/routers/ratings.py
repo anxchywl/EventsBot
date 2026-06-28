@@ -29,13 +29,20 @@ from app.web.auth import (
     upsert_miniapp_user,
 )
 from app.web.routers.events import validate_public_token
-from app.web.schemas import FeedReviewDetail, ReviewSubmitRequest, ActionResponse, ReviewDetail
+from app.web.schemas import (
+    FeedReviewDetail,
+    ReviewSubmitRequest,
+    ActionResponse,
+    ReviewDetail,
+)
 
 from app.web.limiter import check_rate_limit
 
 logger = logging.getLogger("app.web.routers.ratings")
 router = APIRouter(prefix="/api/events", tags=["ratings-reviews"])
-_CONTROL_CHARS_RE = re.compile(r'[\u200b-\u200d\uFEFF\u200e\u200f\u202a-\u202e\x00-\x1f\x7f-\x9f]')
+_CONTROL_CHARS_RE = re.compile(
+    r"[\u200b-\u200d\uFEFF\u200e\u200f\u202a-\u202e\x00-\x1f\x7f-\x9f]"
+)
 _WHITESPACE_RE = re.compile(r"\s+")
 
 
@@ -47,11 +54,18 @@ async def submit_review(
     user: User = Depends(require_verified_user),
     session: AsyncSession = Depends(get_session),
 ) -> ActionResponse:
-    await check_rate_limit(f"rate:user:{user.id}:review", 5, 60, "Too many review attempts. Try again later.")
+    await check_rate_limit(
+        f"rate:user:{user.id}:review",
+        5,
+        60,
+        "Too many review attempts. Try again later.",
+    )
     public_token = validate_public_token(public_token)
     event = await get_event_by_public_token(session, public_token)
     if not event or event.status != EventStatus.APPROVED.value:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Event not found"
+        )
 
     score = payload.score
     content_raw = payload.content
@@ -61,42 +75,44 @@ async def submit_review(
         if not content_raw.strip():
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Comments consisting only of spaces are invalid."
+                detail="Comments consisting only of spaces are invalid.",
             )
-        
+
         # strip hidden unicode formatting before storing comments
-        cleaned = _CONTROL_CHARS_RE.sub('', content_raw)
-        cleaned = _WHITESPACE_RE.sub(' ', cleaned).strip()
-        
+        cleaned = _CONTROL_CHARS_RE.sub("", content_raw)
+        cleaned = _WHITESPACE_RE.sub(" ", cleaned).strip()
+
         if not cleaned:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Comment contains only invalid or hidden characters."
+                detail="Comment contains only invalid or hidden characters.",
             )
-            
+
         if len(cleaned) > 256:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Comment cannot exceed 256 characters."
+                detail="Comment cannot exceed 256 characters.",
             )
-        
+
         # reject script-like content after normalization
         if "<script" in cleaned.lower() or "javascript:" in cleaned.lower():
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Script injection detected in comment."
+                detail="Script injection detected in comment.",
             )
-            
+
         content = cleaned
 
     if score is None and not content:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Must provide either a rating score or a comment."
+            detail="Must provide either a rating score or a comment.",
         )
 
     if score is not None:
-        stmt = select(Rating).where(Rating.user_id == user.id, Rating.event_id == event.id)
+        stmt = select(Rating).where(
+            Rating.user_id == user.id, Rating.event_id == event.id
+        )
         existing_rating = (await session.execute(stmt)).scalar_one_or_none()
         if existing_rating:
             existing_rating.score = score
@@ -108,7 +124,9 @@ async def submit_review(
             session.add(db_rating)
 
     if content:
-        stmt = select(Comment).where(Comment.user_id == user.id, Comment.event_id == event.id)
+        stmt = select(Comment).where(
+            Comment.user_id == user.id, Comment.event_id == event.id
+        )
         existing_comment = (await session.execute(stmt)).scalar_one_or_none()
         if existing_comment:
             existing_comment.content = content
@@ -131,11 +149,18 @@ async def delete_review(
     user: User = Depends(require_verified_user_allow_blocked),
     session: AsyncSession = Depends(get_session),
 ) -> ActionResponse:
-    await check_rate_limit(f"rate:user:{user.id}:review_delete", 10, 3600, "Too many requests. Try again later.")
+    await check_rate_limit(
+        f"rate:user:{user.id}:review_delete",
+        10,
+        3600,
+        "Too many requests. Try again later.",
+    )
     public_token = validate_public_token(public_token)
     event = await get_event_by_public_token(session, public_token)
     if not event or event.status != EventStatus.APPROVED.value:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Event not found"
+        )
 
     await session.execute(
         delete(Rating).where(Rating.user_id == user.id, Rating.event_id == event.id)
@@ -161,16 +186,26 @@ async def list_reviews(
     public_token = validate_public_token(public_token)
     event = await get_event_by_public_token(session, public_token)
     if not event or event.status != EventStatus.APPROVED.value:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Event not found"
+        )
 
     current_db_user = None
     if miniapp_user:
         current_db_user = await upsert_miniapp_user(session, miniapp_user)
 
-    stmt = select(Rating).where(Rating.event_id == event.id, Rating.deleted_at.is_(None)).options(selectinload(Rating.user))
+    stmt = (
+        select(Rating)
+        .where(Rating.event_id == event.id, Rating.deleted_at.is_(None))
+        .options(selectinload(Rating.user))
+    )
     ratings = (await session.execute(stmt)).scalars().all()
 
-    stmt = select(Comment).where(Comment.event_id == event.id, Comment.deleted_at.is_(None)).options(selectinload(Comment.user))
+    stmt = (
+        select(Comment)
+        .where(Comment.event_id == event.id, Comment.deleted_at.is_(None))
+        .options(selectinload(Comment.user))
+    )
     comments = (await session.execute(stmt)).scalars().all()
 
     can_delete_all = False
@@ -181,7 +216,7 @@ async def list_reviews(
 
     # merge one user rating and comment into one review row
     user_map: dict[int, dict] = {}
-    
+
     for r in ratings:
         if not r.user.is_verified:
             continue
@@ -213,7 +248,8 @@ async def list_reviews(
                 "content": c.content,
                 "score": None,
                 "created_at": c.created_at.isoformat(),
-                "is_own": current_db_user is not None and c.user_id == current_db_user.id,
+                "is_own": current_db_user is not None
+                and c.user_id == current_db_user.id,
                 "can_delete": can_delete_all,
                 "user_id": c.user_id if can_delete_all else None,
             }
@@ -237,13 +273,20 @@ async def list_global_reviews_feed(
     can_delete_all = False
     if miniapp_user is not None:
         current_db_user = await upsert_miniapp_user(session, miniapp_user)
-        can_delete_all = effective_web_role(current_db_user, miniapp_user.id) in ("admin", "moderator")
+        can_delete_all = effective_web_role(current_db_user, miniapp_user.id) in (
+            "admin",
+            "moderator",
+        )
 
     stmt_comments = (
         select(Comment)
         .join(Comment.user)
         .join(Comment.event)
-        .where(User.is_verified == True, Event.status == "approved", Comment.deleted_at.is_(None))
+        .where(
+            User.is_verified == True,
+            Event.status == "approved",
+            Comment.deleted_at.is_(None),
+        )
         .order_by(Comment.created_at.desc())
         .options(selectinload(Comment.user), selectinload(Comment.event))
         .offset(offset)
@@ -255,7 +298,11 @@ async def list_global_reviews_feed(
         select(Rating)
         .join(Rating.user)
         .join(Rating.event)
-        .where(User.is_verified == True, Event.status == "approved", Rating.deleted_at.is_(None))
+        .where(
+            User.is_verified == True,
+            Event.status == "approved",
+            Rating.deleted_at.is_(None),
+        )
         .order_by(Rating.created_at.desc())
         .options(selectinload(Rating.user), selectinload(Rating.event))
         .offset(offset)
@@ -308,20 +355,26 @@ async def list_global_reviews_feed(
 
 
 # allow admins to remove reviews by event token
-@router.delete("/admin/{public_token}/reviews/{target_user_id}", response_model=ActionResponse)
+@router.delete(
+    "/admin/{public_token}/reviews/{target_user_id}", response_model=ActionResponse
+)
 async def admin_delete_review(
     public_token: str,
     target_user_id: int,
     miniapp_user: MiniAppUser = Depends(require_current_miniapp_user),
     session: AsyncSession = Depends(get_session),
 ) -> ActionResponse:
-    await check_rate_limit(f"rate:user:{miniapp_user.id}:admin_review_delete", 30, 60, "Too many requests.")
+    await check_rate_limit(
+        f"rate:user:{miniapp_user.id}:admin_review_delete", 30, 60, "Too many requests."
+    )
     public_token = validate_public_token(public_token)
     user = await require_admin(miniapp_user=miniapp_user, session=session)
 
     event = await get_event_by_public_token(session, public_token)
     if not event:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Event not found"
+        )
 
     result = await permanently_delete_review(
         session,
@@ -330,7 +383,9 @@ async def admin_delete_review(
         admin=user,
     )
     if not result["deleted"]:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Review already deleted")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Review already deleted"
+        )
     await session.commit()
     invalidate_review_caches()
     await publish_review_deleted(result)
