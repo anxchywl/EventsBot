@@ -35,6 +35,17 @@ _DATE_RE = re.compile(r"^(\d{2}) (\d{2}) (\d{4})$")
 _TIME_RE = re.compile(r"^(\d{2}) (\d{2})$")
 
 
+class LimitedBytesIO(BytesIO):
+    def __init__(self, max_size_bytes: int) -> None:
+        super().__init__()
+        self.max_size_bytes = max_size_bytes
+
+    def write(self, data: bytes) -> int:
+        if self.tell() + len(data) > self.max_size_bytes:
+            raise ValueError("File too large")
+        return super().write(data)
+
+
 # tracks states for the event submission form
 class EventSubmission(StatesGroup):
     title = State()
@@ -646,7 +657,7 @@ async def validate_poster_image(message: Message, bot: Bot, file_id: str) -> boo
         file = await bot.get_file(file_id)
         if file.file_size and file.file_size > settings.media_max_upload_bytes:
             raise ValueError("File too large")
-        buffer = BytesIO()
+        buffer = LimitedBytesIO(settings.media_max_upload_bytes)
         await bot.download_file(file.file_path, destination=buffer)
         process_image(buffer.getvalue(), max_px=800, max_size_bytes=settings.media_max_upload_bytes)
         return True
