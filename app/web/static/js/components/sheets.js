@@ -1,5 +1,5 @@
-import { escapeAttr, escapeHtml } from "./events.js?v=20260608-auth-v7";
-import { formatReminderOffset, t, translateError } from "../i18n.js?v=20260608-auth-v7";
+import { escapeAttr, escapeHtml } from "./events.js?v=20260628-security-v1";
+import { formatReminderOffset, t, translateError } from "../i18n.js?v=20260628-security-v1";
 
 const MAX_REMINDERS = 3;
 

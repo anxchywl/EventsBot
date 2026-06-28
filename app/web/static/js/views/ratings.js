@@ -1,6 +1,6 @@
-import { controls, coverStyle, escapeAttr, escapeHtml, nav, formatDisplayName } from "../components/events.js?v=20260608-auth-v7";
-import { t } from "../i18n.js?v=20260608-auth-v7";
-import { state } from "../state.js?v=20260608-auth-v7";
+import { controls, coverStyle, escapeAttr, escapeHtml, nav, formatDisplayName } from "../components/events.js?v=20260628-security-v1";
+import { t } from "../i18n.js?v=20260628-security-v1";
+import { state } from "../state.js?v=20260628-security-v1";
 
 // render profile and community review tab
 export function renderRatingsTab(profileData = null, reviewsList = []) {

@@ -1,5 +1,5 @@
-import { authHeaders, setSession, state } from "./state.js?v=20260608-auth-v7";
-import { initData } from "./telegram.js?v=20260608-auth-v7";
+import { authHeaders, setSession, state } from "./state.js?v=20260628-security-v1";
+import { initData } from "./telegram.js?v=20260628-security-v1";
 
 let authInFlight = null;
 

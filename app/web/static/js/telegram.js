@@ -1,4 +1,4 @@
-import { currentTheme, setTheme } from "./state.js?v=20260608-auth-v7";
+import { currentTheme, setTheme } from "./state.js?v=20260628-security-v1";
 
 export const tg = window.Telegram?.WebApp || null;
 

@@ -1,7 +1,7 @@
-import { escapeHtml, coverStyle, formatDisplayName } from "../components/events.js?v=20260608-auth-v7";
-import { state, authHeaders } from "../state.js?v=20260608-auth-v7";
-import { t } from "../i18n.js?v=20260608-auth-v7";
-import { authenticate } from "../api.js?v=20260608-auth-v7";
+import { escapeHtml, coverStyle, formatDisplayName } from "../components/events.js?v=20260628-security-v1";
+import { state, authHeaders } from "../state.js?v=20260628-security-v1";
+import { t } from "../i18n.js?v=20260628-security-v1";
+import { authenticate } from "../api.js?v=20260628-security-v1";
 
 // send admin api requests with shared auth handling
 async function adminRequest(path, options = {}) {

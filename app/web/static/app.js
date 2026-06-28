@@ -1,4 +1,4 @@
-import { boot } from "./js/router.js?v=20260608-auth-v7";
+import { boot } from "./js/router.js?v=20260628-security-v1";
 
 
 boot().catch((error) => {

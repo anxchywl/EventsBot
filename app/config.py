@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from typing import Any
+from typing import Annotated, Any
 from pydantic import Field, SecretStr, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 # stores runtime settings loaded from environment variables
@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     session_secret: SecretStr | None = Field(default=None, alias="SESSION_SECRET")
     # IPs of reverse proxies whose X-Forwarded-For header should be trusted
     # e.g. TRUSTED_PROXY_IPS=127.0.0.1,10.0.0.1
-    trusted_proxy_ips: list[str] = Field(default_factory=list, alias="TRUSTED_PROXY_IPS")
+    trusted_proxy_ips: Annotated[list[str], NoDecode] = Field(default_factory=list, alias="TRUSTED_PROXY_IPS")
 
     @field_validator("trusted_proxy_ips", mode="before")
     @classmethod
@@ -41,7 +41,7 @@ class Settings(BaseSettings):
         return []
 
     moderator_chat_id: int | None = Field(default=None, alias="MODERATOR_CHAT_ID")
-    admin_ids: list[int] = Field(default_factory=list, alias="ADMIN_IDS")
+    admin_ids: Annotated[list[int], NoDecode] = Field(default_factory=list, alias="ADMIN_IDS")
 
     @field_validator("admin_ids", mode="before")
     @classmethod

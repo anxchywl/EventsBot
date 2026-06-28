@@ -1,5 +1,5 @@
-import { controls, coverStyle, escapeAttr, escapeHtml, nav } from "../components/events.js?v=20260608-auth-v7";
-import { t } from "../i18n.js?v=20260608-auth-v7";
+import { controls, coverStyle, escapeAttr, escapeHtml, nav } from "../components/events.js?v=20260628-security-v1";
+import { t } from "../i18n.js?v=20260628-security-v1";
 
 // format reminder offset for compact cards
 function formatReminderLeadTime(minutes) {

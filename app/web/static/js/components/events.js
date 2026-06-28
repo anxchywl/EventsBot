@@ -1,5 +1,5 @@
-import { state } from "../state.js?v=20260608-auth-v7";
-import { categoryLabel, t } from "../i18n.js?v=20260608-auth-v7";
+import { state } from "../state.js?v=20260628-security-v1";
+import { categoryLabel, t } from "../i18n.js?v=20260628-security-v1";
 
 // guarantee fallbackcoverstyles map is shared absolutely via window to avoid potential duplicate es module instances
 if (!window.fallbackCoverStyles) {

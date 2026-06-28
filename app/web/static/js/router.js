@@ -39,19 +39,19 @@ import {
   revokeFriendInvite,
   fetchPrivacySettings,
   updatePrivacySettings,
-} from "./api.js?v=20260608-auth-v7";
-import { coverStyle, loadingScreen, resetFallbackCoverStyles, startCountdowns } from "./components/events.js?v=20260608-auth-v7";
-import { closeFilterSheet, openFilterSheet } from "./components/filterSheet.js?v=20260608-auth-v7";
-import { fetchAdminStats, fetchAdminUsers, fetchConnectedGroups, renderAdminPanel, renderAdminUsersList, renderConnectedGroupsList, blockUser, unblockUser, adminStatusLabel, adminSortLabel } from "./views/admin.js?v=20260608-auth-v7";
-import { closeSheet, openReminderSheet } from "./components/sheets.js?v=20260608-auth-v7";
-import { t, translateError } from "./i18n.js?v=20260608-auth-v7";
-import { currentTheme, nextLang, normalizeEventFilters, rememberScroll, restoreScroll, setEventFilters, setLang, setTheme, state, toggleTheme } from "./state.js?v=20260608-auth-v7";
-import { configureBackButton, haptic, initTelegram, openLink, openTelegramLink, sanitizeStartPayload, startParam, tg } from "./telegram.js?v=20260608-auth-v7";
-import { renderEvent, renderEventUnavailable, renderEventSkeleton } from "./views/event.js?v=20260608-auth-v7";
-import { renderEventResults, renderFilterBar, renderMenu, renderPlaceholder } from "./views/menu.js?v=20260608-auth-v7";
-import { renderReminders } from "./views/reminders.js?v=20260608-auth-v7";
-import { renderCalendarInner, attachCalendarInteractions, refreshCalendarMonthPanels } from "./views/calendar.js?v=20260608-auth-v7";
-import { renderAuthSection, renderRatingsTab, renderForgotPasswordCard, renderProfileInner, renderFriendSearchResults } from "./views/ratings.js?v=20260608-auth-v7";
+} from "./api.js?v=20260628-security-v1";
+import { coverStyle, loadingScreen, resetFallbackCoverStyles, startCountdowns } from "./components/events.js?v=20260628-security-v1";
+import { closeFilterSheet, openFilterSheet } from "./components/filterSheet.js?v=20260628-security-v1";
+import { fetchAdminStats, fetchAdminUsers, fetchConnectedGroups, renderAdminPanel, renderAdminUsersList, renderConnectedGroupsList, blockUser, unblockUser, adminStatusLabel, adminSortLabel } from "./views/admin.js?v=20260628-security-v1";
+import { closeSheet, openReminderSheet } from "./components/sheets.js?v=20260628-security-v1";
+import { t, translateError } from "./i18n.js?v=20260628-security-v1";
+import { currentTheme, nextLang, normalizeEventFilters, rememberScroll, restoreScroll, setEventFilters, setLang, setTheme, state, toggleTheme } from "./state.js?v=20260628-security-v1";
+import { configureBackButton, haptic, initTelegram, openLink, openTelegramLink, sanitizeStartPayload, startParam, tg } from "./telegram.js?v=20260628-security-v1";
+import { renderEvent, renderEventUnavailable, renderEventSkeleton } from "./views/event.js?v=20260628-security-v1";
+import { renderEventResults, renderFilterBar, renderMenu, renderPlaceholder } from "./views/menu.js?v=20260628-security-v1";
+import { renderReminders } from "./views/reminders.js?v=20260628-security-v1";
+import { renderCalendarInner, attachCalendarInteractions, refreshCalendarMonthPanels } from "./views/calendar.js?v=20260628-security-v1";
+import { renderAuthSection, renderRatingsTab, renderForgotPasswordCard, renderProfileInner, renderFriendSearchResults } from "./views/ratings.js?v=20260628-security-v1";
 
 
 const app = document.getElementById("app");
