@@ -2,6 +2,38 @@
 
 Rules for AI models working in this repo.
 
+**Sources of truth:**
+- Product rules and features: `PRODUCT.md`
+- Infrastructure and ops: `INFRASTRUCTURE.md`
+- This file: agent coding rules (mandatory)
+
+---
+
+## Architecture
+
+```
+app/
+  handlers/        # bot commands and callbacks — thin, delegate to services
+  models/          # SQLAlchemy models
+  services/        # business logic — events, chats, dashboards
+  web/
+    routers/       # FastAPI route handlers
+    schemas.py     # Pydantic request/response models
+    auth.py        # session validation — required on protected endpoints
+  db/              # async engine and session setup
+  middlewares/     # aiogram middleware
+  config.py        # all env settings — no hardcoded values elsewhere
+  localization.py  # all user-facing strings — no inline text in handlers
+  main.py          # bot entrypoint
+alembic/           # migrations — run after every model change
+tests/             # unit tests
+```
+
+Data flow: `Handler → Service → SQLAlchemy model → PostgreSQL`  
+Web flow: `Router → auth check → Service → SQLAlchemy model → PostgreSQL`
+
+---
+
 ## General
 
 - Write all code, comments, and commit messages in English.

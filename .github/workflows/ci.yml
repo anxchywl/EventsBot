@@ -113,5 +113,5 @@ jobs:
             git stash push --include-untracked -m "pre-deploy $(date -u +%Y-%m-%dT%H:%M:%SZ)" || true
             git fetch origin main
             git checkout main
-            git pull --ff-only origin main
+            git reset --hard origin/main
             DEPLOY_PREVIOUS_REF="${PREVIOUS_REF}" bash scripts/deploy.sh

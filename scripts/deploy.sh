@@ -80,6 +80,9 @@ for p in glob.glob("app/web/static/**/*", recursive=True):
 log "Building application images..."
 compose build
 
+log "Cleaning up potentially conflicting containers..."
+docker rm -f events_bot_postgres events_bot_redis events_bot_web events_bot_app events_bot_backup 2>/dev/null || true
+
 log "Running database migrations..."
 compose run --rm web alembic upgrade head
 
