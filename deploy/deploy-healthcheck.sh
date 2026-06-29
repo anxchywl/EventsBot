@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.prod.yml}"
+COMPOSE_FILE="${COMPOSE_FILE:-infra/docker-compose.prod.yml}"
 COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-events_bot}"
 ENV_FILE="${ENV_FILE:-.env}"
 TIMEOUT_SECONDS="${HEALTHCHECK_TIMEOUT_SECONDS:-120}"

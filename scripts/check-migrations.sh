@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-MIGRATIONS_DIR="${1:-alembic/versions}"
+MIGRATIONS_DIR="${1:-backend/alembic/versions}"
 FORCE="${FORCE_DESTRUCTIVE:-false}"
 FOUND=0
 EXCEPTIONS_FILE="${BASH_SOURCE%/*}/migration-exceptions.txt"

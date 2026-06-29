@@ -44,8 +44,8 @@ services:
 
   bot:
     build:
-      context: .
-      dockerfile: Dockerfile.production
+      context: ..
+      dockerfile: docker/Dockerfile.production
     container_name: events_bot_app
     environment:
       BOT_TOKEN: ${BOT_TOKEN:?BOT_TOKEN must be set}
@@ -96,8 +96,8 @@ services:
 
   web:
     build:
-      context: .
-      dockerfile: Dockerfile.production
+      context: ..
+      dockerfile: docker/Dockerfile.production
     container_name: events_bot_web
     command: ["uvicorn", "app.web.main:web_app", "--host", "0.0.0.0", "--port", "8000"]
     environment:

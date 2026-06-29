@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.prod.yml}"
+COMPOSE_FILE="${COMPOSE_FILE:-infra/docker-compose.prod.yml}"
 COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-events_bot}"
 ENV_FILE="${ENV_FILE:-.env}"
 PREVIOUS_REF="${DEPLOY_PREVIOUS_REF:-}"
@@ -45,7 +45,7 @@ rollback() {
     git checkout --quiet "${PREVIOUS_REF}"
     compose build
     compose up -d --remove-orphans
-    bash scripts/deploy-healthcheck.sh
+    bash deploy/deploy-healthcheck.sh
     err "Deployment rolled back to ${PREVIOUS_REF}; database migrations were not downgraded"
 }
 
@@ -54,7 +54,7 @@ trap 'rollback "$?" "$LINENO"' ERR
 log "Deploying Events Bot ${CURRENT_REF} with ${COMPOSE_FILE}"
 
 log "Checking migration safety..."
-bash scripts/check-migrations.sh alembic/versions
+bash scripts/check-migrations.sh backend/alembic/versions
 
 log "Validating Compose configuration..."
 compose config --quiet
@@ -66,7 +66,7 @@ log "Running cache busting on static assets..."
 python3 -c '
 import re, datetime, glob
 v = datetime.datetime.now(datetime.UTC).strftime("%Y%m%d-%H%M%S")
-for p in glob.glob("app/web/static/**/*", recursive=True):
+for p in glob.glob("frontend/static/**/*", recursive=True):
     try:
         content = open(p).read()
         new_content = re.sub(r"([?&]v=)[A-Za-z0-9_.-]+", rf"\g<1>{v}", content)
@@ -90,7 +90,7 @@ log "Starting services..."
 compose up -d --remove-orphans
 
 log "Running health verification..."
-bash scripts/deploy-healthcheck.sh
+bash deploy/deploy-healthcheck.sh
 
 trap - ERR
 log "Deployment complete."

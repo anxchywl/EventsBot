@@ -3,8 +3,8 @@
 Rules for AI models working in this repo.
 
 **Sources of truth:**
-- Product rules and features: `PRODUCT.md`
-- Infrastructure and ops: `INFRASTRUCTURE.md`
+- Product rules and features: `docs/PRODUCT.md`
+- Infrastructure and ops: `docs/INFRASTRUCTURE.md`
 - This file: agent coding rules (mandatory)
 
 ---
@@ -12,7 +12,7 @@ Rules for AI models working in this repo.
 ## Architecture
 
 ```
-app/
+backend/app/
   handlers/        # bot commands and callbacks — thin, delegate to services
   models/          # SQLAlchemy models
   services/        # business logic — events, chats, dashboards
@@ -25,7 +25,8 @@ app/
   config.py        # all env settings — no hardcoded values elsewhere
   localization.py  # all user-facing strings — no inline text in handlers
   main.py          # bot entrypoint
-alembic/           # migrations — run after every model change
+backend/alembic/   # migrations — run after every model change
+frontend/static/   # Mini App static assets
 tests/             # unit tests
 ```
 
@@ -79,19 +80,19 @@ Rules:
 
 - Always use async sessions — never call synchronous SQLAlchemy in handlers or services.
 - Pass sessions as function arguments — do not create them inside service functions.
-- Use SQLAlchemy models from `app/models/` — do not write raw SQL.
+- Use SQLAlchemy models from `backend/app/models/` — do not write raw SQL.
 - Run `alembic upgrade head` after adding or changing models.
 
 ## Handlers
 
-- Handlers in `app/handlers/` should be thin — delegate logic to `app/services/`.
+- Handlers in `backend/app/handlers/` should be thin — delegate logic to `backend/app/services/`.
 - Do not query the database directly in handlers.
 - Send all user-facing text through `app/localization.py` or consistent inline strings — do not mix styles.
 
 ## API
 
-- All routes belong under `app/web/routers/`.
-- Validate all input with Pydantic schemas from `app/web/schemas.py`.
+- All routes belong under `backend/app/web/routers/`.
+- Validate all input with Pydantic schemas from `backend/app/web/schemas.py`.
 - Return consistent JSON response shapes — do not vary the structure between endpoints.
 - Protected endpoints require the session check from `app/web/auth.py`.
 
@@ -108,4 +109,4 @@ Rules:
 - Do not add logging unless asked.
 - Do not write docstrings — type hints and good names are sufficient.
 - Do not touch migrations unless a model actually changed.
-- Do not hardcode values that belong in `app/config.py`.
+- Do not hardcode values that belong in `backend/app/config.py`.

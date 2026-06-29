@@ -8,15 +8,16 @@ ENV PYTHONUNBUFFERED=1
 WORKDIR /app
 
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev
+RUN uv sync --frozen --no-dev --no-install-project
 
 COPY alembic.ini .
-COPY alembic ./alembic
-COPY app ./app
+COPY backend ./backend
+COPY frontend ./frontend
 
 RUN addgroup --system app && adduser --system --ingroup app app
 USER app
 
 ENV PATH="/app/.venv/bin:$PATH"
+ENV PYTHONPATH="/app/backend"
 
 CMD ["python", "-m", "app.main"]

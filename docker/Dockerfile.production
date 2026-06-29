@@ -11,16 +11,17 @@ RUN groupadd --system app \
     && useradd --system --gid app --home-dir /app app
 
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev
+RUN uv sync --frozen --no-dev --no-install-project
 
 COPY alembic.ini .
-COPY --chown=app:app alembic ./alembic
-COPY --chown=app:app app ./app
+COPY --chown=app:app backend ./backend
+COPY --chown=app:app frontend ./frontend
 
 USER app
 
 EXPOSE 8000
 
 ENV PATH="/app/.venv/bin:$PATH"
+ENV PYTHONPATH="/app/backend"
 
 CMD ["python", "-m", "app.main"]

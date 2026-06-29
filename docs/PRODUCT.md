@@ -2,9 +2,9 @@
 
 Internal product and business rules reference. Canonical source of truth for product behavior, flows, and edge cases.
 
-- Public overview: [README.md](./README.md)
+- Public overview: [README.md](../README.md)
 - Infrastructure and ops: [INFRASTRUCTURE.md](./INFRASTRUCTURE.md)
-- Agent coding rules: [AGENTS.md](./AGENTS.md)
+- Agent coding rules: [AGENTS.md](../AGENTS.md)
 
 ---
 

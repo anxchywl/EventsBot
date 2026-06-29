@@ -85,14 +85,18 @@ flowchart LR
 
 ```
 events_bot/
-  app/          application code — bot handlers, services, API, models
-  alembic/      database migrations
-  scripts/      helper scripts
+  backend/      Python application code and Alembic migrations
+  frontend/     Mini App static assets
+  docs/         product and infrastructure documentation
+  docker/       Dockerfiles
+  infra/        Docker Compose files
+  deploy/       deployment and healthcheck scripts
+  scripts/      local utility scripts
   tests/        unit tests
 ```
 
-Detailed product spec and business rules: [PRODUCT.md](./PRODUCT.md)  
-Infrastructure, setup, and deployment: [INFRASTRUCTURE.md](./INFRASTRUCTURE.md)  
+Detailed product spec and business rules: [docs/PRODUCT.md](./docs/PRODUCT.md)  
+Infrastructure, setup, and deployment: [docs/INFRASTRUCTURE.md](./docs/INFRASTRUCTURE.md)  
 Agent coding rules: [AGENTS.md](./AGENTS.md)
 
 ---
@@ -105,9 +109,9 @@ Agent coding rules: [AGENTS.md](./AGENTS.md)
 cp .env.example .env
 # fill in BOT_TOKEN and other required values
 
-docker compose up -d postgres redis
+docker compose -f infra/docker-compose.yml up -d postgres redis
 alembic upgrade head
 python3 -m app.main
 ```
 
-See [INFRASTRUCTURE.md](./INFRASTRUCTURE.md) for full setup and production deployment.
+See [docs/INFRASTRUCTURE.md](./docs/INFRASTRUCTURE.md) for full setup and production deployment.

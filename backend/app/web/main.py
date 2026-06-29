@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from hashlib import sha256
 from pathlib import Path
 
@@ -21,7 +22,6 @@ from app.web.auth import (
     verify_init_data,
     verify_session_token,
 )
-from app.config import get_settings
 from app.web.routers import (
     events_router,
     favorites_router,
@@ -36,9 +36,7 @@ from app.web.routers import (
 from app.web.schemas import AuthRequest, AuthResponse
 
 
-STATIC_DIR = Path(__file__).parent / "static"
-
-from contextlib import asynccontextmanager
+STATIC_DIR = Path(__file__).resolve().parents[3] / "frontend" / "static"
 
 
 # open and close shared web resources around app lifetime

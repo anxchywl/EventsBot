@@ -48,4 +48,4 @@ if ! docker network inspect wished_wished-app >/dev/null 2>&1; then
     err "Docker network wished_wished-app is missing. Start Wished production Caddy first."
 fi
 
-log "Server setup complete. Run: bash scripts/deploy.sh"
+log "Server setup complete. Run: bash deploy/deploy.sh"

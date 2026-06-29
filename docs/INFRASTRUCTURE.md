@@ -1,6 +1,6 @@
 # Student Events Bot — Infrastructure
 
-Technical setup, environment, and deployment reference. For product and business rules see [PRODUCT.md](./PRODUCT.md). For agent coding rules see [AGENTS.md](./AGENTS.md).
+Technical setup, environment, and deployment reference. For product and business rules see [PRODUCT.md](./PRODUCT.md). For agent coding rules see [AGENTS.md](../AGENTS.md).
 
 ---
 
@@ -21,14 +21,16 @@ Technical setup, environment, and deployment reference. For product and business
 
 ```
 events_bot/
-├── app/                   # application code — see AGENTS.md for structure
-├── alembic/               # database migrations
-├── scripts/               # helper scripts (category seeding, deploy)
+├── backend/               # Python application code and Alembic migrations
+├── frontend/              # Mini App static assets
+├── docs/                  # product and infrastructure documentation
+├── docker/                # Dockerfiles
+├── infra/                 # Docker Compose files
+├── deploy/                # deployment and healthcheck scripts
+├── scripts/               # local utility scripts
 ├── tests/                 # unit tests
-├── docker-compose.yml
-├── docker-compose.prod.yml
-├── Dockerfile
-├── Dockerfile.production
+├── alembic.ini
+├── pyproject.toml
 └── .env.example
 ```
 
@@ -55,7 +57,7 @@ source .venv/bin/activate
 cp .env.example .env
 # fill in required values
 
-docker compose up -d postgres redis
+docker compose -f infra/docker-compose.yml up -d postgres redis
 alembic upgrade head
 python3 -m scripts.seed_categories
 ```
@@ -77,7 +79,7 @@ Open `http://localhost:8000` to check the Mini App locally.
 **Production**
 
 ```bash
-docker compose up -d --build
+docker compose -f infra/docker-compose.yml up -d --build
 ```
 
 Starts `postgres`, `redis`, `bot`, and `web` on port `8000`.
@@ -118,12 +120,12 @@ On the production server:
 5. Configure your ingress proxy (e.g., Caddy) to route traffic to `events_bot_web:8000`.
 6. Run the server setup script:
    ```bash
-   bash scripts/setup-server.sh
+   bash deploy/setup-server.sh
    ```
 
 ### Production `.env`
 
-Copy [`.env.example`](./.env.example) to `.env` on the server and fill in production values.
+Copy [`.env.example`](../.env.example) to `.env` on the server and fill in production values.
 
 ### Manual Recovery and Inspection
 
@@ -131,16 +133,16 @@ To inspect the production environment:
 ```bash
 cd /path/to/events_bot
 # Check running containers
-docker compose --env-file .env -p events_bot -f docker-compose.prod.yml ps
+docker compose --env-file .env -p events_bot -f infra/docker-compose.prod.yml ps
 # View application logs
-docker compose --env-file .env -p events_bot -f docker-compose.prod.yml logs --tail=200 web bot
+docker compose --env-file .env -p events_bot -f infra/docker-compose.prod.yml logs --tail=200 web bot
 # Manually verify health
-bash scripts/deploy-healthcheck.sh
+bash deploy/deploy-healthcheck.sh
 ```
 
 To manually roll back to a known Git reference:
 ```bash
 cd /path/to/events_bot
 git checkout <known-good-commit>
-bash scripts/deploy.sh
+bash deploy/deploy.sh
 ```
