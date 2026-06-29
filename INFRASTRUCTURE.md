@@ -49,9 +49,8 @@ events_bot/
 git clone https://github.com/anxchywl/events_bot
 cd events_bot
 
-python3 -m venv .venv
+uv sync
 source .venv/bin/activate
-pip install -r requirements.txt
 
 cp .env.example .env
 # fill in required values
