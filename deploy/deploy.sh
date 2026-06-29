@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-COMPOSE_FILE="${COMPOSE_FILE:-infra/docker-compose.prod.yml}"
+COMPOSE_FILE="${COMPOSE_FILE:-docker/docker-compose.prod.yml}"
 COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-events_bot}"
 ENV_FILE="${ENV_FILE:-.env}"
 PREVIOUS_REF="${DEPLOY_PREVIOUS_REF:-}"
@@ -84,7 +84,7 @@ log "Cleaning up potentially conflicting containers..."
 docker rm -f events_bot_postgres events_bot_redis events_bot_web events_bot_app events_bot_backup 2>/dev/null || true
 
 log "Running database migrations..."
-compose run --rm web alembic upgrade head
+compose run --rm web alembic -c backend/alembic.ini upgrade head
 
 log "Starting services..."
 compose up -d --remove-orphans

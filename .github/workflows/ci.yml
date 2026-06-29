@@ -17,7 +17,7 @@ jobs:
       MINIAPP_SESSION_TTL_SECONDS: "86400"
       DATABASE_URL: postgresql+asyncpg://events_bot:events_bot@localhost:5432/events_bot
       REDIS_URL: redis://localhost:6379/0
-      PYTHONPATH: backend
+      PYTHONPATH: .
 
     steps:
       - uses: actions/checkout@v4
@@ -29,28 +29,49 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
-          cache-dependency-glob: uv.lock
+          cache-dependency-glob: backend/uv.lock
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
 
       - name: Install dependencies
+        working-directory: backend
         run: uv sync --frozen --extra dev --no-install-project
 
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
       - name: Compile Python
-        run: .venv/bin/python -m compileall -q backend/app scripts tests
+        working-directory: backend
+        run: .venv/bin/python -m compileall -q app ../scripts ../tests/backend
 
       - name: Static analysis
-        run: .venv/bin/ruff check backend/app scripts tests --select E9,F63,F7,F82
+        working-directory: backend
+        run: .venv/bin/ruff check app ../scripts ../tests/backend --select E9,F63,F7,F82
 
       - name: Formatting check
-        run: .venv/bin/ruff format --check --diff backend/app scripts tests
+        working-directory: backend
+        run: .venv/bin/ruff format --check --diff app ../scripts ../tests/backend
 
       - name: Type check security-critical modules
-        run: .venv/bin/mypy backend/app/web/auth.py backend/app/services/security.py backend/app/services/telegram_links.py --ignore-missing-imports --check-untyped-defs
+        working-directory: backend
+        run: .venv/bin/mypy app/web/auth.py app/services/security.py app/services/telegram_links.py --ignore-missing-imports --check-untyped-defs
 
       - name: Security scan
-        run: .venv/bin/bandit -q -r backend/app -x tests --skip B104,B105,B110
+        working-directory: backend
+        run: .venv/bin/bandit -q -r app -x ../tests/backend --skip B104,B105,B110
 
       - name: Run tests with coverage
-        run: .venv/bin/pytest --cov=backend/app --cov-report=term-missing:skip-covered --cov-fail-under=30 -q
+        working-directory: backend
+        run: .venv/bin/pytest ../tests/backend --cov=app --cov-report=term-missing:skip-covered --cov-fail-under=30 -q
+
+      - name: Run frontend tests
+        working-directory: frontend
+        run: npm test
 
   migration-safety:
     name: Migration Safety
@@ -86,7 +107,7 @@ jobs:
           ADMIN_IDS=[1]
           MODERATOR_CHAT_ID=1
           EOF
-          docker compose --env-file .ci.env -p events_bot -f infra/docker-compose.prod.yml config --quiet
+          docker compose --env-file .ci.env -p events_bot -f docker/docker-compose.prod.yml config --quiet
 
       - name: Build production image
         uses: docker/build-push-action@v6

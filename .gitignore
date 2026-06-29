@@ -8,4 +8,4 @@ __pycache__/
 .DS_Store
 .claude/
 .coverage
-
+frontend/node_modules/

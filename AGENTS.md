@@ -27,7 +27,8 @@ backend/app/
   main.py          # bot entrypoint
 backend/alembic/   # migrations — run after every model change
 frontend/static/   # Mini App static assets
-tests/             # unit tests
+tests/backend/     # backend tests
+tests/frontend/    # frontend tests
 ```
 
 Data flow: `Handler → Service → SQLAlchemy model → PostgreSQL`  
@@ -81,7 +82,7 @@ Rules:
 - Always use async sessions — never call synchronous SQLAlchemy in handlers or services.
 - Pass sessions as function arguments — do not create them inside service functions.
 - Use SQLAlchemy models from `backend/app/models/` — do not write raw SQL.
-- Run `alembic upgrade head` after adding or changing models.
+- Run `alembic -c backend/alembic.ini upgrade head` after adding or changing models.
 
 ## Handlers
 

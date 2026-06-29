@@ -24,13 +24,13 @@ events_bot/
 ├── backend/               # Python application code and Alembic migrations
 ├── frontend/              # Mini App static assets
 ├── docs/                  # product and infrastructure documentation
-├── docker/                # Dockerfiles
-├── infra/                 # Docker Compose files
+├── .github/               # CI/CD workflows
+├── docker/                # Dockerfiles and Docker Compose files
 ├── deploy/                # deployment and healthcheck scripts
 ├── scripts/               # local utility scripts
-├── tests/                 # unit tests
-├── alembic.ini
-├── pyproject.toml
+├── tests/                 # backend and frontend tests
+├── backend/pyproject.toml
+├── backend/uv.lock
 └── .env.example
 ```
 
@@ -51,15 +51,16 @@ events_bot/
 git clone https://github.com/anxchywl/events_bot
 cd events_bot
 
-uv sync
-source .venv/bin/activate
-
 cp .env.example .env
 # fill in required values
 
-docker compose -f infra/docker-compose.yml up -d postgres redis
-alembic upgrade head
-python3 -m scripts.seed_categories
+docker compose -f docker/docker-compose.yml up -d postgres redis
+
+cd backend
+uv sync
+source .venv/bin/activate
+alembic -c alembic.ini upgrade head
+PYTHONPATH=.:.. python3 -m scripts.seed_categories
 ```
 
 **Running the bot**
@@ -79,7 +80,7 @@ Open `http://localhost:8000` to check the Mini App locally.
 **Production**
 
 ```bash
-docker compose -f infra/docker-compose.yml up -d --build
+docker compose -f docker/docker-compose.yml up -d --build
 ```
 
 Starts `postgres`, `redis`, `bot`, and `web` on port `8000`.
@@ -91,7 +92,8 @@ Starts `postgres`, `redis`, `bot`, and `web` on port `8000`.
 ```bash
 git checkout -b your-change
 # make changes
-python3 -m unittest discover tests
+cd backend
+PYTHONPATH=. pytest ../tests/backend
 ```
 
 When opening a pull request, include what changed, how you tested it, and screenshots if the UI changed.
@@ -133,9 +135,9 @@ To inspect the production environment:
 ```bash
 cd /path/to/events_bot
 # Check running containers
-docker compose --env-file .env -p events_bot -f infra/docker-compose.prod.yml ps
+docker compose --env-file .env -p events_bot -f docker/docker-compose.prod.yml ps
 # View application logs
-docker compose --env-file .env -p events_bot -f infra/docker-compose.prod.yml logs --tail=200 web bot
+docker compose --env-file .env -p events_bot -f docker/docker-compose.prod.yml logs --tail=200 web bot
 # Manually verify health
 bash deploy/deploy-healthcheck.sh
 ```

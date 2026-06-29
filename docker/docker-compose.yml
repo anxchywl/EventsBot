@@ -36,7 +36,7 @@ services:
       dockerfile: docker/Dockerfile
     container_name: events_bot_app
     env_file:
-      - .env
+      - ../.env
     environment:
       DATABASE_URL: postgresql+asyncpg://events_bot:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}@postgres:5432/events_bot
       REDIS_URL: redis://redis:6379/0
@@ -53,7 +53,7 @@ services:
       dockerfile: docker/Dockerfile
     container_name: events_bot_web
     env_file:
-      - .env
+      - ../.env
     environment:
       DATABASE_URL: postgresql+asyncpg://events_bot:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}@postgres:5432/events_bot
       REDIS_URL: redis://redis:6379/0

@@ -88,11 +88,11 @@ events_bot/
   backend/      Python application code and Alembic migrations
   frontend/     Mini App static assets
   docs/         product and infrastructure documentation
-  docker/       Dockerfiles
-  infra/        Docker Compose files
+  .github/      CI/CD workflows
+  docker/       Dockerfiles and Docker Compose files
   deploy/       deployment and healthcheck scripts
   scripts/      local utility scripts
-  tests/        unit tests
+  tests/        backend and frontend tests
 ```
 
 Detailed product spec and business rules: [docs/PRODUCT.md](./docs/PRODUCT.md)  
@@ -109,8 +109,11 @@ Agent coding rules: [AGENTS.md](./AGENTS.md)
 cp .env.example .env
 # fill in BOT_TOKEN and other required values
 
-docker compose -f infra/docker-compose.yml up -d postgres redis
-alembic upgrade head
+docker compose -f docker/docker-compose.yml up -d postgres redis
+cd backend
+uv sync
+source .venv/bin/activate
+alembic -c alembic.ini upgrade head
 python3 -m app.main
 ```
 

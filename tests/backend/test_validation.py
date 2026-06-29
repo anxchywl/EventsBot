@@ -1,7 +1,13 @@
 import unittest
 from pydantic import ValidationError
 
-from app.web.schemas import EventDetail, ReviewDetail, FriendUserSummary
+from app.web.schemas import (
+    EventDetail,
+    FriendRequestCreate,
+    FriendUserSummary,
+    ReminderRequest,
+    ReviewDetail,
+)
 
 
 class ValidationTest(unittest.TestCase):
@@ -23,6 +29,22 @@ class ValidationTest(unittest.TestCase):
             self.fail("Expected ValidationError for over-length token")
         except ValidationError:
             pass
+
+    def test_friend_request_requires_exactly_one_target(self):
+        FriendRequestCreate(user_id=10)
+        FriendRequestCreate(invite_token="a" * 32)
+
+        for payload in ({}, {"user_id": 10, "invite_token": "a" * 32}):
+            with self.assertRaises(ValidationError):
+                FriendRequestCreate(**payload)
+
+    def test_reminder_request_bounds_match_service_limit(self):
+        ReminderRequest(offset_minutes=1)
+        ReminderRequest(offset_minutes=143999)
+
+        for minutes in (0, 144000):
+            with self.assertRaises(ValidationError):
+                ReminderRequest(offset_minutes=minutes)
 
         try:
             ReviewDetail(

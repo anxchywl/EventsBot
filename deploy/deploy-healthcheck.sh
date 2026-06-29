@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-COMPOSE_FILE="${COMPOSE_FILE:-infra/docker-compose.prod.yml}"
+COMPOSE_FILE="${COMPOSE_FILE:-docker/docker-compose.prod.yml}"
 COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-events_bot}"
 ENV_FILE="${ENV_FILE:-.env}"
 TIMEOUT_SECONDS="${HEALTHCHECK_TIMEOUT_SECONDS:-120}"
@@ -73,7 +73,7 @@ if "<html" not in html.lower() and "<!doctype html" not in html.lower():
 PY
 
 log "Verifying Alembic state..."
-compose exec -T web alembic current >/dev/null
+compose exec -T web alembic -c backend/alembic.ini current >/dev/null
 
 log "Checking startup logs..."
 if compose logs --since 2m web bot | grep -Eiq 'traceback|telegram polling conflict detected|application startup failed'; then
