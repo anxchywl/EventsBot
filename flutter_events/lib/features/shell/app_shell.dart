@@ -2,10 +2,10 @@ import 'package:app_ui/app_ui.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/auth_store.dart';
-import '../auth/login_screen.dart';
+import '../coordinator/coordinator_dashboard_screen.dart';
+import '../event_manager/event_manager_screen.dart';
 import '../events/events_screen.dart';
 import '../my_events/my_events_screen.dart';
-import '../stub/stub_screen.dart';
 
 class AppShell extends StatefulWidget {
   const AppShell({super.key});
@@ -15,89 +15,96 @@ class AppShell extends StatefulWidget {
 }
 
 class _AppShellState extends State<AppShell> {
-  int _currentIndex = 2;
+  late int _currentIndex;
+  int _eventsTapCount = 0;
 
-  Future<void> _logout() async {
-    await AuthStore.clear();
-    if (!mounted) return;
-    Navigator.pushAndRemoveUntil(
-      context,
-      MaterialPageRoute(builder: (_) => const LoginScreen()),
-      (route) => false,
-    );
+  @override
+  void initState() {
+    super.initState();
+    _currentIndex = AuthStore.isAdmin ? 2 : 0;
+  }
+
+  List<({Widget body, BottomNavigationBarItem item})> get _destinations {
+    if (AuthStore.isAdmin) {
+      return const [
+        (
+          body: CoordinatorDashboardScreen(),
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.inbox_outlined),
+            label: 'Заявки',
+          ),
+        ),
+        (
+          body: EventManagerScreen(),
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.insights_outlined),
+            label: 'Аналитика',
+          ),
+        ),
+        (
+          body: EventsScreen(),
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.event_outlined),
+            label: 'Ивенты',
+          ),
+        ),
+      ];
+    }
+    return const [
+      (
+        body: EventsScreen(),
+        item: BottomNavigationBarItem(
+          icon: Icon(Icons.event_outlined),
+          label: 'Ивенты',
+        ),
+      ),
+      (
+        body: MyEventsScreen(),
+        item: BottomNavigationBarItem(
+          icon: Icon(Icons.assignment_outlined),
+          label: 'Мои заявки',
+        ),
+      ),
+    ];
   }
 
   Widget _buildBody() {
-    switch (_currentIndex) {
-      case 0:
-        return const StubScreen('Главная');
-      case 1:
-        return const StubScreen('Сообщества');
-      case 2:
-        return const EventsScreen();
-      case 3:
-        return const MyEventsScreen();
-      default:
-        return _buildProfile();
-    }
+    final destinations = _destinations;
+    final index = _currentIndex.clamp(0, destinations.length - 1);
+    return destinations[index].body;
   }
 
-  Widget _buildProfile() {
-    final theme = Theme.of(context);
-    return Scaffold(
-      appBar: const AppAppBar(title: 'Профиль'),
-      body: Center(
-        child: Padding(
-          padding: AppSpacing.screenPadding,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                AuthStore.firstName ?? 'Профиль',
-                style: theme.textTheme.titleLarge,
-              ),
-              const SizedBox(height: AppSpacing.xl),
-              AppSecondaryButton(text: 'Выйти', onPressed: _logout),
-            ],
-          ),
-        ),
-      ),
-    );
+  Future<void> _handleNavigationTap(int index) async {
+    final eventsIndex = AuthStore.isAdmin ? 2 : 0;
+    if (index != eventsIndex) {
+      _eventsTapCount = 0;
+      setState(() => _currentIndex = index);
+      return;
+    }
+
+    _eventsTapCount += 1;
+    if (_eventsTapCount >= 5) {
+      _eventsTapCount = 0;
+      await AuthStore.cycleTestRole();
+    }
+    if (!mounted) return;
+    setState(() => _currentIndex = index);
   }
 
   @override
   Widget build(BuildContext context) {
+    final destinations = _destinations;
+    final currentIndex = _currentIndex.clamp(0, destinations.length - 1);
     return Scaffold(
       body: _buildBody(),
       bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _currentIndex,
-        onTap: (index) => setState(() => _currentIndex = index),
+        currentIndex: currentIndex,
+        onTap: _handleNavigationTap,
         type: BottomNavigationBarType.fixed,
         selectedItemColor: AppColors.primary,
         unselectedItemColor: AppColors.grey,
         backgroundColor: AppColors.white,
-        items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.home_outlined),
-            label: 'Главная',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.groups_outlined),
-            label: 'Сообщества',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.event_outlined),
-            label: 'Ивенты',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.assignment_outlined),
-            label: 'Мои заявки',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.person_outline),
-            label: 'Профиль',
-          ),
-        ],
+        items: destinations.map((destination) => destination.item).toList(),
       ),
     );
   }

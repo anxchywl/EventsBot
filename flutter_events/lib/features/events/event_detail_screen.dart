@@ -20,7 +20,7 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
   bool _moderating = false;
 
   bool get _canModerate =>
-      AuthStore.isModerator &&
+      AuthStore.isAdmin &&
       (_event.status == 'pending' || _event.status == 'needs_changes');
 
   @override

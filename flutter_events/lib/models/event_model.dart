@@ -1,6 +1,8 @@
 import 'package:app_ui/app_ui.dart';
 import 'package:flutter/material.dart';
 
+import '../core/constants.dart';
+
 /// Mirrors the backend FlutterEventItem schema.
 class EventModel {
   final int id;
@@ -13,6 +15,7 @@ class EventModel {
   final String category;
   final String organizerName;
   final String status;
+  final String? coverUrl;
   final String? itEquipment;
   final String? materials;
   final String? registrationUrl;
@@ -29,6 +32,7 @@ class EventModel {
     required this.category,
     required this.organizerName,
     required this.status,
+    this.coverUrl,
     this.itEquipment,
     this.materials,
     this.registrationUrl,
@@ -47,6 +51,7 @@ class EventModel {
       category: json['category'] as String,
       organizerName: json['organizer_name'] as String,
       status: json['status'] as String,
+      coverUrl: _resolveUrl(json['cover_url'] as String?),
       itEquipment: json['it_equipment'] as String?,
       materials: json['materials'] as String?,
       registrationUrl: json['registration_url'] as String?,
@@ -75,6 +80,12 @@ class EventModel {
       default:
         return status;
     }
+  }
+
+  static String? _resolveUrl(String? url) {
+    if (url == null) return null;
+    if (url.startsWith('http')) return url;
+    return '$kBaseUrl$url';
   }
 
   Color get statusColor {

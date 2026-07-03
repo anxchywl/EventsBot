@@ -10,7 +10,7 @@ dependencies:
   flutter:
     sdk: flutter
   app_ui:
-    path: ../packages/app_ui
+    path: ../app_ui
   http: ^1.2.0
   shared_preferences: ^2.3.0
   intl: ^0.19.0

@@ -7,7 +7,7 @@ import '../events/event_card.dart';
 import '../events/event_detail_screen.dart';
 
 /// Moderation queue — every event awaiting review, regardless of creator.
-/// Only reachable by moderators/admins from the events screen app bar.
+/// Only reachable by admins from the events screen app bar.
 class PendingEventsScreen extends StatefulWidget {
   const PendingEventsScreen({super.key});
 

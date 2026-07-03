@@ -4,7 +4,7 @@ packages:
   app_ui:
     dependency: "direct main"
     description:
-      path: "../packages/app_ui"
+      path: "../app_ui"
       relative: true
     source: path
     version: "1.0.0"

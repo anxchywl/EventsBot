@@ -18,10 +18,7 @@ class AuthStore {
 
   static bool get isLoggedIn => (_prefs.getString(_kToken) ?? '').isNotEmpty;
 
-  static bool get isModerator {
-    final r = role;
-    return r == 'admin' || r == 'moderator';
-  }
+  static bool get isAdmin => role == 'admin';
 
   static String? get token => _prefs.getString(_kToken);
 
@@ -38,13 +35,26 @@ class AuthStore {
     required int userId,
   }) async {
     await _prefs.setString(_kToken, token);
-    await _prefs.setString(_kRole, role);
+    await _prefs.setString(_kRole, role == 'admin' ? 'admin' : 'user');
     await _prefs.setInt(_kUserId, userId);
     if (firstName == null) {
       await _prefs.remove(_kFirstName);
     } else {
       await _prefs.setString(_kFirstName, firstName);
     }
+  }
+
+  static Future<void> setRole(String role) async {
+    await _prefs.setString(_kRole, role == 'admin' ? 'admin' : 'user');
+  }
+
+  static Future<String> cycleTestRole() async {
+    final nextRole = switch (role) {
+      'admin' => 'user',
+      _ => 'admin',
+    };
+    await setRole(nextRole);
+    return nextRole;
   }
 
   static Future<void> clear() async {

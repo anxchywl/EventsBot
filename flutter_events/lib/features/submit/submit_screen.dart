@@ -7,7 +7,11 @@ import '../../core/exceptions.dart';
 import '../../models/category_model.dart';
 
 class SubmitScreen extends StatefulWidget {
-  const SubmitScreen({super.key});
+  const SubmitScreen({super.key, this.initialDate});
+
+  /// Optionally pre-fills the event date, e.g. when opened from the shared
+  /// calendar for a specific day.
+  final DateTime? initialDate;
 
   @override
   State<SubmitScreen> createState() => _SubmitScreenState();
@@ -44,6 +48,11 @@ class _SubmitScreenState extends State<SubmitScreen> {
   @override
   void initState() {
     super.initState();
+    final initial = widget.initialDate;
+    if (initial != null) {
+      _date = initial;
+      _dateController.text = DateFormat('dd.MM.yyyy').format(initial);
+    }
     _loadCategories();
   }
 
@@ -156,7 +165,8 @@ class _SubmitScreenState extends State<SubmitScreen> {
     }
   }
 
-  String? _nullIfEmpty(String value) => value.trim().isEmpty ? null : value.trim();
+  String? _nullIfEmpty(String value) =>
+      value.trim().isEmpty ? null : value.trim();
 
   Future<void> _showSuccess(int eventId) {
     return showDialog<void>(
@@ -184,8 +194,9 @@ class _SubmitScreenState extends State<SubmitScreen> {
   }
 
   void _showMessage(String message) {
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
@@ -230,7 +241,7 @@ class _SubmitScreenState extends State<SubmitScreen> {
 
   Widget _buildProgress() {
     final theme = Theme.of(context);
-    const labels = ['Основное', 'Место и время', 'Ресурсы'];
+    const labels = ['Дата и время', 'Основное', 'Ресурсы'];
     return Column(
       children: [
         LinearProgressIndicator(
@@ -251,8 +262,9 @@ class _SubmitScreenState extends State<SubmitScreen> {
                 Text(
                   labels[i],
                   style: theme.textTheme.bodySmall?.copyWith(
-                    color:
-                        i == _currentStep ? AppColors.primary : AppColors.grey,
+                    color: i == _currentStep
+                        ? AppColors.primary
+                        : AppColors.grey,
                   ),
                 ),
             ],
@@ -265,9 +277,9 @@ class _SubmitScreenState extends State<SubmitScreen> {
   Widget _buildStep() {
     switch (_currentStep) {
       case 0:
-        return _stepBasic();
-      case 1:
         return _stepPlaceTime();
+      case 1:
+        return _stepBasic();
       default:
         return _stepResources();
     }
