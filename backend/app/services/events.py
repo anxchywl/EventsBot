@@ -53,6 +53,8 @@ async def create_pending_event(
         organizer_name=event_data["organizer"],
         poster_file_id=event_data.get("poster_file_id"),
         registration_url=event_data.get("registration_url"),
+        it_equipment=event_data.get("it_equipment"),
+        materials=event_data.get("materials"),
         status=EventStatus.PENDING.value,
     )
     session.add(event)

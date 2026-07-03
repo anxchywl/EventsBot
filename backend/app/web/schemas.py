@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from datetime import date
+from typing import Literal
+
 from pydantic import BaseModel, Field, model_validator
 
 
@@ -279,3 +282,68 @@ class FriendActionResponse(BaseModel):
     ok: bool = True
     message: str
     request_id: int | None = None
+
+
+# flutter app: separate auth and event schemas for the mobile client
+
+_TIME_PATTERN = r"^([01]\d|2[0-3]):[0-5]\d$"
+
+
+class FlutterRegisterRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=255)
+    password: str = Field(min_length=8, max_length=128)
+    first_name: str = Field(min_length=1, max_length=64)
+
+
+class FlutterLoginRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=255)
+    password: str = Field(min_length=1, max_length=128)
+
+
+class FlutterAuthResponse(BaseModel):
+    token: str
+    user_id: int
+    role: str
+    first_name: str | None = None
+    is_verified: bool
+
+
+class FlutterCategoryItem(BaseModel):
+    id: int
+    name: str
+    slug: str
+
+
+class FlutterEventItem(BaseModel):
+    id: int
+    public_token: str
+    title: str
+    description: str
+    event_date: str
+    event_time: str
+    location: str
+    category: str
+    organizer_name: str
+    status: str
+    it_equipment: str | None = None
+    materials: str | None = None
+    registration_url: str | None = None
+    moderation_note: str | None = None
+
+
+class FlutterEventCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=255)
+    description: str = Field(min_length=1)
+    event_date: date
+    event_time: str = Field(pattern=_TIME_PATTERN)
+    location: str = Field(min_length=1, max_length=255)
+    category_id: int
+    organizer_name: str = Field(min_length=1, max_length=255)
+    it_equipment: str | None = None
+    materials: str | None = None
+    registration_url: str | None = Field(default=None, max_length=1024)
+
+
+class FlutterEventStatusUpdate(BaseModel):
+    status: Literal["approved", "rejected", "needs_changes", "cancelled"]
+    comment: str | None = Field(default=None, max_length=500)

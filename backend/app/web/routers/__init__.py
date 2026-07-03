@@ -7,6 +7,8 @@ from app.web.routers.sharing import router as sharing_router
 from app.web.routers.auth import router as auth_router
 from app.web.routers.ratings import router as ratings_router
 from app.web.routers.admin import router as admin_router
+from app.web.routers.flutter_auth import router as flutter_auth_router
+from app.web.routers.flutter_events import router as flutter_events_router
 
 __all__ = (
     "events_router",
@@ -18,4 +20,6 @@ __all__ = (
     "auth_router",
     "ratings_router",
     "admin_router",
+    "flutter_auth_router",
+    "flutter_events_router",
 )

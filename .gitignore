@@ -9,3 +9,9 @@ __pycache__/
 .claude/
 .coverage
 frontend/node_modules/
+flutter_events/build/
+flutter_events/.dart_tool/
+flutter_events/.flutter-plugins
+flutter_events/.flutter-plugins-dependencies
+packages/app_ui/.dart_tool/
+packages/app_ui/.flutter-plugins-dependencies

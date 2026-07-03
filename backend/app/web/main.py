@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import app.models  # noqa: F401
+from app.config import get_settings
 from app.db.redis import close_media_redis, close_redis, get_redis
 from app.web.telegram import close_web_bot
 from app.db.session import get_session
@@ -32,6 +33,8 @@ from app.web.routers import (
     auth_router,
     ratings_router,
     admin_router,
+    flutter_auth_router,
+    flutter_events_router,
 )
 from app.web.schemas import AuthRequest, AuthResponse
 
@@ -54,16 +57,25 @@ async def lifespan(app: FastAPI):
     await close_web_bot()
 
 
+# read settings before app construction so docs can be enabled for development
+_settings = get_settings()
+
 web_app = FastAPI(
     title="Events Bot Mini App",
     lifespan=lifespan,
-    docs_url=None,  # disable swagger ui in production
+    # docs disabled in production, enabled when FLUTTER_DEV_DOCS is set
+    docs_url="/documentation" if _settings.flutter_dev_docs else None,
     redoc_url=None,  # disable redoc in production
-    openapi_url=None,  # disable openapi schema endpoint
+    openapi_url="/openapi.json" if _settings.flutter_dev_docs else None,
 )
+
+_cors_origins = ["https://web.telegram.org", "https://k.snek.sh"]
+if _settings.flutter_dev_cors:
+    _cors_origins += ["http://localhost:*", "http://10.0.2.2:*"]
+
 web_app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://web.telegram.org", "https://k.snek.sh"],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=[
@@ -84,6 +96,8 @@ web_app.include_router(media_router)
 web_app.include_router(auth_router)
 web_app.include_router(ratings_router)
 web_app.include_router(admin_router)
+web_app.include_router(flutter_auth_router)
+web_app.include_router(flutter_events_router)
 
 
 # set browser security headers for the mini app
@@ -182,6 +196,22 @@ async def rate_limit(request: Request, call_next):
         elif path.startswith("/api/auth/forgot-password/"):
             await _rl(
                 r, f"rate:ip:{key}:fp", 10, 900, "Too many attempts. Try again later."
+            )
+        elif path == "/api/flutter/auth/login":
+            await _rl(
+                r,
+                f"rate:ip:{key}:flutter-login",
+                10,
+                900,
+                "Too many login attempts. Please try again in 15 minutes.",
+            )
+        elif path == "/api/flutter/auth/register":
+            await _rl(
+                r,
+                f"rate:ip:{key}:flutter-register",
+                5,
+                900,
+                "Too many registration attempts. Please try again in 15 minutes.",
             )
         elif path in {"/api/events/review-updates", "/api/events/updates"}:
             await _rl(

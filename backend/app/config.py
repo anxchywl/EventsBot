@@ -27,6 +27,9 @@ class Settings(BaseSettings):
         alias="MINIAPP_SESSION_TTL_SECONDS",
     )
     session_secret: SecretStr | None = Field(default=None, alias="SESSION_SECRET")
+    # flutter development toggles — extra cors origins and enabled api docs
+    flutter_dev_cors: bool = Field(default=False, alias="FLUTTER_DEV_CORS")
+    flutter_dev_docs: bool = Field(default=False, alias="FLUTTER_DEV_DOCS")
     # IPs of reverse proxies whose X-Forwarded-For header should be trusted
     # e.g. TRUSTED_PROXY_IPS=127.0.0.1,10.0.0.1
     trusted_proxy_ips: Annotated[list[str], NoDecode] = Field(

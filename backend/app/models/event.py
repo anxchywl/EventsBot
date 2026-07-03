@@ -98,6 +98,8 @@ class Event(TimestampMixin, Base):
     location: Mapped[str] = mapped_column(String(255))
     organizer_name: Mapped[str] = mapped_column(String(255))
     registration_url: Mapped[str | None] = mapped_column(String(1024))
+    it_equipment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    materials: Mapped[str | None] = mapped_column(Text, nullable=True)
     poster_file_id: Mapped[str | None] = mapped_column(String(512))
     # moderation state and timestamps
     status: Mapped[str] = mapped_column(
