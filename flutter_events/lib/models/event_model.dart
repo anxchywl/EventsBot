@@ -2,6 +2,7 @@ import 'package:app_ui/app_ui.dart';
 import 'package:flutter/material.dart';
 
 import '../core/constants.dart';
+import '../core/localization.dart';
 
 /// Mirrors the backend FlutterEventItem schema.
 class EventModel {
@@ -11,6 +12,7 @@ class EventModel {
   final String description;
   final String eventDate;
   final String eventTime;
+  final String? eventEndTime;
   final String location;
   final String category;
   final String organizerName;
@@ -28,6 +30,7 @@ class EventModel {
     required this.description,
     required this.eventDate,
     required this.eventTime,
+    this.eventEndTime,
     required this.location,
     required this.category,
     required this.organizerName,
@@ -47,6 +50,7 @@ class EventModel {
       description: json['description'] as String,
       eventDate: json['event_date'] as String,
       eventTime: json['event_time'] as String,
+      eventEndTime: json['event_end_time'] as String?,
       location: json['location'] as String,
       category: json['category'] as String,
       organizerName: json['organizer_name'] as String,
@@ -66,17 +70,17 @@ class EventModel {
   String get statusLabel {
     switch (status) {
       case 'approved':
-        return 'Одобрено';
+        return AppLocalizations.get('approvedLabel');
       case 'pending':
-        return 'На модерации';
+        return AppLocalizations.get('pendingLabel');
       case 'needs_changes':
-        return 'Требуются правки';
+        return AppLocalizations.get('needsChangesLabel');
       case 'rejected':
-        return 'Отклонено';
+        return AppLocalizations.get('rejectedLabel');
       case 'cancelled':
-        return 'Отменено';
+        return AppLocalizations.get('cancelledLabel');
       case 'archived':
-        return 'В архиве';
+        return AppLocalizations.get('archivedLabel');
       default:
         return status;
     }
@@ -93,7 +97,7 @@ class EventModel {
       case 'approved':
         return AppColors.success;
       case 'pending':
-        return AppColors.orange;
+        return AppColors.grey;
       case 'needs_changes':
         return AppColors.warning;
       case 'rejected':

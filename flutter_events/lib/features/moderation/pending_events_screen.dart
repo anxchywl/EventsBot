@@ -2,6 +2,7 @@ import 'package:app_ui/app_ui.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/api_client.dart';
+import '../../core/localization.dart';
 import '../../models/event_model.dart';
 import '../events/event_card.dart';
 import '../events/event_detail_screen.dart';
@@ -58,7 +59,10 @@ class _PendingEventsScreenState extends State<PendingEventsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: const AppAppBar(showBackButton: true, title: 'На модерации'),
+      appBar: AppAppBar(
+        showBackButton: true,
+        title: AppLocalizations.get('pendingModeration'),
+      ),
       body: _buildBody(),
     );
   }
@@ -74,7 +78,10 @@ class _PendingEventsScreenState extends State<PendingEventsScreen> {
             children: [
               Text(_error!, textAlign: TextAlign.center),
               const SizedBox(height: AppSpacing.df),
-              AppSecondaryButton(text: 'Повторить', onPressed: _load),
+              AppSecondaryButton(
+                text: AppLocalizations.get('retry'),
+                onPressed: _load,
+              ),
             ],
           ),
         ),
@@ -84,7 +91,7 @@ class _PendingEventsScreenState extends State<PendingEventsScreen> {
     if (_events.isEmpty) {
       return Center(
         child: Text(
-          'Нет заявок на модерации',
+          AppLocalizations.get('noEventsPending'),
           style: Theme.of(context)
               .textTheme
               .bodyLarge

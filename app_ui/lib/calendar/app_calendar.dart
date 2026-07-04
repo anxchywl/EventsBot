@@ -110,7 +110,8 @@ class AppCalendar extends StatefulWidget {
 
   /// Custom renderer for individual events.
   /// When null, a default row (icon + title + subtitle + time) is used.
-  final Widget Function(BuildContext context, AppCalendarEvent event)? eventBuilder;
+  final Widget Function(BuildContext context, AppCalendarEvent event)?
+  eventBuilder;
 
   /// Custom empty state for dates with no events.
   /// Receives the selected date and an optional create-event callback.
@@ -119,7 +120,8 @@ class AppCalendar extends StatefulWidget {
     BuildContext context,
     DateTime selectedDate,
     VoidCallback? onCreateEvent,
-  )? emptyStateBuilder;
+  )?
+  emptyStateBuilder;
 
   /// Called when the user navigates to a different month (prev/next/today).
   final ValueChanged<DateTime>? onMonthChanged;
@@ -129,11 +131,33 @@ class AppCalendar extends StatefulWidget {
 }
 
 class _AppCalendarState extends State<AppCalendar> {
+  static const _monthRange = 12;
+  static const _monthSectionExtent = 380.0;
+
   late DateTime _month;
   late DateTime _selected;
+  late final PageController _pageController;
   int _slideDir = 1;
 
   static DateTime _dateOnly(DateTime dt) => DateTime(dt.year, dt.month, dt.day);
+
+  int _pageIndexFor(DateTime month) {
+    final today = DateTime.now();
+    final offset = (month.year - today.year) * 12 + (month.month - today.month);
+    final index = _monthRange + offset;
+    return index.clamp(0, _monthRange * 2);
+  }
+
+  void _syncPageController(DateTime month) {
+    final targetPage = _pageIndexFor(month);
+    if (_pageController.hasClients && _pageController.page?.round() != targetPage) {
+      _pageController.animateToPage(
+        targetPage,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+      );
+    }
+  }
 
   @override
   void initState() {
@@ -143,31 +167,53 @@ class _AppCalendarState extends State<AppCalendar> {
         : _dateOnly(DateTime.now());
     _selected = initial;
     _month = DateTime(initial.year, initial.month, 1);
+    _pageController = PageController(
+      initialPage: _pageIndexFor(_month),
+    );
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
   }
 
   void _prevMonth() {
     HapticFeedback.selectionClick();
+    final newMonth = DateTime(_month.year, _month.month - 1, 1);
     setState(() {
       _slideDir = -1;
-      _month = DateTime(_month.year, _month.month - 1, 1);
+      _month = newMonth;
     });
+    _syncPageController(newMonth);
     widget.onMonthChanged?.call(_month);
   }
 
   void _nextMonth() {
     HapticFeedback.selectionClick();
+    final newMonth = DateTime(_month.year, _month.month + 1, 1);
     setState(() {
       _slideDir = 1;
-      _month = DateTime(_month.year, _month.month + 1, 1);
+      _month = newMonth;
     });
+    _syncPageController(newMonth);
     widget.onMonthChanged?.call(_month);
   }
 
   void _selectDate(DateTime date) {
     if (!widget.allowDateSelection) return;
     HapticFeedback.selectionClick();
-    setState(() => _selected = date);
+    final dayEvents = _eventsOn(date);
+    final newMonth = DateTime(date.year, date.month, 1);
+    setState(() {
+      _selected = date;
+      _month = newMonth;
+    });
+    _syncPageController(newMonth);
     widget.onDateSelected?.call(date);
+    if (widget.showEventList) {
+      _showDayPreview(date, dayEvents);
+    }
   }
 
   void _goToToday() {
@@ -179,6 +225,7 @@ class _AppCalendarState extends State<AppCalendar> {
       _month = todayMonth;
       _selected = today;
     });
+    _syncPageController(todayMonth);
     widget.onMonthChanged?.call(_month);
     widget.onDateSelected?.call(today);
   }
@@ -190,17 +237,25 @@ class _AppCalendarState extends State<AppCalendar> {
       final date = _dateOnly(event.date);
       final color = event.color ?? AppColors.primary;
       final colors = map.putIfAbsent(date, () => <Color>[]);
-      if (colors.length < 3 && !colors.any((c) => c.toARGB32() == color.toARGB32())) {
+      if (colors.length < 3 &&
+          !colors.any((c) => c.toARGB32() == color.toARGB32())) {
         colors.add(color);
       }
     }
     return map;
   }
 
+  Map<DateTime, int> _buildEventCountMap() {
+    final map = <DateTime, int>{};
+    for (final event in widget.events) {
+      final date = _dateOnly(event.date);
+      map[date] = (map[date] ?? 0) + 1;
+    }
+    return map;
+  }
+
   List<AppCalendarEvent> _eventsOn(DateTime date) {
-    final list = widget.events
-        .where((e) => _dateOnly(e.date) == date)
-        .toList();
+    final list = widget.events.where((e) => _dateOnly(e.date) == date).toList();
     list.sort((a, b) {
       final ta = a.time;
       final tb = b.time;
@@ -212,6 +267,29 @@ class _AppCalendarState extends State<AppCalendar> {
     return list;
   }
 
+  void _showDayPreview(DateTime date, List<AppCalendarEvent> events) {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      useSafeArea: false,
+      builder: (context) {
+        return _CalDayPreviewSheet(
+          dateLabel: MaterialLocalizations.of(context).formatMediumDate(date),
+          events: events,
+          accentColor: widget.accentColor ?? AppColors.primary,
+          emptyStateTitle: widget.emptyStateTitle,
+          emptyStateSubtitle: widget.emptyStateSubtitle,
+          eventBuilder: widget.eventBuilder,
+          onEventTap: widget.onEventTap,
+          onCreateEvent: widget.onCreateEvent != null
+              ? () => widget.onCreateEvent!(date)
+              : null,
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final isLight = Theme.of(context).brightness == Brightness.light;
@@ -219,195 +297,59 @@ class _AppCalendarState extends State<AppCalendar> {
     final mloc = MaterialLocalizations.of(context);
 
     final surface = isLight ? Colors.white : const Color(0xFF17171A);
-    final textPrimary = Theme.of(context).colorScheme.onSurface;
     final today = _dateOnly(DateTime.now());
-    final isToday = _selected == today;
-    final dateLabel = isToday && widget.todayLabel != null
-        ? widget.todayLabel!
-        : mloc.formatMediumDate(_selected);
-
     final indicatorMap = _buildIndicatorMap();
-    final selectedEvents = _eventsOn(_selected);
-    final showAutoCreateButton =
-        widget.onCreateEvent != null && widget.headerAction == null;
+    final eventCountMap = _buildEventCountMap();
 
-    return Container(
-      decoration: BoxDecoration(
-        color: surface,
+    return Align(
+      alignment: Alignment.topCenter,
+      child: ClipRRect(
         borderRadius: BorderRadius.circular(24),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // ── Header ──────────────────────────────────────────────────────
-          Padding(
-            padding: const EdgeInsets.fromLTRB(18, 18, 14, 0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (widget.headerLabel != null) ...[
-                  Text(
-                    widget.headerLabel!,
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: accent,
-                      letterSpacing: 0.5,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                ],
-                Row(
-                  children: [
-                    // ── Month Year (left) ──────────────────────────────────
-                    Expanded(
-                      child: AnimatedSwitcher(
-                        duration: const Duration(milliseconds: 220),
-                        transitionBuilder: (child, anim) =>
-                            FadeTransition(opacity: anim, child: child),
-                        child: Align(
-                          alignment: Alignment.centerLeft,
-                          child: Text(
-                            mloc.formatMonthYear(_month),
-                            key: ValueKey(_month),
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                              color: textPrimary,
-                              letterSpacing: -0.3,
-                              height: 1.1,
-                            ),
-                            overflow: TextOverflow.ellipsis,
-                            maxLines: 1,
-                          ),
-                        ),
-                      ),
-                    ),
-                    // ── Center: Today button (optional) ───────────────────
-                    if (widget.showTodayButton) ...[
-                      const SizedBox(width: 8),
-                      _CalTodayButton(
-                        label: widget.todayButtonLabel ?? 'Today',
-                        onTap: _goToToday,
-                        accent: accent,
-                        isLight: isLight,
-                      ),
-                    ],
-                    // ── Center: custom action or auto + button ─────────────
-                    if (widget.headerAction != null) ...[
-                      const SizedBox(width: 8),
-                      widget.headerAction!,
-                    ] else if (showAutoCreateButton) ...[
-                      const SizedBox(width: 8),
-                      GestureDetector(
-                        onTap: () => widget.onCreateEvent!(_selected),
-                        child: Container(
-                          width: 32,
-                          height: 32,
-                          decoration: BoxDecoration(
-                            color: accent.withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: AppIcon(AppIcons.add, size: 18, color: accent),
-                        ),
-                      ),
-                    ],
-                    // ── Right: nav arrows ─────────────────────────────────
-                    const SizedBox(width: 8),
-                    _CalNavButton(
-                      icon: AppIcons.chevronLeft,
-                      onTap: _prevMonth,
-                      isLight: isLight,
-                    ),
-                    const SizedBox(width: 4),
-                    _CalNavButton(
-                      icon: AppIcons.chevronRight,
-                      onTap: _nextMonth,
-                      isLight: isLight,
-                    ),
-                  ],
-                ),
-              ],
+        child: Container(
+          height: _monthSectionExtent,
+          decoration: BoxDecoration(
+            color: surface,
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(
+              color: isLight
+                  ? const Color(0xFFE8E6F2)
+                  : const Color(0xFF2A2A32),
             ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: isLight ? 0.06 : 0.20),
+                blurRadius: 18,
+                offset: const Offset(0, 10),
+              ),
+            ],
           ),
-
-          const SizedBox(height: 16),
-
-          // ── Weekday Labels ─────────────────────────────────────────────
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10),
-            child: _CalWeekdayRow(),
-          ),
-
-          const SizedBox(height: 4),
-
-          // ── Month Grid ─────────────────────────────────────────────────
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10),
-            child: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 220),
-              switchInCurve: Curves.easeOut,
-              switchOutCurve: Curves.easeIn,
-              transitionBuilder: (child, animation) {
-                final slide = _slideDir == 1
-                    ? const Offset(0.06, 0)
-                    : const Offset(-0.06, 0);
-                return SlideTransition(
-                  position: Tween(begin: slide, end: Offset.zero)
-                      .animate(animation),
-                  child: FadeTransition(opacity: animation, child: child),
-                );
-              },
-              child: _CalMonthGrid(
-                key: ValueKey(_month),
-                month: _month,
+          child: PageView.builder(
+            scrollDirection: Axis.vertical,
+            controller: _pageController,
+            onPageChanged: (pageIndex) {
+              final offset = pageIndex - _monthRange;
+              final newMonth = DateTime(today.year, today.month + offset, 1);
+              setState(() => _month = newMonth);
+              widget.onMonthChanged?.call(newMonth);
+            },
+            itemCount: _monthRange * 2 + 1,
+            itemBuilder: (context, index) {
+              final offset = index - _monthRange;
+              final targetMonth = DateTime(today.year, today.month + offset, 1);
+              return _CalMonthSection(
+                month: targetMonth,
+                monthLabel: mloc.formatMonthYear(targetMonth),
                 selected: _selected,
                 today: today,
                 indicatorMap: indicatorMap,
+                eventCountMap: eventCountMap,
                 accentColor: accent,
                 isLight: isLight,
                 onSelect: _selectDate,
-              ),
-            ),
+              );
+            },
           ),
-
-          const SizedBox(height: 4),
-
-          if (widget.showEventList) ...[
-            // ── Divider ────────────────────────────────────────────────
-            Container(
-              height: 0.5,
-              margin: const EdgeInsets.symmetric(horizontal: 16),
-              color: isLight
-                  ? const Color(0xFFEEEEF4)
-                  : const Color(0xFF2A2A32),
-            ),
-
-            // ── Event List ─────────────────────────────────────────────
-            AnimatedSize(
-              duration: const Duration(milliseconds: 280),
-              curve: Curves.easeInOut,
-              child: _CalEventListSection(
-                key: ValueKey(_selected),
-                dateLabel: dateLabel,
-                events: selectedEvents,
-                selectedDate: _selected,
-                accentColor: accent,
-                emptyStateTitle: widget.emptyStateTitle,
-                emptyStateSubtitle: widget.emptyStateSubtitle,
-                createEventLabel: widget.createEventLabel,
-                onCreateEvent: widget.onCreateEvent != null
-                    ? () => widget.onCreateEvent!(_selected)
-                    : null,
-                eventBuilder: widget.eventBuilder,
-                emptyStateBuilder: widget.emptyStateBuilder,
-                onEventTap: widget.onEventTap,
-                isLight: isLight,
-                textPrimary: textPrimary,
-              ),
-            ),
-          ],
-        ],
+        ),
       ),
     );
   }
@@ -435,9 +377,7 @@ class _CalNavButton extends StatelessWidget {
         width: 36,
         height: 36,
         decoration: BoxDecoration(
-          color: isLight
-              ? const Color(0xFFF7F8FA)
-              : const Color(0xFF222228),
+          color: isLight ? const Color(0xFFF7F8FA) : const Color(0xFF222228),
           borderRadius: BorderRadius.circular(12),
         ),
         child: AppIcon(icon, size: 22, color: const Color(0xFF8E8EA3)),
@@ -488,6 +428,93 @@ class _CalTodayButton extends StatelessWidget {
   }
 }
 
+class _CalMonthSection extends StatelessWidget {
+  const _CalMonthSection({
+    required this.month,
+    required this.monthLabel,
+    required this.selected,
+    required this.today,
+    required this.indicatorMap,
+    required this.eventCountMap,
+    required this.accentColor,
+    required this.isLight,
+    required this.onSelect,
+  });
+
+  final DateTime month;
+  final String monthLabel;
+  final DateTime selected;
+  final DateTime today;
+  final Map<DateTime, List<Color>> indicatorMap;
+  final Map<DateTime, int> eventCountMap;
+  final Color accentColor;
+  final bool isLight;
+  final ValueChanged<DateTime> onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    final surface = isLight ? Colors.white : const Color(0xFF17171A);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
+      child: Column(
+        children: [
+          Center(
+            child: Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 14,
+                vertical: 5,
+              ),
+              decoration: BoxDecoration(
+                color: surface.withValues(alpha: 0.94),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(
+                  color: isLight
+                      ? const Color(0xFFE8E6F2)
+                      : const Color(0xFF2A2A32),
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(
+                      alpha: isLight ? 0.05 : 0.16,
+                    ),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Text(
+                monthLabel,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w800,
+                  color: Theme.of(context).colorScheme.onSurface,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          const _CalWeekdayRow(),
+          const SizedBox(height: 8),
+          Expanded(
+            child: ClipRect(
+              child: _CalMonthGrid(
+                month: month,
+                selected: selected,
+                today: today,
+                indicatorMap: indicatorMap,
+                eventCountMap: eventCountMap,
+                accentColor: accentColor,
+                isLight: isLight,
+                onSelect: onSelect,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 // ─── Weekday Row ──────────────────────────────────────────────────────────────
 
 class _CalWeekdayRow extends StatelessWidget {
@@ -527,6 +554,7 @@ class _CalMonthGrid extends StatelessWidget {
     required this.selected,
     required this.today,
     required this.indicatorMap,
+    required this.eventCountMap,
     required this.accentColor,
     required this.isLight,
     required this.onSelect,
@@ -536,6 +564,7 @@ class _CalMonthGrid extends StatelessWidget {
   final DateTime selected;
   final DateTime today;
   final Map<DateTime, List<Color>> indicatorMap;
+  final Map<DateTime, int> eventCountMap;
   final Color accentColor;
   final bool isLight;
   final ValueChanged<DateTime> onSelect;
@@ -556,10 +585,11 @@ class _CalMonthGrid extends StatelessWidget {
         final dayNum = i - startOffset + 1;
 
         if (dayNum < 1 || dayNum > daysInMonth) {
-          cells.add(const Expanded(child: SizedBox(height: 50)));
+          cells.add(const Expanded(child: SizedBox(height: 42)));
         } else {
           final date = DateTime(month.year, month.month, dayNum);
           final dots = indicatorMap[date] ?? const [];
+          final eventCount = eventCountMap[date] ?? 0;
 
           cells.add(
             Expanded(
@@ -572,6 +602,7 @@ class _CalMonthGrid extends StatelessWidget {
                   isSelected: date == selected,
                   isFuture: date.isAfter(today),
                   dots: dots,
+                  eventCount: eventCount,
                   accentColor: accentColor,
                   isLight: isLight,
                 ),
@@ -580,7 +611,7 @@ class _CalMonthGrid extends StatelessWidget {
           );
         }
       }
-      rows.add(Row(children: cells));
+      rows.add(Expanded(child: Row(children: cells)));
       if (row < totalRows - 1) rows.add(const SizedBox(height: 2));
     }
 
@@ -597,6 +628,7 @@ class _CalDayCell extends StatelessWidget {
     required this.isSelected,
     required this.isFuture,
     required this.dots,
+    required this.eventCount,
     required this.accentColor,
     required this.isLight,
   });
@@ -606,22 +638,39 @@ class _CalDayCell extends StatelessWidget {
   final bool isSelected;
   final bool isFuture;
   final List<Color> dots;
+  final int eventCount;
   final Color accentColor;
   final bool isLight;
 
   @override
   Widget build(BuildContext context) {
+    final hasEvents = eventCount > 0;
+    final allMuted =
+        hasEvents &&
+        dots.isNotEmpty &&
+        dots.every((color) => color.toARGB32() == AppColors.grey.toARGB32());
+
     final Color bg;
     if (isSelected) {
       bg = accentColor;
     } else if (isToday) {
       bg = accentColor.withValues(alpha: 0.12);
+    } else if (allMuted) {
+      bg = AppColors.grey.withValues(alpha: 0.12);
+    } else if (eventCount >= 5) {
+      bg = accentColor.withValues(alpha: 0.65);
+    } else if (eventCount >= 3) {
+      bg = accentColor.withValues(alpha: 0.38);
+    } else if (hasEvents) {
+      bg = accentColor.withValues(alpha: 0.15);
     } else {
       bg = Colors.transparent;
     }
 
     final Color numColor;
     if (isSelected) {
+      numColor = Colors.white;
+    } else if (eventCount >= 3 && !allMuted) {
       numColor = Colors.white;
     } else if (isFuture) {
       numColor = isLight ? const Color(0xFF8E8EA3) : const Color(0xFFB0B0C4);
@@ -632,15 +681,19 @@ class _CalDayCell extends StatelessWidget {
     return AnimatedContainer(
       duration: const Duration(milliseconds: 180),
       curve: Curves.easeInOut,
-      height: 50,
-      margin: const EdgeInsets.symmetric(horizontal: 1, vertical: 1),
+      height: 42,
+      margin: const EdgeInsets.symmetric(horizontal: 2.5, vertical: 2.5),
       decoration: BoxDecoration(
         color: bg,
         borderRadius: BorderRadius.circular(14),
-        border: isToday && !isSelected
+        border: isToday || (hasEvents && !isSelected)
             ? Border.all(
-                color: accentColor.withValues(alpha: 0.35),
-                width: 1.5,
+                color: isToday
+                    ? accentColor.withValues(alpha: 0.50)
+                    : (allMuted
+                          ? AppColors.grey.withValues(alpha: 0.22)
+                          : accentColor.withValues(alpha: 0.22)),
+                width: isToday ? 1.5 : 1,
               )
             : null,
       ),
@@ -651,31 +704,14 @@ class _CalDayCell extends StatelessWidget {
             '$day',
             style: TextStyle(
               fontSize: 15,
-              fontWeight:
-                  (isSelected || isToday) ? FontWeight.w700 : FontWeight.w500,
+              fontWeight: (isSelected || isToday)
+                  ? FontWeight.w700
+                  : FontWeight.w500,
               color: numColor,
               letterSpacing: -0.2,
               height: 1.0,
             ),
           ),
-          const SizedBox(height: 4),
-          if (dots.isNotEmpty)
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                for (int i = 0; i < dots.length; i++) ...[
-                  if (i > 0) const SizedBox(width: 3),
-                  _CalDot(
-                    color: isSelected
-                        ? Colors.white.withValues(alpha: 0.85)
-                        : dots[i],
-                  ),
-                ],
-              ],
-            )
-          else
-            const SizedBox(height: 5),
         ],
       ),
     );
@@ -684,16 +720,222 @@ class _CalDayCell extends StatelessWidget {
 
 // ─── Dot ──────────────────────────────────────────────────────────────────────
 
-class _CalDot extends StatelessWidget {
-  const _CalDot({required this.color});
-  final Color color;
+class _CalDayPreviewSheet extends StatelessWidget {
+  const _CalDayPreviewSheet({
+    required this.dateLabel,
+    required this.events,
+    required this.accentColor,
+    this.emptyStateTitle,
+    this.emptyStateSubtitle,
+    this.eventBuilder,
+    this.onEventTap,
+    this.onCreateEvent,
+  });
+
+  final String dateLabel;
+  final List<AppCalendarEvent> events;
+  final Color accentColor;
+  final String? emptyStateTitle;
+  final String? emptyStateSubtitle;
+  final Widget Function(BuildContext, AppCalendarEvent)? eventBuilder;
+  final ValueChanged<AppCalendarEvent>? onEventTap;
+  final VoidCallback? onCreateEvent;
 
   @override
   Widget build(BuildContext context) {
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    final surface = isLight ? Colors.white : const Color(0xFF1C1C1E);
+    final textPrimary = isLight ? AppColors.textPrimary : AppColors.white;
+
     return Container(
-      width: 4,
-      height: 4,
-      decoration: BoxDecoration(shape: BoxShape.circle, color: color),
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(context).size.height * 0.82,
+      ),
+      decoration: BoxDecoration(
+        color: surface,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const SizedBox(height: 8),
+          Container(
+            width: 36,
+            height: 4,
+            decoration: BoxDecoration(
+              color: AppColors.grey.withValues(alpha: 0.35),
+              borderRadius: BorderRadius.circular(999),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 14, 20, 8),
+            child: Text(
+              dateLabel,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w800,
+                color: textPrimary,
+              ),
+            ),
+          ),
+          if (events.isEmpty)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 20),
+              alignment: Alignment.center,
+              child: Text(
+                emptyStateTitle ?? 'Available',
+                style: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.grey,
+                ),
+              ),
+            )
+          else
+            Flexible(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 18),
+                child: Column(
+                  children: [
+                        for (final event in events)
+                          eventBuilder != null
+                              ? eventBuilder!(context, event)
+                              : _CalPopupEventItem(
+                                  event: event,
+                                  accentColor: accentColor,
+                                  textPrimary: textPrimary,
+                                  onTap: onEventTap == null
+                                      ? null
+                                      : () {
+                                          Navigator.of(context).pop();
+                                          onEventTap!(event);
+                                        },
+                                ),
+                      ],
+                    ),
+                  ),
+          ),
+          SizedBox(height: MediaQuery.of(context).padding.bottom + 12),
+        ],
+      ),
+    );
+  }
+}
+
+class _CalPopupEventItem extends StatelessWidget {
+  const _CalPopupEventItem({
+    required this.event,
+    required this.accentColor,
+    required this.textPrimary,
+    this.onTap,
+  });
+
+  final AppCalendarEvent event;
+  final Color accentColor;
+  final Color textPrimary;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final isPending = event.color == AppColors.grey;
+    final accent = isPending ? AppColors.grey : AppColors.success;
+    
+    final title = event.subtitle ?? '';
+    final location = event.title;
+    
+    final startStr = event.time != null
+        ? '${event.time!.hour.toString().padLeft(2, '0')}:${event.time!.minute.toString().padLeft(2, '0')}'
+        : '--:--';
+    final endStr = event.endTime != null
+        ? '${event.endTime!.hour.toString().padLeft(2, '0')}:${event.endTime!.minute.toString().padLeft(2, '0')}'
+        : null;
+    final timeStr = endStr != null ? '$startStr\n$endStr' : startStr;
+
+    final isLight = Theme.of(context).brightness == Brightness.light;
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(16),
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 52,
+              child: Text(
+                timeStr,
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: Color(0xFF8E8EA3),
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            Column(
+              children: [
+                Container(
+                  width: 10,
+                  height: 10,
+                  margin: const EdgeInsets.only(top: 5),
+                  decoration: BoxDecoration(
+                    color: accent,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                Container(
+                  width: 2,
+                  height: 64,
+                  margin: const EdgeInsets.symmetric(vertical: 2),
+                  color: isLight ? const Color(0xFFF2F2F7) : const Color(0xFF2C2C2E),
+                ),
+              ],
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: isPending
+                      ? (isLight ? const Color(0xFFF2F2F7) : const Color(0xFF2C2C2E))
+                      : accent.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: accent.withValues(alpha: isPending ? 0.20 : 0.28),
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      location,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Color(0xFF8E8EA3),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -729,7 +971,8 @@ class _CalEventListSection extends StatelessWidget {
   final String? createEventLabel;
   final VoidCallback? onCreateEvent;
   final Widget Function(BuildContext, AppCalendarEvent)? eventBuilder;
-  final Widget Function(BuildContext, DateTime, VoidCallback?)? emptyStateBuilder;
+  final Widget Function(BuildContext, DateTime, VoidCallback?)?
+  emptyStateBuilder;
   final ValueChanged<AppCalendarEvent>? onEventTap;
 
   @override
@@ -766,78 +1009,25 @@ class _CalEventListSection extends StatelessWidget {
     if (emptyStateBuilder != null) {
       return emptyStateBuilder!(context, selectedDate, onCreateEvent);
     }
-    return Row(
-      children: [
-        Container(
-          width: 36,
-          height: 36,
-          decoration: BoxDecoration(
-            color: const Color(0xFF8E8EA3).withValues(alpha: 0.08),
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: AppIcon(
-            AppIcons.sun,
-            size: 18,
-            color: const Color(0xFF8E8EA3).withValues(alpha: 0.55),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (emptyStateTitle != null)
-                Text(
-                  emptyStateTitle!,
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: textPrimary,
-                  ),
-                ),
-              if (emptyStateSubtitle != null)
-                Text(
-                  emptyStateSubtitle!,
-                  style: const TextStyle(
-                    fontSize: 11,
-                    color: Color(0xFF8E8EA3),
-                  ),
-                ),
-            ],
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: () {
+        Navigator.pop(context);
+        onCreateEvent?.call();
+      },
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        alignment: Alignment.center,
+        child: Text(
+          'Available',
+          style: TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.w600,
+            color: accentColor,
           ),
         ),
-        if (onCreateEvent != null && createEventLabel != null)
-          GestureDetector(
-            onTap: onCreateEvent,
-            child: Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                color: accentColor.withValues(alpha: 0.10),
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(
-                  color: accentColor.withValues(alpha: 0.25),
-                  width: 0.8,
-                ),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  AppIcon(AppIcons.add, size: 13, color: accentColor),
-                  const SizedBox(width: 4),
-                  Text(
-                    createEventLabel!,
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: accentColor,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-      ],
+      ),
     );
   }
 
@@ -845,7 +1035,7 @@ class _CalEventListSection extends StatelessWidget {
     final color = event.color ?? accentColor;
     final timeStr = event.time != null
         ? '${event.time!.hour.toString().padLeft(2, '0')}:'
-            '${event.time!.minute.toString().padLeft(2, '0')}'
+              '${event.time!.minute.toString().padLeft(2, '0')}'
         : null;
 
     return Padding(

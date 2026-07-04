@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/api_client.dart';
+import '../../core/localization.dart';
 import '../../models/category_model.dart';
 import '../../models/event_model.dart';
 import '../submit/submit_screen.dart';
@@ -139,21 +140,22 @@ class _EventsScreenState extends State<EventsScreen> {
     super.dispose();
   }
 
-  Future<void> _load() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+  Future<void> _load({bool silent = false}) async {
+    if (!silent) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
     try {
-      final results = await Future.wait([
-        fetchApprovedEvents(),
-        fetchCategories(),
-      ]);
+      final approved = await fetchApprovedEvents();
+      final pending = await fetchPendingEvents();
+      final categories = await fetchCategories();
       if (!mounted) return;
-      final events = results[0] as List<EventModel>;
+      final events = [...approved, ...pending];
       setState(() {
         _events = events;
-        _categories = results[1] as List<CategoryModel>;
+        _categories = categories;
         _organizerOptions = events.map((e) => e.organizerName).toSet().toList()
           ..sort();
         _locationOptions = events.map((e) => e.location).toSet().toList()
@@ -409,11 +411,14 @@ class _EventsScreenState extends State<EventsScreen> {
     required bool withSearch,
   }) {
     HapticFeedback.selectionClick();
-    return AppBottomSheet.show(
+    return showModalBottomSheet<void>(
       context: context,
-      title: title,
-      maxHeightFraction: 0.7,
-      child: _MultiSelectSheet(
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black.withValues(alpha: 0.48),
+      enableDrag: true,
+      builder: (_) => _MultiSelectSheet(
+        title: title,
         options: options,
         selected: Set.from(selected),
         withSearch: withSearch,
@@ -426,11 +431,16 @@ class _EventsScreenState extends State<EventsScreen> {
 
   Future<void> _openSubmit() async {
     final initialDate = _calendarMode ? _selectedCalendarDate : null;
-    await Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => SubmitScreen(initialDate: initialDate)),
+    final submitted = await showModalBottomSheet<bool>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      useSafeArea: false,
+      builder: (context) => SubmitScreen(initialDate: initialDate, asSheet: true),
     );
-    await _load();
+    if (submitted == true) {
+      await _load(silent: true);
+    }
   }
 
   Future<void> _openCalendarEvent(AppCalendarEvent event) async {
@@ -440,7 +450,7 @@ class _EventsScreenState extends State<EventsScreen> {
       context,
       MaterialPageRoute(builder: (_) => EventDetailScreen(event: model)),
     );
-    await _load();
+    await _load(silent: true);
   }
 
   List<AppCalendarEvent> _calendarEvents() {
@@ -455,7 +465,8 @@ class _EventsScreenState extends State<EventsScreen> {
           subtitle: event.title,
           date: date,
           time: _parseTime(event.eventTime),
-          color: AppColors.error,
+          endTime: event.eventEndTime != null ? _parseTime(event.eventEndTime!) : null,
+          color: event.isPending ? AppColors.grey : AppColors.error,
           metadata: event,
         ),
       );
@@ -474,7 +485,7 @@ class _EventsScreenState extends State<EventsScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppAppBar(
-        title: _calendarMode ? 'Календарь событий' : 'Events',
+        title: _calendarMode ? 'Event Calendar' : 'Events',
         leading: IconButton(
           tooltip: _calendarMode ? 'Events' : 'Calendar',
           icon: AnimatedSwitcher(
@@ -718,7 +729,7 @@ class _EventsListModeView extends StatelessWidget {
                   padding: const EdgeInsets.only(
                     left: AppSpacing.df,
                     right: AppSpacing.df,
-                    top: AppSpacing.sm,
+                    top: 0,
                     bottom: AppSpacing.df,
                   ),
                   itemCount: grouped.fold<int>(
@@ -729,7 +740,10 @@ class _EventsListModeView extends StatelessWidget {
                     int remaining = index;
                     for (final group in grouped) {
                       if (remaining == 0) {
-                        return _DateHeader(label: group.label);
+                        return _DateHeader(
+                          label: group.label,
+                          first: index == 0,
+                        );
                       }
                       remaining--;
                       if (remaining < group.events.length) {
@@ -738,6 +752,7 @@ class _EventsListModeView extends StatelessWidget {
                           padding: const EdgeInsets.only(bottom: AppSpacing.sm),
                           child: EventCard(
                             event: event,
+                            mutedPending: event.isPending,
                             isFavorite:
                                 browseUiEnabled &&
                                 favoriteIds.contains(event.id),
@@ -785,12 +800,13 @@ class _CalendarModeView extends StatelessWidget {
       child: AppCalendar(
         events: events,
         initialDate: selectedDate,
-        headerLabel: 'БРОНИРОВАНИЯ',
-        accentColor: AppColors.primary,
-        emptyStateTitle: 'Свободно',
-        emptyStateSubtitle: 'На этот день нет одобренных броней',
+        showEventList: true,
         onDateSelected: onDateSelected,
         onEventTap: onEventTap,
+        headerLabel: AppLocalizations.get('bookings'),
+        accentColor: AppColors.primary,
+        emptyStateTitle: AppLocalizations.get('available'),
+        emptyStateSubtitle: AppLocalizations.get('noBookingsOrRequests'),
       ),
     );
   }
@@ -831,13 +847,17 @@ class _WaveClipper extends CustomClipper<Path> {
 }
 
 class _DateHeader extends StatelessWidget {
-  const _DateHeader({required this.label});
+  const _DateHeader({required this.label, this.first = false});
   final String label;
+  final bool first;
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(top: AppSpacing.df, bottom: AppSpacing.sm),
+      padding: EdgeInsets.only(
+        top: first ? AppSpacing.sm : AppSpacing.df,
+        bottom: AppSpacing.sm,
+      ),
       child: Text(
         label,
         style: Theme.of(
@@ -855,7 +875,7 @@ class _SortButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = active ? AppColors.primary : AppColors.textSecondary;
+    final color = active ? AppColors.primary : AppColors.textPrimary;
     final bg = active ? AppColors.primaryLight : AppColors.fieldBackground;
     return GestureDetector(
       onTap: onTap,
@@ -868,6 +888,12 @@ class _SortButton extends StatelessWidget {
         decoration: BoxDecoration(
           color: bg,
           borderRadius: BorderRadius.circular(20),
+          border: active
+              ? null
+              : Border.all(
+                  color: AppColors.primary.withValues(alpha: 0.18),
+                  width: 1,
+                ),
         ),
         child: Icon(Icons.swap_vert_rounded, size: 18, color: color),
       ),
@@ -887,7 +913,7 @@ class _FilterChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = active ? AppColors.primary : AppColors.textSecondary;
+    final color = active ? AppColors.primary : AppColors.textPrimary;
     final bg = active ? AppColors.primaryLight : AppColors.fieldBackground;
     return GestureDetector(
       onTap: onTap,
@@ -900,6 +926,12 @@ class _FilterChip extends StatelessWidget {
         decoration: BoxDecoration(
           color: bg,
           borderRadius: BorderRadius.circular(20),
+          border: active
+              ? null
+              : Border.all(
+                  color: AppColors.primary.withValues(alpha: 0.18),
+                  width: 1,
+                ),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -927,7 +959,7 @@ class _FavoritesChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = active ? AppColors.error : AppColors.textSecondary;
+    final color = active ? AppColors.error : AppColors.textPrimary;
     final bg = active
         ? AppColors.error.withValues(alpha: 0.12)
         : AppColors.fieldBackground;
@@ -942,6 +974,12 @@ class _FavoritesChip extends StatelessWidget {
         decoration: BoxDecoration(
           color: bg,
           borderRadius: BorderRadius.circular(20),
+          border: active
+              ? null
+              : Border.all(
+                  color: AppColors.primary.withValues(alpha: 0.18),
+                  width: 1,
+                ),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -1102,11 +1140,13 @@ class _SortOptionState extends State<_SortOption> {
 
 class _MultiSelectSheet extends StatefulWidget {
   const _MultiSelectSheet({
+    required this.title,
     required this.options,
     required this.selected,
     required this.withSearch,
     required this.onChanged,
   });
+  final String title;
   final List<String> options;
   final Set<String> selected;
   final bool withSearch;
@@ -1119,11 +1159,20 @@ class _MultiSelectSheet extends StatefulWidget {
 class _MultiSelectSheetState extends State<_MultiSelectSheet> {
   late Set<String> _selected;
   String _query = '';
+  final _focusNode = FocusNode();
+  bool _focused = false;
 
   @override
   void initState() {
     super.initState();
     _selected = Set.from(widget.selected);
+    _focusNode.addListener(() => setState(() => _focused = _focusNode.hasFocus));
+  }
+
+  @override
+  void dispose() {
+    _focusNode.dispose();
+    super.dispose();
   }
 
   void _toggle(String value) {
@@ -1140,91 +1189,166 @@ class _MultiSelectSheetState extends State<_MultiSelectSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final mq = MediaQuery.of(context);
     final isLight = Theme.of(context).brightness == Brightness.light;
+    final surface = isLight ? Colors.white : const Color(0xFF1C1C1E);
+    final textPrimary = isLight ? const Color(0xFF0A0A1A) : Colors.white;
+
     final filtered = _query.isEmpty
         ? widget.options
         : widget.options
               .where((o) => o.toLowerCase().contains(_query))
               .toList();
 
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (widget.withSearch) ...[
-            Container(
-              decoration: BoxDecoration(
-                color: isLight
-                    ? const Color(0xFFF2F2F7)
-                    : const Color(0xFF2C2C2E),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: TextField(
-                onChanged: (v) =>
-                    setState(() => _query = v.trim().toLowerCase()),
-                decoration: InputDecoration(
-                  hintText: 'Search',
-                  prefixIcon: Icon(
-                    Icons.search,
-                    size: 18,
-                    color: AppColors.grey,
-                  ),
-                  border: InputBorder.none,
-                  contentPadding: const EdgeInsets.symmetric(vertical: 10),
-                ),
-                style: const TextStyle(fontSize: 15),
-              ),
-            ),
-            const SizedBox(height: 12),
-          ],
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: filtered.map((option) {
-              final active = _selected.contains(option);
-              return GestureDetector(
-                onTap: () => _toggle(option),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 120),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 8,
-                  ),
-                  decoration: BoxDecoration(
-                    color: active
-                        ? AppColors.primary
-                        : (isLight
-                              ? const Color(0xFFF2F2F7)
-                              : const Color(0xFF2C2C2E)),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(
-                    option,
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                      color: active
-                          ? Colors.white
-                          : (isLight ? const Color(0xFF0A0A1A) : Colors.white),
+    return AnimatedPadding(
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeOutCubic,
+      padding: EdgeInsets.only(bottom: mq.viewInsets.bottom),
+      child: Container(
+        decoration: BoxDecoration(
+          color: surface,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        constraints: BoxConstraints(
+          maxHeight: (mq.size.height - mq.viewInsets.bottom) * 0.7,
+        ),
+        child: SafeArea(
+          top: false,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Handle
+              Center(
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 10),
+                  child: Container(
+                    width: 32,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: isLight
+                          ? const Color(0xFFD1D1D6)
+                          : const Color(0xFF48484A),
+                      borderRadius: BorderRadius.circular(2),
                     ),
                   ),
                 ),
-              );
-            }).toList(),
-          ),
-          if (filtered.isEmpty)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              child: Center(
+              ),
+              // Title
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 10, 20, 12),
                 child: Text(
-                  'Nothing found',
-                  style: TextStyle(color: AppColors.grey, fontSize: 14),
+                  widget.title,
+                  style: TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: -0.3,
+                    color: textPrimary,
+                    height: 1.2,
+                  ),
                 ),
               ),
-            ),
-        ],
+              // Content
+              Flexible(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (widget.withSearch) ...[
+                        AnimatedContainer(
+                          duration: const Duration(milliseconds: 160),
+                          decoration: BoxDecoration(
+                            color: isLight
+                                ? const Color(0xFFF2F2F7)
+                                : const Color(0xFF2C2C2E),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: _focused
+                                  ? AppColors.primary.withValues(alpha: 0.6)
+                                  : Colors.transparent,
+                              width: 1.5,
+                            ),
+                          ),
+                          child: TextField(
+                            focusNode: _focusNode,
+                            onChanged: (v) =>
+                                setState(() => _query = v.trim().toLowerCase()),
+                            decoration: InputDecoration(
+                              hintText: 'Search',
+                              prefixIcon: Icon(
+                                Icons.search,
+                                size: 18,
+                                color: _focused
+                                    ? AppColors.primary
+                                    : AppColors.grey,
+                              ),
+                              border: InputBorder.none,
+                              contentPadding:
+                                  const EdgeInsets.symmetric(vertical: 10),
+                            ),
+                            style: const TextStyle(fontSize: 15),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: filtered.map((option) {
+                          final active = _selected.contains(option);
+                          return GestureDetector(
+                            onTap: () => _toggle(option),
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 120),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 14,
+                                vertical: 8,
+                              ),
+                              decoration: BoxDecoration(
+                                color: active
+                                    ? AppColors.primary
+                                    : (isLight
+                                          ? const Color(0xFFF2F2F7)
+                                          : const Color(0xFF2C2C2E)),
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: Text(
+                                option,
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w500,
+                                  color: active
+                                      ? Colors.white
+                                      : (isLight
+                                            ? const Color(0xFF0A0A1A)
+                                            : Colors.white),
+                                ),
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                      if (filtered.isEmpty)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          child: Center(
+                            child: Text(
+                              'Nothing found',
+                              style:
+                                  TextStyle(color: AppColors.grey, fontSize: 14),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+              SizedBox(height: mq.padding.bottom + 8),
+            ],
+          ),
+        ),
       ),
     );
   }

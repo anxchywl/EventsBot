@@ -33,6 +33,7 @@ class AppPremiumDialog {
     required String confirmText,
     required String cancelText,
     bool isDestructive = false,
+    bool showIcon = true,
     String? warningText,
   }) async {
     HapticFeedback.mediumImpact();
@@ -50,6 +51,7 @@ class AppPremiumDialog {
         confirmText: confirmText,
         cancelText: cancelText,
         isDestructive: isDestructive,
+        showIcon: showIcon,
         warningText: warningText,
       ),
     );
@@ -66,6 +68,7 @@ class _PremiumConfirmSheet extends StatelessWidget {
     required this.confirmText,
     required this.cancelText,
     required this.isDestructive,
+    this.showIcon = true,
     this.warningText,
   });
 
@@ -76,6 +79,7 @@ class _PremiumConfirmSheet extends StatelessWidget {
   final String confirmText;
   final String cancelText;
   final bool isDestructive;
+  final bool showIcon;
   final String? warningText;
 
   @override
@@ -107,25 +111,27 @@ class _PremiumConfirmSheet extends StatelessWidget {
               borderRadius: BorderRadius.circular(2),
             ),
           ),
-          const SizedBox(height: 18),
+          SizedBox(height: showIcon ? 18 : 14),
 
-          // Contextual icon
-          Container(
-            width: 54,
-            height: 54,
-            decoration: BoxDecoration(
-              color: iconColor.withValues(alpha: 0.10),
-              borderRadius: BorderRadius.circular(16),
+          if (showIcon) ...[
+            // Contextual icon
+            Container(
+              width: 54,
+              height: 54,
+              decoration: BoxDecoration(
+                color: iconColor.withValues(alpha: 0.10),
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: AppIcon(icon, color: iconColor, size: 26),
             ),
-            child: AppIcon(icon, color: iconColor, size: 26),
-          ),
-          const SizedBox(height: 12),
+            const SizedBox(height: 12),
+          ],
 
           // Title
           Text(
             title,
             style: TextStyle(
-              fontSize: 18,
+              fontSize: showIcon ? 18 : 16,
               fontWeight: FontWeight.w600,
               letterSpacing: -0.3,
               color: textPrimary,
@@ -133,13 +139,13 @@ class _PremiumConfirmSheet extends StatelessWidget {
             ),
             textAlign: TextAlign.center,
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 4),
 
           // Description
           Text(
             description,
             style: TextStyle(
-              fontSize: 14,
+              fontSize: 13,
               color: textSub,
               height: 1.4,
             ),
@@ -148,7 +154,7 @@ class _PremiumConfirmSheet extends StatelessWidget {
 
           // Optional warning chip
           if (warningText != null) ...[
-            const SizedBox(height: 12),
+            const SizedBox(height: 10),
             Container(
               padding:
                   const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -182,54 +188,64 @@ class _PremiumConfirmSheet extends StatelessWidget {
             ),
           ],
 
-          const SizedBox(height: 20),
+          const SizedBox(height: 16),
 
-          // Primary action — full-width filled button
-          GestureDetector(
-            onTap: () {
-              HapticFeedback.lightImpact();
-              Navigator.of(context).pop(true);
-            },
-            child: Container(
-              width: double.infinity,
-              height: 46,
-              decoration: BoxDecoration(
-                color: confirmColor,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              alignment: Alignment.center,
-              child: Text(
-                confirmText,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: -0.2,
+          Row(
+            children: [
+              // Cancel — smaller, tinted
+              GestureDetector(
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  Navigator.of(context).pop(false);
+                },
+                child: Container(
+                  height: 44,
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  decoration: BoxDecoration(
+                    color: isLight
+                        ? const Color(0xFFF2F2F7)
+                        : const Color(0xFF2C2C2E),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  alignment: Alignment.center,
+                  child: Text(
+                    cancelText,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                      color: textSub,
+                    ),
+                  ),
                 ),
               ),
-            ),
-          ),
-          const SizedBox(height: 8),
-
-          // Cancel — full-width text button
-          GestureDetector(
-            onTap: () {
-              HapticFeedback.selectionClick();
-              Navigator.of(context).pop(false);
-            },
-            child: Container(
-              width: double.infinity,
-              height: 38,
-              alignment: Alignment.center,
-              child: Text(
-                cancelText,
-                style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w500,
-                  color: textSub,
+              const SizedBox(width: 10),
+              // Confirm — fills remaining space
+              Expanded(
+                child: GestureDetector(
+                  onTap: () {
+                    HapticFeedback.lightImpact();
+                    Navigator.of(context).pop(true);
+                  },
+                  child: Container(
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: confirmColor,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    alignment: Alignment.center,
+                    child: Text(
+                      confirmText,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: -0.2,
+                      ),
+                    ),
+                  ),
                 ),
               ),
-            ),
+            ],
           ),
         ],
       ),

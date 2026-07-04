@@ -9,6 +9,8 @@ class EventCard extends StatelessWidget {
     required this.event,
     this.onTap,
     this.alwaysShowStatus = false,
+    this.hideStatus = false,
+    this.mutedPending = false,
     this.isFavorite = false,
     this.onToggleFavorite,
   });
@@ -16,33 +18,11 @@ class EventCard extends StatelessWidget {
   final EventModel event;
   final VoidCallback? onTap;
   final bool alwaysShowStatus;
+  final bool hideStatus;
+  final bool mutedPending;
   final bool isFavorite;
   final VoidCallback? onToggleFavorite;
 
-  // Deterministic vibrant gradient seeded by event id, mirroring the Mini App.
-  LinearGradient _gradient() {
-    final seed = event.id;
-    final h1 = (seed * 137) % 360;
-    final h2 = (h1 + 90 + seed * 37 % 90) % 360;
-    final h3 = (h2 + 90 + seed * 17 % 90) % 360;
-    final angle = (seed * 73) % 360;
-    final a = HSLColor.fromAHSL(1, h1.toDouble(), 0.95, 0.65).toColor();
-    final b = HSLColor.fromAHSL(1, h2.toDouble(), 0.95, 0.65).toColor();
-    final c = HSLColor.fromAHSL(1, h3.toDouble(), 0.95, 0.72).toColor();
-    final rad = angle * 3.14159 / 180;
-    return LinearGradient(
-      begin: Alignment(
-        -1 * (rad < 3.14 ? 1 : -1) * (rad % 1.57 / 1.57),
-        -1,
-      ),
-      end: Alignment(
-        (rad < 3.14 ? 1 : -1) * (rad % 1.57 / 1.57),
-        1,
-      ),
-      colors: [a, b, c],
-      stops: const [0, 0.55, 1],
-    );
-  }
 
   int? _daysUntil() {
     try {
@@ -63,130 +43,182 @@ class EventCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final showStatus = alwaysShowStatus || !event.isApproved;
+    final showStatus = !hideStatus && (alwaysShowStatus || !event.isApproved);
+    final isMutedPending = mutedPending && event.isPending;
     final days = _daysUntil();
 
     return AppCard(
       onTap: onTap,
-      padding: const EdgeInsets.all(AppSpacing.md),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      padding: EdgeInsets.zero,
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Cover image / gradient thumbnail (with heart overlay)
-          Stack(
-            children: [
-              ClipRRect(
-                borderRadius: AppSpacing.borderRadiusSm,
-                child: SizedBox(
-                  width: 72,
-                  height: 72,
-                  child: event.coverUrl != null
-                      ? Image.network(
-                          event.coverUrl!,
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, e, s) => _GradientThumb(gradient: _gradient()),
-                        )
-                      : _GradientThumb(gradient: _gradient()),
-                ),
-              ),
-              if (onToggleFavorite != null)
-                Positioned(
-                  bottom: 4,
-                  right: 4,
-                  child: GestureDetector(
-                    onTap: onToggleFavorite,
-                    child: Container(
-                      width: 24,
-                      height: 24,
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.35),
-                        shape: BoxShape.circle,
-                      ),
-                      child: Icon(
-                        isFavorite ? Icons.favorite_rounded : Icons.favorite_border_rounded,
-                        size: 13,
-                        color: isFavorite ? Colors.red[300] : Colors.white,
-                      ),
-                    ),
-                  ),
-                ),
-            ],
-          ),
-          const SizedBox(width: AppSpacing.md),
-          // Content
-          Expanded(
-            child: Column(
+          Padding(
+            padding: const EdgeInsets.all(AppSpacing.md),
+            child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  event.title,
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  event.organizerName,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: AppColors.textSecondary,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                Text(
-                  event.location,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: AppColors.textSecondary,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: AppSpacing.xs),
-                Row(
+                // Cover image / gradient thumbnail (with heart overlay)
+                Stack(
                   children: [
-                    _Pill(
-                      background: AppColors.primaryLight,
-                      foreground: AppColors.primary,
-                      label: event.category,
-                    ),
-                    if (showStatus) ...[
-                      const SizedBox(width: AppSpacing.xs),
-                      _Pill(
-                        background: event.statusColor.withValues(alpha: 0.15),
-                        foreground: event.statusColor,
-                        label: event.statusLabel,
+                    ClipRRect(
+                      borderRadius: AppSpacing.borderRadiusSm,
+                      child: SizedBox(
+                        width: 72,
+                        height: 72,
+                        child: event.coverUrl != null
+                            ? Image.network(
+                                event.coverUrl!,
+                                fit: BoxFit.cover,
+                                errorBuilder: (_, e, s) =>
+                                    const _MutedThumb(),
+                              )
+                            : const _MutedThumb(),
                       ),
-                    ],
-                    const Spacer(),
-                    if (!showStatus && days != null)
-                      Text(
-                        '${days}d',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: AppColors.textSecondary,
-                          fontWeight: FontWeight.w500,
+                    ),
+                    if (onToggleFavorite != null)
+                      Positioned(
+                        bottom: 4,
+                        right: 4,
+                        child: GestureDetector(
+                          onTap: onToggleFavorite,
+                          child: Container(
+                            width: 24,
+                            height: 24,
+                            decoration: BoxDecoration(
+                              color: Colors.black.withValues(alpha: 0.35),
+                              shape: BoxShape.circle,
+                            ),
+                            child: Icon(
+                              isFavorite
+                                  ? Icons.favorite_rounded
+                                  : Icons.favorite_border_rounded,
+                              size: 13,
+                              color: isFavorite ? Colors.red[300] : Colors.white,
+                            ),
+                          ),
                         ),
                       ),
                   ],
                 ),
+                const SizedBox(width: AppSpacing.md),
+                // Content
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        event.title,
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        event.organizerName,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: AppColors.textSecondary,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      Text(
+                        event.location,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: AppColors.textSecondary,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: AppSpacing.xs),
+                      Row(
+                        children: [
+                          _Pill(
+                            background: isMutedPending
+                                ? AppColors.fieldBackground
+                                : AppColors.primaryLight,
+                            foreground: isMutedPending
+                                ? AppColors.grey
+                                : AppColors.primary,
+                            label: event.category,
+                          ),
+                          const Spacer(),
+                          if (days != null)
+                            Text(
+                              '${days}d',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: AppColors.textSecondary,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
               ],
             ),
           ),
+          if (showStatus)
+            Container(
+              padding: const EdgeInsets.symmetric(
+                vertical: AppSpacing.sm,
+                horizontal: AppSpacing.md,
+              ),
+              color: isMutedPending
+                  ? AppColors.fieldBackground
+                  : event.statusColor.withValues(alpha: 0.12),
+              child: Row(
+                children: [
+                  if (event.status != 'approved' &&
+                      event.status != 'rejected' &&
+                      event.status != 'pending') ...[
+                    Icon(
+                      Icons.info_outline_rounded,
+                      size: 14,
+                      color: isMutedPending ? AppColors.grey : event.statusColor,
+                    ),
+                    const SizedBox(width: AppSpacing.xs),
+                  ],
+                  Expanded(
+                    child: Text(
+                      event.statusLabel,
+                      style: AppTextStyles.bodySmall.copyWith(
+                        color: isMutedPending ? AppColors.grey : event.statusColor,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
         ],
       ),
     );
   }
 }
 
-class _GradientThumb extends StatelessWidget {
-  const _GradientThumb({required this.gradient});
-  final LinearGradient gradient;
+class _MutedThumb extends StatelessWidget {
+  const _MutedThumb();
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      decoration: BoxDecoration(gradient: gradient),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            AppColors.fieldBackground,
+            AppColors.grey.withValues(alpha: 0.28),
+            AppColors.fieldBackground,
+          ],
+        ),
+      ),
     );
   }
 }
@@ -205,7 +237,10 @@ class _Pill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm, vertical: 3),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.sm,
+        vertical: 3,
+      ),
       decoration: BoxDecoration(
         color: background,
         borderRadius: AppSpacing.borderRadiusSm,

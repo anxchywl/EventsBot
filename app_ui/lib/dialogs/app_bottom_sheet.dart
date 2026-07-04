@@ -43,10 +43,17 @@ class AppBottomSheet {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       barrierColor: Colors.black.withValues(alpha: 0.48),
-      builder: (_) => _Sheet<T>(
-        title: title,
-        maxHeightFraction: maxHeightFraction ?? 0.9,
-        child: child,
+      builder: (ctx) => AnimatedPadding(
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeOutCubic,
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.viewInsetsOf(ctx).bottom,
+        ),
+        child: _Sheet<T>(
+          title: title,
+          maxHeightFraction: maxHeightFraction ?? 0.9,
+          child: child,
+        ),
       ),
     );
   }

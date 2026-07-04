@@ -39,7 +39,7 @@ class ModerationLog(Base):
     # moderation log fields
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
     event_id: Mapped[int] = mapped_column(ForeignKey("events.id", ondelete="CASCADE"))
-    moderator_user_id: Mapped[int | None] = mapped_column(
+    actor_user_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"),
     )
     action: Mapped[str] = mapped_column(
@@ -53,6 +53,6 @@ class ModerationLog(Base):
         nullable=False,
     )
 
-    # links moderation log to event and moderator
+    # links moderation log to event and acting admin
     event: Mapped[Event] = relationship(back_populates="moderation_logs")
-    moderator: Mapped[User | None] = relationship(back_populates="moderation_logs")
+    actor: Mapped[User | None] = relationship(back_populates="moderation_logs")

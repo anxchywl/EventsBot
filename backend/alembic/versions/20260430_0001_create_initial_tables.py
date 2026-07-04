@@ -31,12 +31,6 @@ def upgrade() -> None:
             "is_bot", sa.Boolean(), server_default=sa.text("false"), nullable=False
         ),
         sa.Column(
-            "is_moderator",
-            sa.Boolean(),
-            server_default=sa.text("false"),
-            nullable=False,
-        ),
-        sa.Column(
             "created_at",
             sa.DateTime(timezone=True),
             server_default=sa.text("now()"),
@@ -420,7 +414,7 @@ def upgrade() -> None:
         "moderation_logs",
         sa.Column("id", sa.BigInteger(), sa.Identity(), nullable=False),
         sa.Column("event_id", sa.BigInteger(), nullable=False),
-        sa.Column("moderator_user_id", sa.BigInteger(), nullable=True),
+        sa.Column("actor_user_id", sa.BigInteger(), nullable=True),
         sa.Column("action", sa.String(length=32), nullable=False),
         sa.Column("comment", sa.Text(), nullable=True),
         sa.Column(
@@ -440,9 +434,9 @@ def upgrade() -> None:
             ondelete="CASCADE",
         ),
         sa.ForeignKeyConstraint(
-            ["moderator_user_id"],
+            ["actor_user_id"],
             ["users.id"],
-            name=op.f("fk_moderation_logs_moderator_user_id_users"),
+            name=op.f("fk_moderation_logs_actor_user_id_users"),
             ondelete="SET NULL",
         ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_moderation_logs")),

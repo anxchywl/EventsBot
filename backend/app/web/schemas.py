@@ -303,7 +303,7 @@ class FlutterLoginRequest(BaseModel):
 class FlutterAuthResponse(BaseModel):
     token: str
     user_id: int
-    role: str
+    role: Literal["user", "admin"]
     first_name: str | None = None
     is_verified: bool
 
@@ -321,10 +321,12 @@ class FlutterEventItem(BaseModel):
     description: str
     event_date: str
     event_time: str
+    event_end_time: str | None = None
     location: str
     category: str
     organizer_name: str
     status: str
+    cover_url: str | None = None
     it_equipment: str | None = None
     materials: str | None = None
     registration_url: str | None = None
@@ -336,12 +338,17 @@ class FlutterEventCreate(BaseModel):
     description: str = Field(min_length=1)
     event_date: date
     event_time: str = Field(pattern=_TIME_PATTERN)
+    event_end_time: str = Field(pattern=_TIME_PATTERN)
     location: str = Field(min_length=1, max_length=255)
     category_id: int
     organizer_name: str = Field(min_length=1, max_length=255)
     it_equipment: str | None = None
     materials: str | None = None
     registration_url: str | None = Field(default=None, max_length=1024)
+
+
+class FlutterEventPatch(BaseModel):
+    event_end_time: str | None = Field(default=None, pattern=_TIME_PATTERN)
 
 
 class FlutterEventStatusUpdate(BaseModel):

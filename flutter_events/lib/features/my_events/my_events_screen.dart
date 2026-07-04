@@ -4,6 +4,7 @@ import 'package:app_ui/app_ui.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/api_client.dart';
+import '../../core/localization.dart';
 import '../../models/event_model.dart';
 import '../events/event_card.dart';
 import '../events/event_detail_screen.dart';
@@ -87,7 +88,9 @@ class _MyEventsScreenState extends State<MyEventsScreen> {
   Future<void> _openDetail(EventModel event) async {
     await Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => EventDetailScreen(event: event)),
+      MaterialPageRoute(
+        builder: (_) => EventDetailScreen(event: event, showStatus: true),
+      ),
     );
     await _load();
   }
@@ -95,7 +98,7 @@ class _MyEventsScreenState extends State<MyEventsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: const AppAppBar(title: 'Мои заявки'),
+      appBar: AppAppBar(title: AppLocalizations.get('myBookings')),
       body: _buildBody(),
     );
   }
@@ -111,7 +114,10 @@ class _MyEventsScreenState extends State<MyEventsScreen> {
             children: [
               Text(_error!, textAlign: TextAlign.center),
               const SizedBox(height: AppSpacing.df),
-              AppSecondaryButton(text: 'Повторить', onPressed: _load),
+              AppSecondaryButton(
+                text: AppLocalizations.get('retry'),
+                onPressed: _load,
+              ),
             ],
           ),
         ),
@@ -124,7 +130,7 @@ class _MyEventsScreenState extends State<MyEventsScreen> {
           padding: AppSpacing.screenPadding,
           child: Column(
             mainAxisSize: MainAxisSize.min,
-            children: [const Text('Нет заявок')],
+            children: [Text(AppLocalizations.get('noBookings'))],
           ),
         ),
       );
@@ -137,52 +143,15 @@ class _MyEventsScreenState extends State<MyEventsScreen> {
         itemCount: _events.length,
         itemBuilder: (context, index) {
           final event = _events[index];
-          final note = event.moderationNote;
-          // Show the coordinator's comment on every decided status, not just
-          // "needs_changes" — approvals and rejections can carry context too.
-          final showNote = note != null && note.trim().isNotEmpty;
           return Padding(
             padding: const EdgeInsets.only(bottom: AppSpacing.md),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                EventCard(
-                  event: event,
-                  alwaysShowStatus: true,
-                  onTap: () => _openDetail(event),
-                ),
-                if (showNote) _coordinatorNote(event, note),
-              ],
+            child: EventCard(
+              event: event,
+              alwaysShowStatus: true,
+              onTap: () => _openDetail(event),
             ),
           );
         },
-      ),
-    );
-  }
-
-  Widget _coordinatorNote(EventModel event, String note) {
-    final theme = Theme.of(context);
-    final color = event.statusColor;
-    return Container(
-      margin: const EdgeInsets.only(top: AppSpacing.sm),
-      padding: const EdgeInsets.all(AppSpacing.sm),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.10),
-        border: Border(left: BorderSide(color: color, width: 4)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Комментарий координатора',
-            style: theme.textTheme.labelSmall?.copyWith(
-              color: color,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(height: 2),
-          Text(note, style: theme.textTheme.bodySmall),
-        ],
       ),
     );
   }

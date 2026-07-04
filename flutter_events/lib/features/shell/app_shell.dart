@@ -2,6 +2,7 @@ import 'package:app_ui/app_ui.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/auth_store.dart';
+import '../../core/localization.dart';
 import '../coordinator/coordinator_dashboard_screen.dart';
 import '../event_manager/event_manager_screen.dart';
 import '../events/events_screen.dart';
@@ -21,48 +22,48 @@ class _AppShellState extends State<AppShell> {
   @override
   void initState() {
     super.initState();
-    _currentIndex = AuthStore.isAdmin ? 2 : 0;
+    _currentIndex = AuthStore.isAdmin ? 1 : 0;
   }
 
   List<({Widget body, BottomNavigationBarItem item})> get _destinations {
     if (AuthStore.isAdmin) {
-      return const [
+      return [
         (
-          body: CoordinatorDashboardScreen(),
+          body: const CoordinatorDashboardScreen(),
           item: BottomNavigationBarItem(
-            icon: Icon(Icons.inbox_outlined),
-            label: 'Заявки',
+            icon: const Icon(Icons.inbox_outlined),
+            label: AppLocalizations.get('requests'),
           ),
         ),
         (
-          body: EventManagerScreen(),
+          body: const EventsScreen(),
           item: BottomNavigationBarItem(
-            icon: Icon(Icons.insights_outlined),
-            label: 'Аналитика',
+            icon: const Icon(Icons.event_outlined),
+            label: AppLocalizations.get('events'),
           ),
         ),
         (
-          body: EventsScreen(),
+          body: const EventManagerScreen(),
           item: BottomNavigationBarItem(
-            icon: Icon(Icons.event_outlined),
-            label: 'Ивенты',
+            icon: const Icon(Icons.insights_outlined),
+            label: AppLocalizations.get('analytics'),
           ),
         ),
       ];
     }
-    return const [
+    return [
       (
-        body: EventsScreen(),
+        body: const EventsScreen(),
         item: BottomNavigationBarItem(
-          icon: Icon(Icons.event_outlined),
-          label: 'Ивенты',
+          icon: const Icon(Icons.event_outlined),
+          label: AppLocalizations.get('events'),
         ),
       ),
       (
-        body: MyEventsScreen(),
+        body: const MyEventsScreen(),
         item: BottomNavigationBarItem(
-          icon: Icon(Icons.assignment_outlined),
-          label: 'Мои заявки',
+          icon: const Icon(Icons.assignment_outlined),
+          label: AppLocalizations.get('myBookings'),
         ),
       ),
     ];
@@ -71,11 +72,14 @@ class _AppShellState extends State<AppShell> {
   Widget _buildBody() {
     final destinations = _destinations;
     final index = _currentIndex.clamp(0, destinations.length - 1);
-    return destinations[index].body;
+    return IndexedStack(
+      index: index,
+      children: destinations.map((d) => d.body).toList(),
+    );
   }
 
   Future<void> _handleNavigationTap(int index) async {
-    final eventsIndex = AuthStore.isAdmin ? 2 : 0;
+    final eventsIndex = AuthStore.isAdmin ? 1 : 0;
     if (index != eventsIndex) {
       _eventsTapCount = 0;
       setState(() => _currentIndex = index);

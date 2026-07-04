@@ -29,11 +29,12 @@ def _flutter_jwt_secret() -> str:
 # sign a long-lived flutter session token for one user
 def create_flutter_token(user: User) -> str:
     now = datetime.now(timezone.utc)
+    role = "admin" if user.role == "admin" else "user"
     payload = {
         "iss": FLUTTER_JWT_ISSUER,
         "aud": FLUTTER_JWT_AUDIENCE,
         "sub": str(user.id),
-        "role": user.role,
+        "role": role,
         "iat": now,
         "exp": now + FLUTTER_TOKEN_TTL,
     }
@@ -74,10 +75,10 @@ async def require_flutter_user(
     return user
 
 
-# restrict endpoints to elevated flutter users
-async def require_flutter_moderator(
+# restrict endpoints to admin flutter users
+async def require_flutter_admin(
     user: User = Depends(require_flutter_user),
 ) -> User:
-    if user.role not in {"admin", "moderator"}:
+    if user.role != "admin":
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Insufficient permissions")
     return user

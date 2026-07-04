@@ -141,10 +141,7 @@ async def event_detail(
 
     # merge one user rating and comment into one review row
     can_delete_all = False
-    if user is not None and effective_web_role(user, abs(user.telegram_id)) in (
-        "admin",
-        "moderator",
-    ):
+    if user is not None and effective_web_role(user, abs(user.telegram_id)) == "admin":
         can_delete_all = True
 
     user_map = {}

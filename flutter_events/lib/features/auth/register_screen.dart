@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../../core/api_client.dart';
 import '../../core/auth_store.dart';
 import '../../core/exceptions.dart';
+import '../../core/localization.dart';
 import '../shell/app_shell.dart';
 
 class RegisterScreen extends StatefulWidget {
@@ -34,11 +35,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
     final password = _passwordController.text;
 
     if (firstName.isEmpty || email.isEmpty || password.isEmpty) {
-      _showMessage('Заполните все поля');
+      _showMessage(AppLocalizations.get('fillFields'));
       return;
     }
     if (password.length < 8) {
-      setState(() => _passwordError = 'Минимум 8 символов');
+      setState(() => _passwordError = AppLocalizations.get('min8'));
       return;
     }
     setState(() => _passwordError = null);
@@ -59,6 +60,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
       );
     } on ApiException catch (e) {
       _showMessage(e.message);
+    } catch (_) {
+      _showMessage('Could not reach the server. Check your connection.');
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -104,14 +107,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       ),
                       const SizedBox(height: AppSpacing.xl),
                       Text(
-                        'Регистрация',
+                        AppLocalizations.get('register'),
                         textAlign: TextAlign.center,
                         style: theme.textTheme.headlineMedium,
                       ),
                       const SizedBox(height: AppSpacing.xxl),
                       AppTextField(
                         controller: _firstNameController,
-                        label: 'Имя',
+                        label: AppLocalizations.get('firstNameLabel'),
                         textCapitalization: TextCapitalization.words,
                         textInputAction: TextInputAction.next,
                       ),
@@ -125,13 +128,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       const SizedBox(height: AppSpacing.df),
                       AppPasswordField(
                         controller: _passwordController,
-                        label: 'Пароль',
+                        label: AppLocalizations.get('passwordLabel'),
                         errorText: _passwordError,
                         onSubmitted: (_) => _submit(),
                       ),
                       const SizedBox(height: AppSpacing.xl),
                       AppPrimaryButton(
-                        text: 'Зарегистрироваться',
+                        text: AppLocalizations.get('register'),
                         isLoading: _loading,
                         onPressed: _submit,
                       ),

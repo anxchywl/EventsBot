@@ -4,14 +4,17 @@ import 'package:intl/intl.dart';
 
 import '../../core/api_client.dart';
 import '../../core/exceptions.dart';
+import '../../core/localization.dart';
 import '../../models/category_model.dart';
+import '../../models/event_model.dart';
 
 class SubmitScreen extends StatefulWidget {
-  const SubmitScreen({super.key, this.initialDate});
+  const SubmitScreen({super.key, this.initialDate, this.asSheet = false});
 
   /// Optionally pre-fills the event date, e.g. when opened from the shared
   /// calendar for a specific day.
   final DateTime? initialDate;
+  final bool asSheet;
 
   @override
   State<SubmitScreen> createState() => _SubmitScreenState();
@@ -31,6 +34,7 @@ class _SubmitScreenState extends State<SubmitScreen> {
   final _registrationController = TextEditingController();
   final _dateController = TextEditingController();
   final _timeController = TextEditingController();
+  final _endTimeController = TextEditingController();
   final _itEquipmentController = TextEditingController();
   final _materialsController = TextEditingController();
 
@@ -38,10 +42,12 @@ class _SubmitScreenState extends State<SubmitScreen> {
   int? _categoryId;
   DateTime? _date;
   TimeOfDay? _time;
+  TimeOfDay? _endTime;
 
   bool _categoriesLoading = true;
   String? _categoriesError;
   List<CategoryModel> _categories = [];
+  List<EventModel> _existingEvents = [];
 
   bool _submitting = false;
 
@@ -54,6 +60,7 @@ class _SubmitScreenState extends State<SubmitScreen> {
       _dateController.text = DateFormat('dd.MM.yyyy').format(initial);
     }
     _loadCategories();
+    _loadExistingEvents();
   }
 
   @override
@@ -65,6 +72,7 @@ class _SubmitScreenState extends State<SubmitScreen> {
     _registrationController.dispose();
     _dateController.dispose();
     _timeController.dispose();
+    _endTimeController.dispose();
     _itEquipmentController.dispose();
     _materialsController.dispose();
     super.dispose();
@@ -91,19 +99,105 @@ class _SubmitScreenState extends State<SubmitScreen> {
     }
   }
 
+  Future<void> _loadExistingEvents() async {
+    try {
+      final approved = await fetchApprovedEvents();
+      final pending = await fetchPendingEvents();
+      if (!mounted) return;
+      setState(() => _existingEvents = [...approved, ...pending]);
+    } catch (_) {
+      // Non-fatal — server will still catch conflicts on submit.
+    }
+  }
+
+  // Returns the conflicting event if the chosen date/time/location overlap
+  // with any existing approved or pending event at the same location.
+  EventModel? _findConflict() {
+    if (_date == null || _time == null || _endTime == null) return null;
+    final location = _locationController.text.trim().toLowerCase();
+    if (location.isEmpty) return null;
+
+    final newStart = _toMinutes(_time!);
+    final newEnd = _toMinutes(_endTime!);
+    if (newEnd <= newStart) return null;
+
+    final dateStr = DateFormat('yyyy-MM-dd').format(_date!);
+
+    for (final e in _existingEvents) {
+      if (e.eventDate != dateStr) continue;
+      if (e.location.trim().toLowerCase() != location) continue;
+
+      final eStart = _parseMinutes(e.eventTime);
+      if (eStart == null) continue;
+      final eEnd = e.eventEndTime != null
+          ? (_parseMinutes(e.eventEndTime!) ?? eStart + 60)
+          : eStart + 60;
+
+      // Overlap: new starts before existing ends AND new ends after existing starts.
+      if (newStart < eEnd && newEnd > eStart) return e;
+    }
+    return null;
+  }
+
+  int _toMinutes(TimeOfDay t) => t.hour * 60 + t.minute;
+
+  int? _parseMinutes(String time) {
+    final parts = time.split(':');
+    if (parts.length < 2) return null;
+    final h = int.tryParse(parts[0]);
+    final m = int.tryParse(parts[1]);
+    if (h == null || m == null) return null;
+    return h * 60 + m;
+  }
+
   String? _required(String? value) {
-    if (value == null || value.trim().isEmpty) return 'Обязательное поле';
+    if (value == null || value.trim().isEmpty) {
+      return AppLocalizations.get('required');
+    }
     return null;
   }
 
   void _onPrimary() {
     final valid = _formKeys[_currentStep].currentState?.validate() ?? false;
     if (!valid) return;
+
+    if (_currentStep == 0) {
+      final conflict = _findConflict();
+      if (conflict != null) {
+        _showConflictDialog(conflict);
+        return;
+      }
+    }
+
     if (_currentStep < 2) {
       setState(() => _currentStep++);
     } else {
       _submit();
     }
+  }
+
+  void _showConflictDialog(EventModel conflict) {
+    final timeRange = conflict.eventEndTime != null
+        ? '${conflict.eventTime} – ${conflict.eventEndTime}'
+        : conflict.eventTime;
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        icon: const Icon(Icons.warning_amber_rounded, color: AppColors.warning),
+        title: const Text('Time conflict'),
+        content: Text(
+          '"${conflict.title}" is already booked at ${conflict.location} '
+          'on this date ($timeRange). '
+          'Please choose a different time or location.',
+        ),
+        actions: [
+          AppTextButton(
+            text: 'OK',
+            onPressed: () => Navigator.pop(ctx),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _pickDate() async {
@@ -133,6 +227,18 @@ class _SubmitScreenState extends State<SubmitScreen> {
     });
   }
 
+  Future<void> _pickEndTime() async {
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: _endTime ?? TimeOfDay.now(),
+    );
+    if (picked == null) return;
+    setState(() {
+      _endTime = picked;
+      _endTimeController.text = _formatTime(picked);
+    });
+  }
+
   String _formatTime(TimeOfDay t) {
     final h = t.hour.toString().padLeft(2, '0');
     final m = t.minute.toString().padLeft(2, '0');
@@ -147,6 +253,7 @@ class _SubmitScreenState extends State<SubmitScreen> {
         'description': _descriptionController.text.trim(),
         'event_date': DateFormat('yyyy-MM-dd').format(_date!),
         'event_time': _formatTime(_time!),
+        'event_end_time': _formatTime(_endTime!),
         'location': _locationController.text.trim(),
         'category_id': _categoryId,
         'organizer_name': _organizerController.text.trim(),
@@ -175,16 +282,16 @@ class _SubmitScreenState extends State<SubmitScreen> {
       builder: (dialogContext) {
         return AlertDialog(
           icon: const Icon(Icons.check_circle, color: AppColors.success),
-          title: const Text('Отправлено!'),
-          content: const Text(
-            'Модераторы рассмотрят в течение 1–2 рабочих дней.',
+          title: Text(AppLocalizations.get('sent')),
+          content: Text(
+            AppLocalizations.get('moderationTimeframe'),
           ),
           actions: [
             AppTextButton(
-              text: 'К ивентам',
+              text: AppLocalizations.get('toEvents'),
               onPressed: () {
                 Navigator.pop(dialogContext);
-                Navigator.pop(context);
+                Navigator.pop(context, true);
               },
             ),
           ],
@@ -201,14 +308,60 @@ class _SubmitScreenState extends State<SubmitScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.asSheet) {
+      return ClipRRect(
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
+        child: Material(
+          color: Theme.of(context).scaffoldBackgroundColor,
+          child: SafeArea(
+            top: false,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SizedBox(height: AppSpacing.sm),
+                Container(
+                  width: 36,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: AppColors.grey.withValues(alpha: 0.35),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  child: Center(
+                    child: Text(
+                      AppLocalizations.get('newEvent'),
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ),
+                Flexible(child: _buildBody()),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
     return Scaffold(
-      appBar: const AppAppBar(showBackButton: true, title: 'Новое мероприятие'),
+      appBar: AppAppBar(
+        showBackButton: true,
+        title: AppLocalizations.get('newEvent'),
+      ),
       body: _buildBody(),
     );
   }
 
   Widget _buildBody() {
-    if (_categoriesLoading) return const Center(child: AppLoader());
+    if (_categoriesLoading) {
+      return const SizedBox(
+        height: 380,
+        child: Center(child: AppLoader()),
+      );
+    }
     if (_categoriesError != null) {
       return Center(
         child: Padding(
@@ -218,7 +371,10 @@ class _SubmitScreenState extends State<SubmitScreen> {
             children: [
               Text(_categoriesError!, textAlign: TextAlign.center),
               const SizedBox(height: AppSpacing.df),
-              AppSecondaryButton(text: 'Повторить', onPressed: _loadCategories),
+              AppSecondaryButton(
+                text: AppLocalizations.get('retry'),
+                onPressed: _loadCategories,
+              ),
             ],
           ),
         ),
@@ -226,9 +382,10 @@ class _SubmitScreenState extends State<SubmitScreen> {
     }
 
     return Column(
+      mainAxisSize: MainAxisSize.min,
       children: [
         _buildProgress(),
-        Expanded(
+        Flexible(
           child: SingleChildScrollView(
             padding: AppSpacing.screenPadding,
             child: _buildStep(),
@@ -241,7 +398,11 @@ class _SubmitScreenState extends State<SubmitScreen> {
 
   Widget _buildProgress() {
     final theme = Theme.of(context);
-    const labels = ['Дата и время', 'Основное', 'Ресурсы'];
+    final labels = [
+      AppLocalizations.get('dateTimeTab'),
+      AppLocalizations.get('basicTab'),
+      AppLocalizations.get('resourcesTab'),
+    ];
     return Column(
       children: [
         LinearProgressIndicator(
@@ -287,26 +448,26 @@ class _SubmitScreenState extends State<SubmitScreen> {
 
   Widget _stepBasic() {
     return Form(
-      key: _formKeys[0],
+      key: _formKeys[1],
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           AppTextField(
             controller: _titleController,
-            label: 'Название',
+            label: AppLocalizations.get('title'),
             validator: _required,
           ),
           const SizedBox(height: AppSpacing.df),
           AppTextField(
             controller: _descriptionController,
-            label: 'Описание',
+            label: AppLocalizations.get('description'),
             maxLines: 4,
             validator: _required,
           ),
           const SizedBox(height: AppSpacing.df),
           AppTextField(
             controller: _organizerController,
-            label: 'Организатор',
+            label: AppLocalizations.get('organizer'),
             validator: _required,
           ),
           const SizedBox(height: AppSpacing.df),
@@ -321,49 +482,64 @@ class _SubmitScreenState extends State<SubmitScreen> {
       initialValue: _categoryId,
       isExpanded: true,
       borderRadius: AppSpacing.borderRadiusMd,
-      decoration: const InputDecoration(labelText: 'Категория'),
+      decoration: InputDecoration(
+        labelText: AppLocalizations.get('category'),
+      ),
       items: [
         for (final category in _categories)
           DropdownMenuItem(value: category.id, child: Text(category.name)),
       ],
       onChanged: (value) => setState(() => _categoryId = value),
-      validator: (value) => value == null ? 'Выберите категорию' : null,
+      validator: (value) =>
+          value == null ? AppLocalizations.get('selectCategory') : null,
     );
   }
 
   Widget _stepPlaceTime() {
     return Form(
-      key: _formKeys[1],
+      key: _formKeys[0],
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           AppTextField(
             controller: _dateController,
-            label: 'Дата',
+            label: AppLocalizations.get('date'),
             readOnly: true,
             onTap: _pickDate,
             suffixIcon: const Icon(Icons.calendar_today_outlined),
-            validator: (_) => _date == null ? 'Укажите дату' : null,
+            validator: (_) =>
+                _date == null ? AppLocalizations.get('specifyDate') : null,
           ),
           const SizedBox(height: AppSpacing.df),
           AppTextField(
             controller: _timeController,
-            label: 'Время',
+            label: AppLocalizations.get('time'),
             readOnly: true,
             onTap: _pickTime,
             suffixIcon: const Icon(Icons.access_time_outlined),
-            validator: (_) => _time == null ? 'Укажите время' : null,
+            validator: (_) =>
+                _time == null ? AppLocalizations.get('specifyTime') : null,
+          ),
+          const SizedBox(height: AppSpacing.df),
+          AppTextField(
+            controller: _endTimeController,
+            label: AppLocalizations.get('endTime'),
+            readOnly: true,
+            onTap: _pickEndTime,
+            suffixIcon: const Icon(Icons.access_time_outlined),
+            validator: (_) =>
+                _endTime == null ? AppLocalizations.get('specifyEndTime') : null,
           ),
           const SizedBox(height: AppSpacing.df),
           AppTextField(
             controller: _locationController,
-            label: 'Место',
+            label: AppLocalizations.get('place'),
             validator: _required,
           ),
           const SizedBox(height: AppSpacing.df),
           AppTextField(
             controller: _registrationController,
-            label: 'Ссылка на регистрацию',
+            label: AppLocalizations.get('registrationUrl'),
             keyboardType: TextInputType.url,
           ),
         ],
@@ -379,15 +555,15 @@ class _SubmitScreenState extends State<SubmitScreen> {
         children: [
           AppTextField(
             controller: _itEquipmentController,
-            label: 'IT-оборудование',
-            hint: 'Проектор, ноутбуки, розетки...',
+            label: AppLocalizations.get('itEquipment'),
+            hint: AppLocalizations.get('itEquipmentHint'),
             maxLines: 3,
           ),
           const SizedBox(height: AppSpacing.df),
           AppTextField(
             controller: _materialsController,
-            label: 'Материалы',
-            hint: 'Маркеры, бумага А4, флипчарт...',
+            label: AppLocalizations.get('materials'),
+            hint: AppLocalizations.get('materialsHint'),
             maxLines: 3,
           ),
         ],
@@ -405,7 +581,7 @@ class _SubmitScreenState extends State<SubmitScreen> {
             if (_currentStep > 0) ...[
               Expanded(
                 child: AppSecondaryButton(
-                  text: 'Назад',
+                  text: AppLocalizations.get('back'),
                   onPressed: _submitting
                       ? null
                       : () => setState(() => _currentStep--),
@@ -415,7 +591,9 @@ class _SubmitScreenState extends State<SubmitScreen> {
             ],
             Expanded(
               child: AppPrimaryButton(
-                text: _currentStep < 2 ? 'Далее' : 'Отправить заявку',
+                text: _currentStep < 2
+                    ? AppLocalizations.get('next')
+                    : AppLocalizations.get('sendRequest'),
                 isLoading: _submitting,
                 onPressed: _onPrimary,
               ),

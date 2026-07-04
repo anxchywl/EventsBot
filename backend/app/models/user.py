@@ -67,9 +67,6 @@ class User(TimestampMixin, Base):
     last_name: Mapped[str | None] = mapped_column(String(255))
     language_code: Mapped[str | None] = mapped_column(String(16))
     is_bot: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
-    is_moderator: Mapped[bool] = mapped_column(
-        Boolean, default=False, server_default="false"
-    )
     photo_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     photo_updated_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
@@ -116,7 +113,7 @@ class User(TimestampMixin, Base):
         cascade="all, delete-orphan",
     )
     moderation_logs: Mapped[list[ModerationLog]] = relationship(
-        back_populates="moderator",
+        back_populates="actor",
     )
     event_analytics: Mapped[list[EventAnalytics]] = relationship(back_populates="user")
 

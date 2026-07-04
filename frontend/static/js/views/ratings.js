@@ -43,7 +43,7 @@ export function renderAuthSection(profileData = null) {
   const isVerified = state.user && state.user.is_verified;
   if (isVerified) return renderProfile(profileData);
   if (state.forgotStep) return renderForgotPasswordCard(state.forgotStep);
-  if (state.user?.role === "admin" || state.user?.role === "moderator") {
+  if (state.user?.role === "admin") {
     return `
       <div class="panel auth-card admin-auth-shortcut">
         <button class="action primary auth-submit-btn admin-auth-shortcut-btn" type="button" data-route="admin">${t("admin")}</button>
@@ -252,7 +252,7 @@ function renderProfile(profile) {
           <div id="nickname-error-msg" class="auth-error ${state.nicknameErrorMsg ? "" : "hide"}">${escapeHtml(state.nicknameErrorMsg || "")}</div>
         </div>
         <div class="profile-actions">
-        ${(state.user?.role === 'admin' || state.user?.role === 'moderator') ? `
+        ${state.user?.role === 'admin' ? `
         <button class="profile-admin-icon" id="admin-btn" type="button" data-route="admin" aria-label="${t("admin")}" title="${t("admin")}">
           <span class="profile-admin-label">${t("admin")}</span>
         </button>
@@ -491,7 +491,7 @@ function renderGlobalReviewsFeed(reviews) {
         </div>
         <div class="feed-review-actions">
           ${review.score ? `<span class="feed-review-stars">${"★".repeat(review.score)}</span>` : ""}
-          ${state.user && (state.user.role === 'admin' || state.user.role === 'moderator') ? `
+          ${state.user && state.user.role === 'admin' ? `
             <button class="admin-delete-review-btn" data-event-token="${escapeAttr(review.event_token)}" data-admin-delete-review="${escapeAttr(review.user_id)}" title="${t("deleteBtn")}">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
             </button>

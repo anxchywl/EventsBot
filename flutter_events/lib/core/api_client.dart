@@ -8,6 +8,8 @@ import 'auth_store.dart';
 import 'constants.dart';
 import 'exceptions.dart';
 
+import 'localization.dart';
+
 /// Result of a successful login or registration.
 class AuthResult {
   final String token;
@@ -50,6 +52,20 @@ Map<String, String> _headers({bool auth = false}) {
   return headers;
 }
 
+final _client = http.Client();
+const _kTimeout = Duration(seconds: 10);
+
+Future<http.Response> _get(Uri uri, {Map<String, String>? headers}) =>
+    _client.get(uri, headers: headers).timeout(_kTimeout);
+
+Future<http.Response> _post(Uri uri,
+        {Map<String, String>? headers, Object? body}) =>
+    _client.post(uri, headers: headers, body: body).timeout(_kTimeout);
+
+Future<http.Response> _patch(Uri uri,
+        {Map<String, String>? headers, Object? body}) =>
+    _client.patch(uri, headers: headers, body: body).timeout(_kTimeout);
+
 bool _isOk(int code) => code >= 200 && code < 300;
 
 Never _throwFor(http.Response response) {
@@ -65,10 +81,10 @@ Never _throwFor(http.Response response) {
           ? first['msg'].toString()
           : detail.toString();
     } else {
-      message = 'Что-то пошло не так';
+      message = AppLocalizations.get('somethingWentWrong');
     }
   } catch (_) {
-    message = 'Что-то пошло не так';
+    message = AppLocalizations.get('somethingWentWrong');
   }
 
   switch (response.statusCode) {
@@ -84,7 +100,7 @@ Never _throwFor(http.Response response) {
 }
 
 Future<AuthResult> login(String email, String password) async {
-  final response = await http.post(
+  final response = await _post(
     _uri('/api/flutter/auth/login'),
     headers: _headers(),
     body: jsonEncode({'email': email, 'password': password}),
@@ -98,7 +114,7 @@ Future<AuthResult> register(
   String password,
   String firstName,
 ) async {
-  final response = await http.post(
+  final response = await _post(
     _uri('/api/flutter/auth/register'),
     headers: _headers(),
     body: jsonEncode({
@@ -120,7 +136,7 @@ Future<List<EventModel>> fetchApprovedEvents({
   if (categorySlug != null && categorySlug.isNotEmpty) {
     query['category_slug'] = categorySlug;
   }
-  final response = await http.get(
+  final response = await _get(
     _uri('/api/flutter/events', query),
     headers: _headers(auth: true),
   );
@@ -129,7 +145,7 @@ Future<List<EventModel>> fetchApprovedEvents({
 }
 
 Future<List<EventModel>> fetchMyEvents() async {
-  final response = await http.get(
+  final response = await _get(
     _uri('/api/flutter/events/my'),
     headers: _headers(auth: true),
   );
@@ -138,7 +154,7 @@ Future<List<EventModel>> fetchMyEvents() async {
 }
 
 Future<List<EventModel>> fetchPendingEvents() async {
-  final response = await http.get(
+  final response = await _get(
     _uri('/api/flutter/events/pending'),
     headers: _headers(auth: true),
   );
@@ -147,7 +163,7 @@ Future<List<EventModel>> fetchPendingEvents() async {
 }
 
 Future<List<CategoryModel>> fetchCategories() async {
-  final response = await http.get(
+  final response = await _get(
     _uri('/api/flutter/events/categories'),
     headers: _headers(auth: true),
   );
@@ -159,7 +175,7 @@ Future<List<CategoryModel>> fetchCategories() async {
 }
 
 Future<EventModel> fetchEvent(int id) async {
-  final response = await http.get(
+  final response = await _get(
     _uri('/api/flutter/events/$id'),
     headers: _headers(auth: true),
   );
@@ -168,7 +184,7 @@ Future<EventModel> fetchEvent(int id) async {
 }
 
 Future<EventModel> submitEvent(Map<String, dynamic> body) async {
-  final response = await http.post(
+  final response = await _post(
     _uri('/api/flutter/events'),
     headers: _headers(auth: true),
     body: jsonEncode(body),
@@ -182,10 +198,20 @@ Future<EventModel> updateEventStatus(
   String status,
   String? comment,
 ) async {
-  final response = await http.patch(
+  final response = await _patch(
     _uri('/api/flutter/events/$id/status'),
     headers: _headers(auth: true),
     body: jsonEncode({'status': status, 'comment': comment}),
+  );
+  if (!_isOk(response.statusCode)) _throwFor(response);
+  return EventModel.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+}
+
+Future<EventModel> patchEvent(int id, {String? endTime}) async {
+  final response = await _patch(
+    _uri('/api/flutter/events/$id'),
+    headers: _headers(auth: true),
+    body: jsonEncode({'event_end_time': endTime}),
   );
   if (!_isOk(response.statusCode)) _throwFor(response);
   return EventModel.fromJson(jsonDecode(response.body) as Map<String, dynamic>);

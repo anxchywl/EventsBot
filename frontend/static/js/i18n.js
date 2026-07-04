@@ -166,7 +166,7 @@ const dict = {
     removeFriendConfirmBtn: "Remove",
     deleteReviewConfirmTitle: "Delete review?",
     deleteReviewConfirmDesc: "Are you sure you want to delete this review? This action cannot be undone.",
-    failedDeleteReview: "Failed to delete review. Ensure you have admin/moderator privileges.",
+    failedDeleteReview: "Failed to delete review. Ensure you have admin privileges.",
     reviewsSectionTitle: "Reviews",
     writeReviewButton: "Write a review",
     noReviewsYet: "No reviews yet",

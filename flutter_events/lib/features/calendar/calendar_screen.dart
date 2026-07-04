@@ -2,19 +2,12 @@ import 'dart:async';
 
 import 'package:app_ui/app_ui.dart';
 import 'package:flutter/material.dart';
-
 import '../../core/api_client.dart';
+import '../../core/exceptions.dart';
+import '../../core/localization.dart';
 import '../../models/event_model.dart';
 import '../events/event_detail_screen.dart';
 
-/// Shared booking calendar for Club Heads.
-///
-/// Approved events block slots: every approved event is rendered on its date as
-/// a booked location. Dates with no events are free. Tapping a day's "+" opens
-/// the submit form pre-filled with that date so a Club Head can request a slot.
-///
-/// Data source: `GET /api/flutter/events` (approved events only) — no new
-/// backend endpoint is assumed.
 class CalendarScreen extends StatefulWidget {
   const CalendarScreen({super.key});
 
@@ -29,12 +22,13 @@ class _CalendarScreenState extends State<CalendarScreen> {
   String? _error;
   List<EventModel> _events = [];
   Timer? _pollTimer;
+  DateTime _selectedDate = DateTime.now();
 
   @override
   void initState() {
     super.initState();
     _load();
-    _pollTimer = Timer.periodic(_pollInterval, (_) => _refreshSilently());
+    _pollTimer = Timer.periodic(_pollInterval, (_) => _loadSilently());
   }
 
   @override
@@ -49,27 +43,36 @@ class _CalendarScreenState extends State<CalendarScreen> {
       _error = null;
     });
     try {
-      final events = await fetchApprovedEvents();
+      final approved = await fetchApprovedEvents();
+      final pending = await fetchPendingEvents();
       if (!mounted) return;
       setState(() {
-        _events = events;
+        _events = [...approved, ...pending];
+        _error = null;
+        _loading = false;
+      });
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e.message;
         _loading = false;
       });
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = e.toString();
+        _error = AppLocalizations.get('somethingWentWrong');
         _loading = false;
       });
     }
   }
 
-  Future<void> _refreshSilently() async {
+  Future<void> _loadSilently() async {
     try {
-      final events = await fetchApprovedEvents();
+      final approved = await fetchApprovedEvents();
+      final pending = await fetchPendingEvents();
       if (!mounted) return;
       setState(() {
-        _events = events;
+        _events = [...approved, ...pending];
         _error = null;
       });
     } catch (_) {}
@@ -101,12 +104,12 @@ class _CalendarScreenState extends State<CalendarScreen> {
       result.add(
         AppCalendarEvent(
           id: e.id.toString(),
-          // The booked slot the calendar communicates is the location.
           title: e.location,
           subtitle: e.title,
           date: date,
           time: _parseTime(e.eventTime),
-          color: AppColors.error, // booked
+          endTime: e.eventEndTime != null ? _parseTime(e.eventEndTime!) : null,
+          color: e.isPending ? AppColors.grey : AppColors.error,
           metadata: e,
         ),
       );
@@ -114,12 +117,10 @@ class _CalendarScreenState extends State<CalendarScreen> {
     return result;
   }
 
-  Future<void> _openDetail(AppCalendarEvent event) async {
-    final model = event.metadata;
-    if (model is! EventModel) return;
+  Future<void> _openDetail(EventModel event) async {
     await Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => EventDetailScreen(event: model)),
+      MaterialPageRoute(builder: (_) => EventDetailScreen(event: event)),
     );
     await _load();
   }
@@ -127,7 +128,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: const AppAppBar(title: 'Календарь'),
+      appBar: AppAppBar(title: AppLocalizations.get('calendar')),
       body: _buildBody(),
     );
   }
@@ -143,25 +144,39 @@ class _CalendarScreenState extends State<CalendarScreen> {
             children: [
               Text(_error!, textAlign: TextAlign.center),
               const SizedBox(height: AppSpacing.df),
-              AppSecondaryButton(text: 'Повторить', onPressed: _load),
+              AppSecondaryButton(
+                text: AppLocalizations.get('retry'),
+                onPressed: _load,
+              ),
             ],
           ),
         ),
       );
     }
 
-    // AppCalendar's outer column is mainAxisSize.max, so it needs a bounded
-    // parent (the Scaffold body) rather than an unbounded scroll view.
     return Padding(
       padding: const EdgeInsets.all(AppSpacing.df),
       child: AppCalendar(
         events: _calendarEvents(),
-        headerLabel: 'БРОНИРОВАНИЯ',
+        initialDate: _selectedDate,
+        showEventList: true,
+        onDateSelected: (date) {
+          setState(() {
+            _selectedDate = date;
+          });
+        },
+        onEventTap: (event) {
+          final model = event.metadata;
+          if (model is EventModel) {
+            _openDetail(model);
+          }
+        },
+        headerLabel: AppLocalizations.get('bookings'),
         accentColor: AppColors.primary,
-        emptyStateTitle: 'Свободно',
-        emptyStateSubtitle: 'На этот день нет одобренных броней',
-        onEventTap: _openDetail,
+        emptyStateTitle: AppLocalizations.get('available'),
+        emptyStateSubtitle: AppLocalizations.get('noBookingsOrRequests'),
       ),
     );
   }
 }
+

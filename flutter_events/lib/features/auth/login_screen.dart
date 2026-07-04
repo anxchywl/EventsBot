@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../../core/api_client.dart';
 import '../../core/auth_store.dart';
 import '../../core/exceptions.dart';
+import '../../core/localization.dart';
 import '../shell/app_shell.dart';
 import 'register_screen.dart';
 
@@ -30,7 +31,7 @@ class _LoginScreenState extends State<LoginScreen> {
     final email = _emailController.text.trim();
     final password = _passwordController.text;
     if (email.isEmpty || password.isEmpty) {
-      _showMessage('Заполните все поля');
+      _showMessage(AppLocalizations.get('fillFields'));
       return;
     }
 
@@ -50,6 +51,8 @@ class _LoginScreenState extends State<LoginScreen> {
       );
     } on ApiException catch (e) {
       _showMessage(e.message);
+    } catch (_) {
+      _showMessage('Could not reach the server. Check your connection.');
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -94,7 +97,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                       const SizedBox(height: AppSpacing.xl),
                       Text(
-                        'Войти',
+                        AppLocalizations.get('login'),
                         textAlign: TextAlign.center,
                         style: theme.textTheme.headlineMedium,
                       ),
@@ -108,18 +111,18 @@ class _LoginScreenState extends State<LoginScreen> {
                       const SizedBox(height: AppSpacing.df),
                       AppPasswordField(
                         controller: _passwordController,
-                        label: 'Пароль',
+                        label: AppLocalizations.get('passwordLabel'),
                         onSubmitted: (_) => _submit(),
                       ),
                       const SizedBox(height: AppSpacing.xl),
                       AppPrimaryButton(
-                        text: 'Войти',
+                        text: AppLocalizations.get('login'),
                         isLoading: _loading,
                         onPressed: _submit,
                       ),
                       const SizedBox(height: AppSpacing.md),
                       AppTextButton(
-                        text: 'Нет аккаунта? Зарегистрироваться',
+                        text: AppLocalizations.get('noAccount'),
                         onPressed: _loading
                             ? null
                             : () => Navigator.push(

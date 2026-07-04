@@ -295,6 +295,8 @@ async def upsert_miniapp_user(session: AsyncSession, miniapp_user: MiniAppUser) 
     settings = get_settings()
     if miniapp_user.id in settings.admin_ids:
         user.role = "admin"
+    elif user.role not in {"user", "admin"}:
+        user.role = "user"
 
     user.username = miniapp_user.username
     user.first_name = miniapp_user.first_name
@@ -311,7 +313,7 @@ async def upsert_miniapp_user(session: AsyncSession, miniapp_user: MiniAppUser) 
     return user
 
 
-# derive web permissions from admin and moderator flags
+# derive web permissions from admin settings and stored role
 def effective_web_role(user: User, telegram_id: int) -> str:
     admin_ids: set[int] = set()
     for admin_id in get_settings().admin_ids:
@@ -324,10 +326,8 @@ def effective_web_role(user: User, telegram_id: int) -> str:
         normalized_telegram_id = int(telegram_id)
     except (TypeError, ValueError):
         normalized_telegram_id = 0
-    if normalized_telegram_id in admin_ids or user.role in ("admin", "super_admin"):
+    if normalized_telegram_id in admin_ids or user.role == "admin":
         return "admin"
-    if user.role == "moderator":
-        return "moderator"
     return "user"
 
 
@@ -421,23 +421,7 @@ async def require_verified_user_allow_blocked(
     return user
 
 
-# guard moderation endpoints by elevated role
-async def require_admin_or_moderator(
-    miniapp_user: MiniAppUser = Depends(require_current_miniapp_user),
-    session: AsyncSession = Depends(get_session),
-) -> User:
-    user = await upsert_miniapp_user(session, miniapp_user)
-    role = effective_web_role(user, miniapp_user.id)
-    if role not in ("admin", "moderator"):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Insufficient permissions. Admin or moderator role required.",
-        )
-    await session.commit()
-    return user
-
-
-# guard admin-only endpoints
+# guard admin endpoints
 async def require_admin(
     miniapp_user: MiniAppUser = Depends(require_current_miniapp_user),
     session: AsyncSession = Depends(get_session),

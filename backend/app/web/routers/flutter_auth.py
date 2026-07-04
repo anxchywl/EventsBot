@@ -25,10 +25,11 @@ def _normalize_email(email: str) -> str:
 
 
 def _auth_response(user: User) -> FlutterAuthResponse:
+    role = "admin" if user.role == "admin" else "user"
     return FlutterAuthResponse(
         token=create_flutter_token(user),
         user_id=user.id,
-        role=user.role,
+        role=role,
         first_name=user.first_name,
         is_verified=user.is_verified,
     )

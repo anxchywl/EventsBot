@@ -211,7 +211,7 @@ async def list_reviews(
     can_delete_all = False
     if current_db_user and miniapp_user:
         current_role = effective_web_role(current_db_user, miniapp_user.id)
-        if current_role in ("admin", "moderator"):
+        if current_role == "admin":
             can_delete_all = True
 
     # merge one user rating and comment into one review row
@@ -273,10 +273,7 @@ async def list_global_reviews_feed(
     can_delete_all = False
     if miniapp_user is not None:
         current_db_user = await upsert_miniapp_user(session, miniapp_user)
-        can_delete_all = effective_web_role(current_db_user, miniapp_user.id) in (
-            "admin",
-            "moderator",
-        )
+        can_delete_all = effective_web_role(current_db_user, miniapp_user.id) == "admin"
 
     stmt_comments = (
         select(Comment)

@@ -45,7 +45,6 @@ class Settings(BaseSettings):
             return [s.strip() for s in v.split(",") if s.strip()]
         return []
 
-    moderator_chat_id: int | None = Field(default=None, alias="MODERATOR_CHAT_ID")
     admin_ids: Annotated[list[int], NoDecode] = Field(
         default_factory=list, alias="ADMIN_IDS"
     )

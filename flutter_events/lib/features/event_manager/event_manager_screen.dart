@@ -4,24 +4,11 @@ import 'package:app_ui/app_ui.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/api_client.dart';
+import '../../core/localization.dart';
 import '../../models/event_model.dart';
 import '../events/event_detail_screen.dart';
 
-/// Event Manager analytics & administration.
-///
-/// What is REAL (computed client-side from existing endpoints):
-///   • Approved event count            ← GET /api/flutter/events
-///   • Pending backlog count           ← GET /api/flutter/events/pending
-///   • Conflicting requests (same date + location) across approved + pending
-///   • Breakdown by club (organizer) and by category
-///
-/// What is STUBBED (no backend support under /api/flutter yet):
-///   • First-pass approval rate — needs rejected/needs_changes totals, which no
-///     endpoint exposes (only APPROVED and PENDING are enumerable).
-///   • Avg submit→decision time — the event schema carries no created/decided
-///     timestamps.
-///   • Club role assignment (president / VP / club event manager) — needs the
-///     /clubs and /admin endpoints, which are not exposed to Flutter.
+/// Event Manager analytics from the Flutter event endpoints.
 class EventManagerScreen extends StatefulWidget {
   const EventManagerScreen({super.key});
 
@@ -114,10 +101,12 @@ class _EventManagerScreenState extends State<EventManagerScreen> {
     return {for (final e in sorted) e.key: e.value};
   }
 
+  int get _totalVisible => _approved.length + _pending.length;
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: const AppAppBar(title: 'Аналитика'),
+      appBar: AppAppBar(title: AppLocalizations.get('analytics')),
       body: _buildBody(),
     );
   }
@@ -133,7 +122,10 @@ class _EventManagerScreenState extends State<EventManagerScreen> {
             children: [
               Text(_error!, textAlign: TextAlign.center),
               const SizedBox(height: AppSpacing.df),
-              AppSecondaryButton(text: 'Повторить', onPressed: _load),
+              AppSecondaryButton(
+                text: AppLocalizations.get('retry'),
+                onPressed: _load,
+              ),
             ],
           ),
         ),
@@ -143,77 +135,49 @@ class _EventManagerScreenState extends State<EventManagerScreen> {
     final conflicts = _conflicts;
     final byClub = _countBy((e) => e.organizerName);
     final byCategory = _countBy((e) => e.category);
+    final total = _totalVisible;
 
     return RefreshIndicator(
       onRefresh: _load,
       child: ListView(
         padding: AppSpacing.screenPadding,
         children: [
-          // ── Top stats ──────────────────────────────────────────────────
-          Row(
-            children: [
-              Expanded(
-                child: _StatCard(
-                  label: 'Одобрено',
-                  value: '${_approved.length}',
-                  color: AppColors.success,
-                ),
-              ),
-              const SizedBox(width: AppSpacing.sm),
-              Expanded(
-                child: _StatCard(
-                  label: 'На рассмотрении',
-                  value: '${_pending.length}',
-                  color: AppColors.orange,
-                ),
-              ),
-              const SizedBox(width: AppSpacing.sm),
-              Expanded(
-                child: _StatCard(
-                  label: 'Конфликты',
-                  value: '${conflicts.length}',
-                  color: conflicts.isEmpty ? AppColors.grey : AppColors.error,
-                ),
-              ),
-            ],
+          _OverviewPanel(
+            approved: _approved.length,
+            pending: _pending.length,
+            conflicts: conflicts.length,
           ),
           const SizedBox(height: AppSpacing.lg),
-
-          // ── Conflicts ──────────────────────────────────────────────────
-          Text('Конфликтующие заявки', style: AppTextStyles.sectionHeader),
+          _DistributionPanel(
+            title: AppLocalizations.get('categories'),
+            subtitle: AppLocalizations.get('categoriesSub'),
+            counts: byCategory,
+            total: total,
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          _DistributionPanel(
+            title: AppLocalizations.get('organizers'),
+            subtitle: AppLocalizations.get('organizersSub'),
+            counts: byClub,
+            total: total,
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          Text(AppLocalizations.get('slotConflicts'), style: AppTextStyles.sectionHeader),
           const SizedBox(height: AppSpacing.xs),
           Text(
-            'Совпадение по дате и месту (одобренные + на рассмотрении)',
+            AppLocalizations.get('slotConflictsSub'),
             style: Theme.of(
               context,
             ).textTheme.bodySmall?.copyWith(color: AppColors.grey),
           ),
           const SizedBox(height: AppSpacing.sm),
           if (conflicts.isEmpty)
-            Text(
-              'Конфликтов нет',
-              style: Theme.of(
-                context,
-              ).textTheme.bodyMedium?.copyWith(color: AppColors.grey),
+            _EmptyInsight(
+              icon: Icons.check_circle_outline_rounded,
+              text: AppLocalizations.get('noConflicts'),
             )
           else
             for (final group in conflicts) _conflictCard(group),
-          const SizedBox(height: AppSpacing.lg),
-
-          // ── Breakdown by club ──────────────────────────────────────────
-          Text('По клубам', style: AppTextStyles.sectionHeader),
-          const SizedBox(height: AppSpacing.sm),
-          _breakdown(byClub),
-          const SizedBox(height: AppSpacing.lg),
-
-          // ── Breakdown by category ──────────────────────────────────────
-          Text('По категориям', style: AppTextStyles.sectionHeader),
-          const SizedBox(height: AppSpacing.sm),
-          _breakdown(byCategory),
-          const SizedBox(height: AppSpacing.lg),
-
-          // ── Requires backend ───────────────────────────────────────────
-          _backendGapSection(),
         ],
       ),
     );
@@ -291,124 +255,6 @@ class _EventManagerScreenState extends State<EventManagerScreen> {
     );
   }
 
-  Widget _breakdown(Map<String, int> counts) {
-    if (counts.isEmpty) {
-      return Text(
-        'Нет данных',
-        style: Theme.of(
-          context,
-        ).textTheme.bodyMedium?.copyWith(color: AppColors.grey),
-      );
-    }
-    final maxValue = counts.values.reduce((a, b) => a > b ? a : b);
-    final theme = Theme.of(context);
-    return Column(
-      children: [
-        for (final entry in counts.entries)
-          Padding(
-            padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        entry.key,
-                        style: theme.textTheme.bodyMedium,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    Text(
-                      '${entry.value}',
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 4),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(4),
-                  child: LinearProgressIndicator(
-                    value: maxValue == 0 ? 0 : entry.value / maxValue,
-                    minHeight: 6,
-                    color: AppColors.primary,
-                    backgroundColor: AppColors.fieldBackground,
-                  ),
-                ),
-              ],
-            ),
-          ),
-      ],
-    );
-  }
-
-  Widget _backendGapSection() {
-    final theme = Theme.of(context);
-    Widget row(String title, String reason) => Padding(
-      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Icon(
-                Icons.lock_outline,
-                size: AppSpacing.iconSm,
-                color: AppColors.grey,
-              ),
-              const SizedBox(width: AppSpacing.xs),
-              Expanded(
-                child: Text(
-                  title,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          Padding(
-            padding: const EdgeInsets.only(left: 24, top: 2),
-            child: Text(
-              reason,
-              style: theme.textTheme.bodySmall?.copyWith(color: AppColors.grey),
-            ),
-          ),
-        ],
-      ),
-    );
-
-    return Container(
-      padding: const EdgeInsets.all(AppSpacing.md),
-      decoration: BoxDecoration(
-        color: AppColors.fieldBackground,
-        borderRadius: AppSpacing.borderRadiusMd,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('Требует доработки бэкенда', style: AppTextStyles.sectionHeader),
-          const SizedBox(height: AppSpacing.sm),
-          row(
-            'Доля одобрения с первого раза',
-            'Нужны данные об отклонённых заявках — сейчас API отдаёт только одобренные и ожидающие.',
-          ),
-          row(
-            'Среднее время до решения',
-            'В схеме события нет отметок времени подачи и решения.',
-          ),
-          row(
-            'Назначение ролей в клубе',
-            'Нужны эндпоинты /clubs и /admin, недоступные из Flutter.',
-          ),
-        ],
-      ),
-    );
-  }
-
   Future<void> _openDetail(EventModel event) async {
     await Navigator.push(
       context,
@@ -418,44 +264,278 @@ class _EventManagerScreenState extends State<EventManagerScreen> {
   }
 }
 
-class _StatCard extends StatelessWidget {
-  const _StatCard({
+class _OverviewPanel extends StatelessWidget {
+  const _OverviewPanel({
+    required this.approved,
+    required this.pending,
+    required this.conflicts,
+  });
+
+  final int approved;
+  final int pending;
+  final int conflicts;
+
+  @override
+  Widget build(BuildContext context) {
+    final total = approved + pending;
+    final approvedShare = total == 0 ? 0.0 : approved / total;
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.lg),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: AppSpacing.borderRadiusMd,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(AppLocalizations.get('summary'), style: AppTextStyles.sectionHeader),
+          const SizedBox(height: AppSpacing.md),
+          Row(
+            children: [
+              SizedBox(
+                width: 92,
+                height: 92,
+                child: CustomPaint(
+                  painter: _DonutPainter(
+                    value: approvedShare,
+                    color: AppColors.success,
+                    background: AppColors.orange.withValues(alpha: 0.24),
+                  ),
+                  child: Center(
+                    child: Text(
+                      '$total',
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: AppSpacing.lg),
+              Expanded(
+                child: Column(
+                  children: [
+                    _MetricRow(
+                      label: AppLocalizations.get('approvedLabel'),
+                      value: approved,
+                      color: AppColors.success,
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                    _MetricRow(
+                      label: AppLocalizations.get('pending'),
+                      value: pending,
+                      color: AppColors.orange,
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                    _MetricRow(
+                      label: AppLocalizations.get('slotConflicts'),
+                      value: conflicts,
+                      color: conflicts == 0 ? AppColors.grey : AppColors.error,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MetricRow extends StatelessWidget {
+  const _MetricRow({
     required this.label,
     required this.value,
     required this.color,
   });
 
   final String label;
-  final String value;
+  final int value;
   final Color color;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    return Row(
+      children: [
+        Container(
+          width: 9,
+          height: 9,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        ),
+        const SizedBox(width: AppSpacing.sm),
+        Expanded(child: Text(label, style: AppTextStyles.bodyMedium)),
+        Text(
+          '$value',
+          style: AppTextStyles.bodyMedium.copyWith(fontWeight: FontWeight.w800),
+        ),
+      ],
+    );
+  }
+}
+
+class _DistributionPanel extends StatelessWidget {
+  const _DistributionPanel({
+    required this.title,
+    required this.subtitle,
+    required this.counts,
+    required this.total,
+  });
+
+  final String title;
+  final String subtitle;
+  final Map<String, int> counts;
+  final int total;
+
+  @override
+  Widget build(BuildContext context) {
+    final entries = counts.entries.take(5).toList();
     return Container(
-      padding: const EdgeInsets.all(AppSpacing.md),
+      padding: const EdgeInsets.all(AppSpacing.lg),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.10),
+        color: Colors.white,
         borderRadius: AppSpacing.borderRadiusMd,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            value,
-            style: theme.textTheme.headlineSmall?.copyWith(
-              color: color,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
+          Text(title, style: AppTextStyles.sectionHeader),
           const SizedBox(height: 2),
           Text(
-            label,
-            style: theme.textTheme.bodySmall?.copyWith(color: AppColors.grey),
-            maxLines: 2,
+            subtitle,
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: AppColors.grey),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          if (entries.isEmpty)
+            _EmptyInsight(
+              icon: Icons.insights_outlined,
+              text: AppLocalizations.get('noData'),
+            )
+          else
+            for (final entry in entries) ...[
+              _BarInsight(
+                label: entry.key,
+                value: entry.value,
+                share: total == 0 ? 0 : entry.value / total,
+              ),
+              const SizedBox(height: AppSpacing.sm),
+            ],
+        ],
+      ),
+    );
+  }
+}
+
+class _BarInsight extends StatelessWidget {
+  const _BarInsight({
+    required this.label,
+    required this.value,
+    required this.share,
+  });
+
+  final String label;
+  final int value;
+  final double share;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: AppTextStyles.bodyMedium.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            Text('$value', style: AppTextStyles.bodyMedium),
+          ],
+        ),
+        const SizedBox(height: 5),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(999),
+          child: LinearProgressIndicator(
+            value: share.clamp(0, 1),
+            minHeight: 8,
+            color: AppColors.primary,
+            backgroundColor: AppColors.primaryLight,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _EmptyInsight extends StatelessWidget {
+  const _EmptyInsight({required this.icon, required this.text});
+
+  final IconData icon;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: AppColors.fieldBackground,
+        borderRadius: AppSpacing.borderRadiusMd,
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: AppColors.grey, size: AppSpacing.iconSm),
+          const SizedBox(width: AppSpacing.sm),
+          Text(
+            text,
+            style: AppTextStyles.bodyMedium.copyWith(color: AppColors.grey),
           ),
         ],
       ),
     );
+  }
+}
+
+class _DonutPainter extends CustomPainter {
+  const _DonutPainter({
+    required this.value,
+    required this.color,
+    required this.background,
+  });
+
+  final double value;
+  final Color color;
+  final Color background;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final stroke = size.width * 0.12;
+    final rect = Offset.zero & size;
+    final paint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = stroke
+      ..strokeCap = StrokeCap.round
+      ..color = background;
+    canvas.drawArc(rect.deflate(stroke / 2), 0, 6.28318, false, paint);
+    paint.color = color;
+    canvas.drawArc(
+      rect.deflate(stroke / 2),
+      -1.5708,
+      6.28318 * value.clamp(0, 1),
+      false,
+      paint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_DonutPainter oldDelegate) {
+    return oldDelegate.value != value ||
+        oldDelegate.color != color ||
+        oldDelegate.background != background;
   }
 }

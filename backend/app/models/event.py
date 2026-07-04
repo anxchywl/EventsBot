@@ -92,6 +92,7 @@ class Event(TimestampMixin, Base):
     description: Mapped[str] = mapped_column(Text)
     event_date: Mapped[date] = mapped_column(Date)
     event_time: Mapped[time] = mapped_column(Time)
+    event_end_time: Mapped[time | None] = mapped_column(Time, nullable=True)
     timezone: Mapped[str] = mapped_column(
         String(64), default="Asia/Almaty", server_default="Asia/Almaty"
     )

@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 
 import '../../core/api_client.dart';
+import '../../core/localization.dart';
 import '../../models/event_model.dart';
 import '../events/event_card.dart';
 import '../events/event_detail_screen.dart';
@@ -63,10 +64,10 @@ class _CoordinatorDashboardScreenState
       _error = null;
     });
     try {
-      final events = await fetchPendingEvents();
+      final pending = await fetchPendingEvents();
       if (!mounted) return;
       setState(() {
-        _events = events;
+        _events = pending;
         _loading = false;
       });
     } catch (e) {
@@ -80,10 +81,10 @@ class _CoordinatorDashboardScreenState
 
   Future<void> _refreshSilently() async {
     try {
-      final events = await fetchPendingEvents();
+      final pending = await fetchPendingEvents();
       if (!mounted) return;
       setState(() {
-        _events = events;
+        _events = pending;
         _error = null;
       });
     } catch (_) {
@@ -101,19 +102,6 @@ class _CoordinatorDashboardScreenState
       (_events.map((e) => e.organizerName).toSet().toList()..sort());
 
   bool get _sortByDate => _sort == 'date_asc' || _sort == 'date_desc';
-
-  String get _sortLabel {
-    switch (_sort) {
-      case 'date_asc':
-        return 'Ближайшие';
-      case 'date_desc':
-        return 'Дальние';
-      case 'submitted_desc':
-        return 'Новые заявки';
-      default:
-        return 'Старые заявки';
-    }
-  }
 
   List<EventModel> get _filtered {
     final filtered = _events.where((e) {
@@ -196,23 +184,23 @@ class _CoordinatorDashboardScreenState
   Future<void> _pickSort() async {
     final result = await _showRequestPicker<String>(
       context,
-      title: 'Сортировка',
+      title: AppLocalizations.get('sorting'),
       selectedValue: _sort,
-      options: const [
+      options: [
         _RequestPickerOption(
-          label: 'По дате: сначала ближайшие',
+          label: AppLocalizations.get('byDateClosest'),
           value: 'date_asc',
         ),
         _RequestPickerOption(
-          label: 'По дате: сначала дальние',
+          label: AppLocalizations.get('byDateFurthest'),
           value: 'date_desc',
         ),
         _RequestPickerOption(
-          label: 'Сначала первые заявки',
+          label: AppLocalizations.get('oldestFirst'),
           value: 'submitted_asc',
         ),
         _RequestPickerOption(
-          label: 'Сначала последние заявки',
+          label: AppLocalizations.get('newestFirst'),
           value: 'submitted_desc',
         ),
       ],
@@ -224,40 +212,46 @@ class _CoordinatorDashboardScreenState
   Future<void> _pickCategory() async {
     final options = _categoryOptions;
     if (options.isEmpty) return;
-    final result = await _showRequestMultiPicker(
+    await _showRequestMultiPicker(
       context,
-      title: 'Категория',
+      title: AppLocalizations.get('category'),
       selectedValues: _categories,
       options: options,
+      onChanged: (values) {
+        if (!mounted) return;
+        setState(() => _categories = values);
+      },
     );
-    if (result == null || !mounted) return;
-    setState(() => _categories = result);
   }
 
   Future<void> _pickLocation() async {
     final options = _locationOptions;
     if (options.isEmpty) return;
-    final result = await _showRequestMultiPicker(
+    await _showRequestMultiPicker(
       context,
-      title: 'Локация',
+      title: AppLocalizations.get('location'),
       selectedValues: _locations,
       options: options,
+      onChanged: (values) {
+        if (!mounted) return;
+        setState(() => _locations = values);
+      },
     );
-    if (result == null || !mounted) return;
-    setState(() => _locations = result);
   }
 
   Future<void> _pickOrganizer() async {
     final options = _organizerOptions;
     if (options.isEmpty) return;
-    final result = await _showRequestMultiPicker(
+    await _showRequestMultiPicker(
       context,
-      title: 'Организатор',
+      title: AppLocalizations.get('organizer'),
       selectedValues: _organizers,
       options: options,
+      onChanged: (values) {
+        if (!mounted) return;
+        setState(() => _organizers = values);
+      },
     );
-    if (result == null || !mounted) return;
-    setState(() => _organizers = result);
   }
 
   Future<void> _openDetail(EventModel event) async {
@@ -271,7 +265,7 @@ class _CoordinatorDashboardScreenState
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: const AppAppBar(title: 'Заявки'),
+      appBar: AppAppBar(title: AppLocalizations.get('requests')),
       body: _buildBody(),
     );
   }
@@ -287,7 +281,10 @@ class _CoordinatorDashboardScreenState
             children: [
               Text(_error!, textAlign: TextAlign.center),
               const SizedBox(height: AppSpacing.df),
-              AppSecondaryButton(text: 'Повторить', onPressed: _load),
+              AppSecondaryButton(
+                text: AppLocalizations.get('retry'),
+                onPressed: _load,
+              ),
             ],
           ),
         ),
@@ -311,8 +308,8 @@ class _CoordinatorDashboardScreenState
                         child: Center(
                           child: Text(
                             _events.isEmpty
-                                ? 'Нет заявок на рассмотрении'
-                                : 'Ничего не найдено',
+                                ? AppLocalizations.get('noRequestsUnderReview')
+                                : AppLocalizations.get('nothingFound'),
                             style: Theme.of(context).textTheme.bodyLarge
                                 ?.copyWith(color: AppColors.grey),
                           ),
@@ -336,13 +333,21 @@ class _CoordinatorDashboardScreenState
       (sum, group) => sum + 1 + group.events.length,
     );
     return ListView.builder(
-      padding: AppSpacing.screenPadding,
+      padding: const EdgeInsets.only(
+        left: AppSpacing.df,
+        right: AppSpacing.df,
+        top: 0,
+        bottom: AppSpacing.df,
+      ),
       itemCount: itemCount,
       itemBuilder: (context, index) {
         int remaining = index;
         for (final group in groups) {
           if (remaining == 0) {
-            return _RequestDateHeader(label: group.label);
+            return _RequestDateHeader(
+              label: group.label,
+              first: index == 0,
+            );
           }
           remaining--;
           if (remaining < group.events.length) {
@@ -370,7 +375,11 @@ class _CoordinatorDashboardScreenState
   Widget _requestCard(EventModel event) {
     return Padding(
       padding: const EdgeInsets.only(bottom: AppSpacing.md),
-      child: EventCard(event: event, onTap: () => _openDetail(event)),
+      child: EventCard(
+        event: event,
+        hideStatus: true,
+        onTap: () => _openDetail(event),
+      ),
     );
   }
 
@@ -383,15 +392,12 @@ class _CoordinatorDashboardScreenState
         children: [
           const SizedBox(width: 0),
           Center(
-            child: _DashSortChip(
-              active: _sort != 'date_asc',
-              onTap: _pickSort,
-            ),
+            child: _DashSortChip(active: _sort != 'date_asc', onTap: _pickSort),
           ),
           const SizedBox(width: AppSpacing.sm),
           Center(
             child: _DashFilterChip(
-              label: 'Категория',
+              label: AppLocalizations.get('category'),
               count: _categories.length,
               active: _categories.isNotEmpty,
               onTap: _pickCategory,
@@ -400,7 +406,7 @@ class _CoordinatorDashboardScreenState
           const SizedBox(width: AppSpacing.sm),
           Center(
             child: _DashFilterChip(
-              label: 'Локация',
+              label: AppLocalizations.get('location'),
               count: _locations.length,
               active: _locations.isNotEmpty,
               onTap: _pickLocation,
@@ -409,7 +415,7 @@ class _CoordinatorDashboardScreenState
           const SizedBox(width: AppSpacing.sm),
           Center(
             child: _DashFilterChip(
-              label: 'Организатор',
+              label: AppLocalizations.get('organizer'),
               count: _organizers.length,
               active: _organizers.isNotEmpty,
               onTap: _pickOrganizer,
@@ -437,6 +443,8 @@ Future<T?> _showRequestPicker<T>(
   return showModalBottomSheet<T>(
     context: context,
     backgroundColor: Colors.transparent,
+    isScrollControlled: true,
+    useSafeArea: false,
     builder: (context) {
       final isLight = Theme.of(context).brightness == Brightness.light;
       final surface = isLight ? Colors.white : const Color(0xFF1C1C1E);
@@ -448,11 +456,11 @@ Future<T?> _showRequestPicker<T>(
 
       return SafeArea(
         top: false,
+        bottom: false,
         child: Container(
-          margin: const EdgeInsets.all(AppSpacing.sm),
           decoration: BoxDecoration(
             color: surface,
-            borderRadius: BorderRadius.circular(22),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -489,10 +497,35 @@ Future<T?> _showRequestPicker<T>(
                 if (i < options.length - 1)
                   Divider(height: 1, indent: 20, endIndent: 20, color: divider),
               ],
-              const SizedBox(height: AppSpacing.sm),
+              SizedBox(
+                height: MediaQuery.of(context).padding.bottom + AppSpacing.df,
+              ),
             ],
           ),
         ),
+      );
+    },
+  );
+}
+
+Future<void> _showRequestMultiPicker(
+  BuildContext context, {
+  required String title,
+  required Set<String> selectedValues,
+  required List<String> options,
+  required ValueChanged<Set<String>> onChanged,
+}) {
+  return showModalBottomSheet<void>(
+    context: context,
+    backgroundColor: Colors.transparent,
+    isScrollControlled: true,
+    useSafeArea: false,
+    builder: (context) {
+      return _RequestMultiPickerSheet(
+        title: title,
+        selectedValues: selectedValues,
+        options: options,
+        onChanged: onChanged,
       );
     },
   );
@@ -550,20 +583,217 @@ class _RequestPickerTile<T> extends StatelessWidget {
   }
 }
 
-class _RequestDateHeader extends StatelessWidget {
-  const _RequestDateHeader({required this.label});
+class _RequestMultiPickerSheet extends StatefulWidget {
+  const _RequestMultiPickerSheet({
+    required this.title,
+    required this.selectedValues,
+    required this.options,
+    required this.onChanged,
+  });
+
+  final String title;
+  final Set<String> selectedValues;
+  final List<String> options;
+  final ValueChanged<Set<String>> onChanged;
+
+  @override
+  State<_RequestMultiPickerSheet> createState() =>
+      _RequestMultiPickerSheetState();
+}
+
+class _RequestMultiPickerSheetState extends State<_RequestMultiPickerSheet> {
+  late final Set<String> _selected = Set.from(widget.selectedValues);
+  String _query = '';
+
+  void _toggle(String value) {
+    HapticFeedback.selectionClick();
+    setState(() {
+      if (_selected.contains(value)) {
+        _selected.remove(value);
+      } else {
+        _selected.add(value);
+      }
+    });
+    widget.onChanged(Set.from(_selected));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final mq = MediaQuery.of(context);
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    final surface = isLight ? Colors.white : const Color(0xFF1C1C1E);
+    final textPrimary = isLight ? AppColors.textPrimary : AppColors.white;
+    final filtered = _query.isEmpty
+        ? widget.options
+        : widget.options
+              .where((option) => option.toLowerCase().contains(_query))
+              .toList();
+
+    return AnimatedPadding(
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeOutCubic,
+      padding: EdgeInsets.only(bottom: mq.viewInsets.bottom),
+      child: Container(
+        constraints: BoxConstraints(
+          maxHeight: (mq.size.height - mq.viewInsets.bottom) * 0.72,
+        ),
+        decoration: BoxDecoration(
+          color: surface,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
+        ),
+        child: SafeArea(
+          top: false,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: AppSpacing.sm),
+              Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: AppColors.grey.withValues(alpha: 0.35),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 14, 20, 12),
+                child: Center(
+                  child: Text(
+                    widget.title,
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      color: textPrimary,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.df),
+                child: TextField(
+                  onChanged: (value) {
+                    setState(() => _query = value.trim().toLowerCase());
+                  },
+                  decoration: InputDecoration(
+                    hintText: AppLocalizations.get('search'),
+                    prefixIcon: Icon(Icons.search, size: 18, color: AppColors.grey),
+                    filled: true,
+                    fillColor: AppColors.fieldBackground,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: BorderSide.none,
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                  ),
+                ),
+              ),
+              const SizedBox(height: AppSpacing.md),
+              Flexible(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.df,
+                    0,
+                    AppSpacing.df,
+                    AppSpacing.df,
+                  ),
+                  child: Wrap(
+                    spacing: AppSpacing.sm,
+                    runSpacing: AppSpacing.sm,
+                    children: [
+                      for (final option in filtered)
+                        _RequestSelectorChip(
+                          label: option,
+                          active: _selected.contains(option),
+                          onTap: () => _toggle(option),
+                        ),
+                      if (filtered.isEmpty)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(
+                            vertical: AppSpacing.lg,
+                          ),
+                          child: Center(
+                            child: Text(
+                              AppLocalizations.get('nothingFound'),
+                              style: AppTextStyles.bodyMedium.copyWith(
+                                color: AppColors.grey,
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: AppSpacing.df),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _RequestSelectorChip extends StatelessWidget {
+  const _RequestSelectorChip({
+    required this.label,
+    required this.active,
+    required this.onTap,
+  });
 
   final String label;
+  final bool active;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 120),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: active ? AppColors.primary : AppColors.fieldBackground,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Text(
+          label,
+          style: AppTextStyles.bodyMedium.copyWith(
+            color: active ? Colors.white : AppColors.textPrimary,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _RequestDateHeader extends StatelessWidget {
+  const _RequestDateHeader({required this.label, this.first = false});
+
+  final String label;
+  final bool first;
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(top: AppSpacing.df, bottom: AppSpacing.sm),
-      child: Text(
-        label,
-        style: Theme.of(
-          context,
-        ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+      padding: EdgeInsets.only(
+        top: first ? AppSpacing.sm : AppSpacing.df,
+        bottom: AppSpacing.sm,
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                label,
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -572,15 +802,15 @@ class _RequestDateHeader extends StatelessWidget {
 class _DashFilterChip extends StatelessWidget {
   const _DashFilterChip({
     required this.label,
+    required this.count,
     required this.active,
     required this.onTap,
-    this.onClear,
   });
 
   final String label;
+  final int count;
   final bool active;
   final VoidCallback onTap;
-  final VoidCallback? onClear;
 
   @override
   Widget build(BuildContext context) {
@@ -588,11 +818,10 @@ class _DashFilterChip extends StatelessWidget {
     final bg = active ? AppColors.primaryLight : AppColors.fieldBackground;
     return GestureDetector(
       onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.md,
-          vertical: AppSpacing.xs,
-        ),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        height: 36,
+        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
         decoration: BoxDecoration(
           color: bg,
           borderRadius: BorderRadius.circular(20),
@@ -607,19 +836,55 @@ class _DashFilterChip extends StatelessWidget {
                 fontWeight: active ? FontWeight.w600 : FontWeight.w500,
               ),
             ),
-            const SizedBox(width: 4),
-            GestureDetector(
-              onTap: active ? onClear : onTap,
-              child: Icon(
-                active
-                    ? Icons.close_rounded
-                    : Icons.keyboard_arrow_down_rounded,
-                size: 16,
-                color: color,
+            if (count > 0) ...[
+              const SizedBox(width: 6),
+              Container(
+                height: 18,
+                constraints: const BoxConstraints(minWidth: 18),
+                alignment: Alignment.center,
+                padding: const EdgeInsets.symmetric(horizontal: 5),
+                decoration: BoxDecoration(
+                  color: AppColors.primary,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  '$count',
+                  style: AppTextStyles.labelSmall.copyWith(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                    height: 1,
+                  ),
+                ),
               ),
-            ),
+            ],
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _DashSortChip extends StatelessWidget {
+  const _DashSortChip({required this.active, required this.onTap});
+
+  final bool active;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = active ? AppColors.primary : AppColors.textSecondary;
+    final bg = active ? AppColors.primaryLight : AppColors.fieldBackground;
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        width: 36,
+        height: 36,
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(18),
+        ),
+        child: Icon(Icons.swap_vert_rounded, size: 18, color: color),
       ),
     );
   }

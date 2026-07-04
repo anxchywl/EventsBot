@@ -48,6 +48,7 @@ async def create_pending_event(
         description=event_data["description"],
         event_date=event_data["event_date"],
         event_time=event_data["event_time"],
+        event_end_time=event_data.get("event_end_time"),
         location=event_data["location"],
         category_id=event_data["category_id"],
         organizer_name=event_data["organizer"],
@@ -217,7 +218,7 @@ async def update_event_status(
     session: AsyncSession,
     event_id: int,
     status: EventStatus,
-    moderator: User,
+    admin: User,
     comment: str | None = None,
 ) -> Event | None:
     event = await get_event_by_id(session, event_id)
@@ -230,7 +231,7 @@ async def update_event_status(
     if status == EventStatus.APPROVED:
         from datetime import datetime, timezone
 
-        event.approved_by_user_id = moderator.id
+        event.approved_by_user_id = admin.id
         event.approved_at = datetime.now(timezone.utc)
         if previous_status == EventStatus.ARCHIVED.value:
             event.restored_at = event.approved_at
@@ -255,7 +256,7 @@ async def update_event_status(
 
     log = ModerationLog(
         event_id=event.id,
-        moderator_user_id=moderator.id,
+        actor_user_id=admin.id,
         action=action_map.get(status, ModerationAction.EDITED).value,
         comment=comment,
     )

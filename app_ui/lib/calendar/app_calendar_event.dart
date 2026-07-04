@@ -16,6 +16,7 @@ class AppCalendarEvent {
     required this.date,
     this.subtitle,
     this.time,
+    this.endTime,
     this.color,
     this.icon,
     this.type,
@@ -37,6 +38,9 @@ class AppCalendarEvent {
 
   /// Optional time of day used for sorting events within a day.
   final TimeOfDay? time;
+
+  /// Optional end time of day.
+  final TimeOfDay? endTime;
 
   /// Color of the dot indicator shown on the calendar cell.
   /// Defaults to [AppColors.primary] when not provided.
