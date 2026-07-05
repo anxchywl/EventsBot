@@ -13,6 +13,8 @@ class EventCard extends StatelessWidget {
     this.mutedPending = false,
     this.isFavorite = false,
     this.onToggleFavorite,
+    this.statusLabelOverride,
+    this.showCategory = true,
   });
 
   final EventModel event;
@@ -22,19 +24,35 @@ class EventCard extends StatelessWidget {
   final bool mutedPending;
   final bool isFavorite;
   final VoidCallback? onToggleFavorite;
+  final bool showCategory;
 
+  /// Overrides the status footer text, e.g. queue-specific badges shown to
+  /// moderators ("Waiting for creator" / "Ready for review").
+  final String? statusLabelOverride;
 
-  int? _daysUntil() {
+  String? _timeUntilLabel() {
     try {
-      final parts = event.eventDate.split('-');
-      if (parts.length != 3) return null;
-      final date = DateTime(
-        int.parse(parts[0]),
-        int.parse(parts[1]),
-        int.parse(parts[2]),
+      final dateParts = event.eventDate.split('-');
+      final timeParts = event.eventTime.split(':');
+      if (dateParts.length != 3 || timeParts.length < 2) return null;
+
+      final eventDateTime = DateTime(
+        int.parse(dateParts[0]),
+        int.parse(dateParts[1]),
+        int.parse(dateParts[2]),
+        int.parse(timeParts[0]),
+        int.parse(timeParts[1]),
       );
-      final diff = date.difference(DateTime.now()).inDays;
-      return diff < 0 ? null : diff;
+      final diff = eventDateTime.difference(DateTime.now());
+      if (diff.isNegative) return null;
+
+      final minutes = diff.inMinutes;
+      if (minutes < 60) return '${minutes < 1 ? 1 : minutes}m';
+
+      final hours = diff.inHours;
+      if (hours < 24) return '${hours}h';
+
+      return '${diff.inDays}d';
     } catch (_) {
       return null;
     }
@@ -45,7 +63,7 @@ class EventCard extends StatelessWidget {
     final theme = Theme.of(context);
     final showStatus = !hideStatus && (alwaysShowStatus || !event.isApproved);
     final isMutedPending = mutedPending && event.isPending;
-    final days = _daysUntil();
+    final timeUntil = _timeUntilLabel();
 
     return AppCard(
       onTap: onTap,
@@ -57,7 +75,7 @@ class EventCard extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.all(AppSpacing.md),
             child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 // Cover image / gradient thumbnail (with heart overlay)
                 Stack(
@@ -65,14 +83,13 @@ class EventCard extends StatelessWidget {
                     ClipRRect(
                       borderRadius: AppSpacing.borderRadiusSm,
                       child: SizedBox(
-                        width: 72,
-                        height: 72,
+                        width: showCategory ? 72 : 76,
+                        height: showCategory ? 72 : 76,
                         child: event.coverUrl != null
                             ? Image.network(
                                 event.coverUrl!,
                                 fit: BoxFit.cover,
-                                errorBuilder: (_, e, s) =>
-                                    const _MutedThumb(),
+                                errorBuilder: (_, e, s) => const _MutedThumb(),
                               )
                             : const _MutedThumb(),
                       ),
@@ -87,15 +104,15 @@ class EventCard extends StatelessWidget {
                             width: 24,
                             height: 24,
                             decoration: BoxDecoration(
-                              color: Colors.black.withValues(alpha: 0.35),
+                              color: AppColors.black.withValues(alpha: 0.35),
                               shape: BoxShape.circle,
                             ),
-                            child: Icon(
-                              isFavorite
-                                  ? Icons.favorite_rounded
-                                  : Icons.favorite_border_rounded,
+                            child: AppIcon(
+                              AppIcons.heart,
                               size: 13,
-                              color: isFavorite ? Colors.red[300] : Colors.white,
+                              color: isFavorite
+                                  ? AppColors.error
+                                  : AppColors.white,
                             ),
                           ),
                         ),
@@ -105,59 +122,44 @@ class EventCard extends StatelessWidget {
                 const SizedBox(width: AppSpacing.md),
                 // Content
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        event.title,
-                        style: theme.textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 3),
-                      Text(
-                        event.organizerName,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: AppColors.textSecondary,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      Text(
-                        event.location,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: AppColors.textSecondary,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: AppSpacing.xs),
-                      Row(
-                        children: [
-                          _Pill(
-                            background: isMutedPending
-                                ? AppColors.fieldBackground
-                                : AppColors.primaryLight,
-                            foreground: isMutedPending
-                                ? AppColors.grey
-                                : AppColors.primary,
-                            label: event.category,
+                  child: showCategory
+                      ? _EventCardText(
+                          event: event,
+                          theme: theme,
+                          minHeight: 72,
+                          footer: Row(
+                            children: [
+                              _Pill(
+                                background: isMutedPending
+                                    ? AppColors.fieldBackground
+                                    : AppColors.primaryLight,
+                                foreground: isMutedPending
+                                    ? AppColors.grey
+                                    : AppColors.primary,
+                                label: event.category,
+                              ),
+                              const Spacer(),
+                              if (timeUntil != null)
+                                _TimeUntilLabel(text: timeUntil, theme: theme),
+                            ],
                           ),
-                          const Spacer(),
-                          if (days != null)
-                            Text(
-                              '${days}d',
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: AppColors.textSecondary,
-                                fontWeight: FontWeight.w500,
+                        )
+                      : Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            Expanded(
+                              child: _EventCardText(
+                                event: event,
+                                theme: theme,
+                                minHeight: 76,
                               ),
                             ),
-                        ],
-                      ),
-                    ],
-                  ),
+                            if (timeUntil != null) ...[
+                              const SizedBox(width: AppSpacing.sm),
+                              _TimeUntilLabel(text: timeUntil, theme: theme),
+                            ],
+                          ],
+                        ),
                 ),
               ],
             ),
@@ -173,21 +175,13 @@ class EventCard extends StatelessWidget {
                   : event.statusColor.withValues(alpha: 0.12),
               child: Row(
                 children: [
-                  if (event.status != 'approved' &&
-                      event.status != 'rejected' &&
-                      event.status != 'pending') ...[
-                    Icon(
-                      Icons.info_outline_rounded,
-                      size: 14,
-                      color: isMutedPending ? AppColors.grey : event.statusColor,
-                    ),
-                    const SizedBox(width: AppSpacing.xs),
-                  ],
                   Expanded(
                     child: Text(
-                      event.statusLabel,
+                      statusLabelOverride ?? event.statusLabel,
                       style: AppTextStyles.bodySmall.copyWith(
-                        color: isMutedPending ? AppColors.grey : event.statusColor,
+                        color: isMutedPending
+                            ? AppColors.grey
+                            : event.statusColor,
                         fontWeight: FontWeight.w600,
                         fontSize: 12,
                       ),
@@ -197,6 +191,81 @@ class EventCard extends StatelessWidget {
               ),
             ),
         ],
+      ),
+    );
+  }
+}
+
+class _EventCardText extends StatelessWidget {
+  const _EventCardText({
+    required this.event,
+    required this.theme,
+    required this.minHeight,
+    this.footer,
+  });
+
+  final EventModel event;
+  final ThemeData theme;
+  final double minHeight;
+  final Widget? footer;
+
+  @override
+  Widget build(BuildContext context) {
+    return ConstrainedBox(
+      constraints: BoxConstraints(minHeight: minHeight),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.center,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            event.title,
+            style: theme.textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 3),
+          Text(
+            event.organizerName,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: AppColors.textSecondary,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          Text(
+            event.location,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: AppColors.textSecondary,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          if (footer != null) ...[
+            const SizedBox(height: AppSpacing.xs),
+            footer!,
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _TimeUntilLabel extends StatelessWidget {
+  const _TimeUntilLabel({required this.text, required this.theme});
+
+  final String text;
+  final ThemeData theme;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      text,
+      style: theme.textTheme.bodySmall?.copyWith(
+        color: AppColors.textSecondary,
+        fontWeight: FontWeight.w500,
       ),
     );
   }

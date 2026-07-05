@@ -8,6 +8,7 @@ class EventStatus(str, Enum):
     ARCHIVED = "archived"
     REJECTED = "rejected"
     NEEDS_CHANGES = "needs_changes"
+    RESUBMITTED = "resubmitted"
     CANCELLED = "cancelled"
 
 
@@ -34,4 +35,5 @@ class ModerationAction(str, Enum):
     REJECTED = "rejected"
     EDITED = "edited"
     NEEDS_CHANGES = "needs_changes"
+    RESUBMITTED = "resubmitted"
     CANCELLED = "cancelled"

@@ -99,7 +99,7 @@ abstract class AppColors {
   static const Color error = Color(0xFFFD3C4A);
   
   /// Warning / caution
-  static const Color warning = Color(0xFFFFE34F);
+  static const Color warning = Color(0xFFE8820C);
   
   /// Info / neutral information
   static const Color info = Color(0xFF0077FF);

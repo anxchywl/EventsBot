@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../core/api_client.dart';
 import '../../core/exceptions.dart';
 import '../../core/localization.dart';
+import '../../core/realtime_updates.dart';
 import '../../models/event_model.dart';
 import '../events/event_detail_screen.dart';
 
@@ -22,6 +23,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
   String? _error;
   List<EventModel> _events = [];
   Timer? _pollTimer;
+  StreamSubscription<RealtimeUpdate>? _updatesSub;
   DateTime _selectedDate = DateTime.now();
 
   @override
@@ -29,12 +31,20 @@ class _CalendarScreenState extends State<CalendarScreen> {
     super.initState();
     _load();
     _pollTimer = Timer.periodic(_pollInterval, (_) => _loadSilently());
+    _updatesSub = RealtimeUpdates.instance.stream.listen(_handleRealtimeUpdate);
   }
 
   @override
   void dispose() {
     _pollTimer?.cancel();
+    _updatesSub?.cancel();
     super.dispose();
+  }
+
+  void _handleRealtimeUpdate(RealtimeUpdate update) {
+    if (update.type == 'event_status_changed') {
+      unawaited(_loadSilently());
+    }
   }
 
   Future<void> _load() async {
@@ -179,4 +189,3 @@ class _CalendarScreenState extends State<CalendarScreen> {
     );
   }
 }
-

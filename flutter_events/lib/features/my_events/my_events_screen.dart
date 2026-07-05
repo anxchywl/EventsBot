@@ -5,17 +5,13 @@ import 'package:flutter/material.dart';
 
 import '../../core/api_client.dart';
 import '../../core/localization.dart';
+import '../../core/realtime_updates.dart';
 import '../../models/event_model.dart';
 import '../events/event_card.dart';
 import '../events/event_detail_screen.dart';
 
 /// Club Head request tracking: the full history of the user's own event
 /// requests with the coordinator's decision comment on each status change.
-///
-/// Realtime note: the backend currently exposes no WebSocket, so near-realtime
-/// updates are approximated by polling `GET /api/flutter/events/my` on an
-/// interval while the screen is visible, plus pull-to-refresh. If a WS endpoint
-/// is added later, swap [_pollInterval]/[_startPolling] for a socket subscription.
 class MyEventsScreen extends StatefulWidget {
   const MyEventsScreen({super.key});
 
@@ -30,18 +26,27 @@ class _MyEventsScreenState extends State<MyEventsScreen> {
   String? _error;
   List<EventModel> _events = [];
   Timer? _pollTimer;
+  StreamSubscription<RealtimeUpdate>? _updatesSub;
 
   @override
   void initState() {
     super.initState();
     _load();
     _startPolling();
+    _updatesSub = RealtimeUpdates.instance.stream.listen(_handleRealtimeUpdate);
   }
 
   @override
   void dispose() {
     _pollTimer?.cancel();
+    _updatesSub?.cancel();
     super.dispose();
+  }
+
+  void _handleRealtimeUpdate(RealtimeUpdate update) {
+    if (update.type == 'event_status_changed') {
+      unawaited(_refreshSilently());
+    }
   }
 
   void _startPolling() {
@@ -98,7 +103,7 @@ class _MyEventsScreenState extends State<MyEventsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppAppBar(title: AppLocalizations.get('myBookings')),
+      appBar: AppAppBar(title: AppLocalizations.get('myRequests')),
       body: _buildBody(),
     );
   }
@@ -144,10 +149,11 @@ class _MyEventsScreenState extends State<MyEventsScreen> {
         itemBuilder: (context, index) {
           final event = _events[index];
           return Padding(
-            padding: const EdgeInsets.only(bottom: AppSpacing.md),
+            padding: const EdgeInsets.only(bottom: AppSpacing.sm),
             child: EventCard(
               event: event,
               alwaysShowStatus: true,
+              showCategory: false,
               onTap: () => _openDetail(event),
             ),
           );

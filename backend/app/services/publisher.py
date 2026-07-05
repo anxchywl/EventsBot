@@ -181,7 +181,7 @@ def format_event_detail_text(event: Event) -> str:
 # build event detail actions for telegram users
 def get_event_detail_keyboard(
     event: Event, *, bot_username: str | None = None
-) -> InlineKeyboardMarkup:
+) -> InlineKeyboardMarkup | None:
     return build_event_page_keyboard(
         event,
         bot_username=bot_username,

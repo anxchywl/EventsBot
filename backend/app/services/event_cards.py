@@ -4,14 +4,11 @@ import html
 from datetime import datetime
 
 from aiogram.types import InlineKeyboardMarkup
-from aiogram.types import WebAppInfo
-from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from app.config import get_settings
 from app.models.event import Event, EventCategory
 from app.services.telegram_links import (
     build_event_deep_link,
-    build_miniapp_event_url,
     build_public_miniapp_event_url,
     build_telegram_miniapp_direct_link,
     build_telegram_text_share_link,
@@ -78,36 +75,9 @@ def build_event_page_keyboard(
     bot_username: str | None = None,
     use_web_app: bool = False,
     open_event_only: bool = False,
-) -> InlineKeyboardMarkup:
-    builder = InlineKeyboardBuilder()
-    token = event.public_token
-    settings = get_settings()
-    miniapp_url = build_miniapp_event_url(
-        miniapp_base_url=settings.miniapp_base_url,
-        public_token=token,
-    )
-    telegram_miniapp_url = build_telegram_miniapp_direct_link(
-        bot_username=bot_username,
-        miniapp_short_name=settings.telegram_miniapp_short_name,
-        public_token=token,
-    )
-
-    if miniapp_url and use_web_app:
-        builder.button(text="Open Event", web_app=WebAppInfo(url=miniapp_url))
-    elif telegram_miniapp_url and open_event_only:
-        builder.button(text="Open Event", url=telegram_miniapp_url)
-    elif miniapp_url:
-        builder.button(text="Open Event", url=miniapp_url)
-    elif not open_event_only:
-        builder.button(text="Notify me before the event", callback_data=f"er_{token}")
-        builder.button(text="Back to Events", callback_data="events_back")
-        builder.button(text="Share Event", callback_data=f"es_{token}")
-
-    if event.registration_url and not open_event_only:
-        builder.button(text="Open Link", url=event.registration_url)
-
-    builder.adjust(1)
-    return builder.as_markup()
+) -> InlineKeyboardMarkup | None:
+    # event actions moved to the flutter and mini apps
+    return None
 
 
 # prefer mini app links when they are configured
@@ -158,7 +128,6 @@ def render_dashboard_event_line(
         )
     )
     title = html.escape(event.title)
-    location = html.escape(event.location)
     title_html = (
         f'<a href="{html.escape(event_link, quote=True)}">{title}</a>'
         if event_link

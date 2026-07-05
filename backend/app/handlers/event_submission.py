@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from io import BytesIO
 from urllib.parse import urlparse
 import html
@@ -33,6 +33,13 @@ DATE_PROMPT = "Event date (DD MM YYYY)"
 TIME_PROMPT = "Start time (HH MM)"
 _DATE_RE = re.compile(r"^(\d{2}) (\d{2}) (\d{4})$")
 _TIME_RE = re.compile(r"^(\d{2}) (\d{2})$")
+
+
+def sanitize_text(text: str) -> str:
+    if not text:
+        return ""
+    cleaned = re.sub(r'[\x00-\x09\x0B-\x1F]+', '', text)
+    return cleaned.strip()
 
 
 class LimitedBytesIO(BytesIO):
@@ -385,6 +392,12 @@ async def process_menu_create(
 @router.message(F.text == "Create Event", F.chat.type == "private")
 @router.message(Command("submit_event"), F.chat.type == "private")
 async def cmd_submit_event(message: Message, state: FSMContext, session: AsyncSession):
+    # DISABLED (client refactor): event creation moved out of the bot. The
+    # "Create Event" keyboard button was removed; this guard blocks the flow from
+    # being triggered by manually typing the text or /submit_event. Remove this
+    # early return (and restore the keyboard button in start.py) to re-enable.
+    return
+
     if not await check_bot_rate_limit(message.from_user.id, "event_submit", 5, 3600):
         await message.answer(
             "You've reached the event submission limit. Try again later."
@@ -423,8 +436,14 @@ async def process_title(
         await cancel_submission_message(message, state, session)
         return
 
+    text = sanitize_text(message.text)
+    if not text:
+        msg = await message.answer("Please provide a valid title.")
+        await track_messages(state, message.message_id, msg.message_id, is_temp=True)
+        return
+
     # keep titles short for dashboard buttons
-    if len(message.text) > 100:
+    if len(text) > 100:
         msg = await message.answer(
             "Title is too long. Please keep it under 100 characters."
         )
@@ -432,13 +451,13 @@ async def process_title(
         return
 
     await finalize_previous_step(
-        state, bot, message.chat.id, f"📝 **Title:** {message.text}"
+        state, bot, message.chat.id, f"📝 **Title:** {text}"
     )
     await record_nav_answer(state, message.message_id)
 
     # store the title and ask for description
     await state.update_data(
-        title=message.text, last_step_user_message_id=message.message_id
+        title=text, last_step_user_message_id=message.message_id
     )
     await track_messages(state, message.message_id)
     await send_submission_prompt(message, state, "description")
@@ -457,8 +476,14 @@ async def process_description(
         await go_back_one_step(message, state, bot, session)
         return
 
+    text = sanitize_text(message.text)
+    if not text:
+        msg = await message.answer("Please provide a valid description.")
+        await track_messages(state, message.message_id, msg.message_id, is_temp=True)
+        return
+
     # keep descriptions within telegram message limits
-    if len(message.text) > 1000:
+    if len(text) > 1000:
         msg = await message.answer(
             "Description is too long. Please keep it under 1000 characters."
         )
@@ -472,7 +497,7 @@ async def process_description(
 
     # store the description and ask for date
     await state.update_data(
-        description=message.text, last_step_user_message_id=message.message_id
+        description=text, last_step_user_message_id=message.message_id
     )
     await track_messages(state, message.message_id)
     await send_submission_prompt(message, state, "date")
@@ -594,8 +619,14 @@ async def process_location(
         await go_back_one_step(message, state, bot, session)
         return
 
+    text = sanitize_text(message.text)
+    if not text:
+        msg = await message.answer("Please provide a valid location.")
+        await track_messages(state, message.message_id, msg.message_id, is_temp=True)
+        return
+
     # keep locations short for previews and dashboards
-    if len(message.text) > 100:
+    if len(text) > 100:
         msg = await message.answer(
             "Location is too long. Please keep it under 100 characters."
         )
@@ -603,12 +634,12 @@ async def process_location(
         return
 
     await finalize_previous_step(
-        state, bot, message.chat.id, f"📍 **Location:** {message.text}"
+        state, bot, message.chat.id, f"📍 **Location:** {text}"
     )
     await record_nav_answer(state, message.message_id)
     # store location and show categories
     await state.update_data(
-        location=message.text, last_step_user_message_id=message.message_id
+        location=text, last_step_user_message_id=message.message_id
     )
     await track_messages(state, message.message_id)
     await send_submission_prompt(message, state, "category", session)
@@ -664,7 +695,13 @@ async def process_organizer(
         await go_back_one_step(message, state, bot, session)
         return
 
-    if len(message.text) > 100:
+    text = sanitize_text(message.text)
+    if not text:
+        msg = await message.answer("Please provide a valid organizer name.")
+        await track_messages(state, message.message_id, msg.message_id, is_temp=True)
+        return
+
+    if len(text) > 100:
         msg = await message.answer(
             "Organizer name is too long. Please keep it under 100 characters."
         )
@@ -672,12 +709,12 @@ async def process_organizer(
         return
 
     await finalize_previous_step(
-        state, bot, message.chat.id, f"🏢 **Organizer:** {message.text}"
+        state, bot, message.chat.id, f"🏢 **Organizer:** {text}"
     )
     await record_nav_answer(state, message.message_id)
 
     await state.update_data(
-        organizer=message.text, last_step_user_message_id=message.message_id
+        organizer=text, last_step_user_message_id=message.message_id
     )
     await track_messages(state, message.message_id)
     await prompt_poster(message, state, bot)
@@ -1082,6 +1119,12 @@ async def confirm_submission(
 ):
     data = await state.get_data()
     user = await upsert_user_from_telegram(session, message.from_user)
+
+    # automatically compute a default end time (+1 hour)
+    if "event_time" in data:
+        event_time = data["event_time"]
+        dummy_dt = datetime.combine(datetime.today(), event_time)
+        data["event_end_time"] = (dummy_dt + timedelta(hours=1)).time()
 
     # save the event and show the user confirmation
     event = await create_pending_event(session, user, data)

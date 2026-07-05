@@ -146,11 +146,34 @@ def normalize_public_token(public_token: str) -> str:
     return token
 
 
-# load pending events for moderation queues
-async def get_pending_events(session: AsyncSession) -> Sequence[Event]:
+# queue statuses still awaiting a moderator decision, ordered by how
+# urgently they need attention: resubmitted (creator already acted and is
+# waiting) first, then needs_changes, then untouched pending submissions.
+_QUEUE_STATUS_ORDER = {
+    EventStatus.RESUBMITTED.value: 0,
+    EventStatus.NEEDS_CHANGES.value: 1,
+    EventStatus.PENDING.value: 2,
+}
+
+
+# load events still in the moderation queue (pending / needs changes / resubmitted).
+# `include_rejected` is an opt-in used by the Flutter "rejected" filter chip so
+# admins can surface already-rejected events without disturbing the default
+# queue ordering or contents.
+async def get_pending_events(
+    session: AsyncSession, include_rejected: bool = False
+) -> Sequence[Event]:
+    statuses = [
+        EventStatus.PENDING.value,
+        EventStatus.NEEDS_CHANGES.value,
+        EventStatus.RESUBMITTED.value,
+    ]
+    if include_rejected:
+        statuses.append(EventStatus.REJECTED.value)
+
     result = await session.execute(
         select(Event)
-        .where(Event.status == EventStatus.PENDING.value)
+        .where(Event.status.in_(statuses))
         .order_by(Event.created_at, Event.id)
         .options(selectinload(Event.category), selectinload(Event.creator))
     )
@@ -168,7 +191,11 @@ async def get_pending_events(session: AsyncSession) -> Sequence[Event]:
 
     return sorted(
         latest_by_source.values(),
-        key=lambda event: (event.created_at, event.id),
+        key=lambda event: (
+            _QUEUE_STATUS_ORDER.get(event.status, len(_QUEUE_STATUS_ORDER)),
+            event.created_at,
+            event.id,
+        ),
     )
 
 
@@ -251,6 +278,7 @@ async def update_event_status(
         EventStatus.ARCHIVED: ModerationAction.ARCHIVED,
         EventStatus.REJECTED: ModerationAction.REJECTED,
         EventStatus.NEEDS_CHANGES: ModerationAction.NEEDS_CHANGES,
+        EventStatus.RESUBMITTED: ModerationAction.RESUBMITTED,
         EventStatus.CANCELLED: ModerationAction.CANCELLED,
     }
 

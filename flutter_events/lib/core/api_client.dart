@@ -153,9 +153,12 @@ Future<List<EventModel>> fetchMyEvents() async {
   return _decodeEventList(response.body);
 }
 
-Future<List<EventModel>> fetchPendingEvents() async {
+Future<List<EventModel>> fetchPendingEvents({bool includeRejected = false}) async {
   final response = await _get(
-    _uri('/api/flutter/events/pending'),
+    _uri(
+      '/api/flutter/events/pending',
+      includeRejected ? {'include_rejected': 'true'} : null,
+    ),
     headers: _headers(auth: true),
   );
   if (!_isOk(response.statusCode)) _throwFor(response);
@@ -188,6 +191,17 @@ Future<EventModel> submitEvent(Map<String, dynamic> body) async {
     _uri('/api/flutter/events'),
     headers: _headers(auth: true),
     body: jsonEncode(body),
+  );
+  if (!_isOk(response.statusCode)) _throwFor(response);
+  return EventModel.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+}
+
+Future<EventModel> resubmitEvent(int id, Map<String, dynamic> fields) async {
+  // POST /api/flutter/events/{id}/resubmit
+  final response = await _post(
+    _uri('/api/flutter/events/$id/resubmit'),
+    headers: _headers(auth: true),
+    body: jsonEncode(fields),
   );
   if (!_isOk(response.statusCode)) _throwFor(response);
   return EventModel.fromJson(jsonDecode(response.body) as Map<String, dynamic>);

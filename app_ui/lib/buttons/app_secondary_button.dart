@@ -14,7 +14,7 @@ import 'app_primary_button.dart';
 ///   onPressed: () => Navigator.pop(context),
 /// )
 /// ```
-class AppSecondaryButton extends StatelessWidget {
+class AppSecondaryButton extends StatefulWidget {
   const AppSecondaryButton({
     super.key,
     required this.text,
@@ -62,43 +62,62 @@ class AppSecondaryButton extends StatelessWidget {
   double get _height => height ?? size.height;
 
   @override
+  State<AppSecondaryButton> createState() => _AppSecondaryButtonState();
+}
+
+class _AppSecondaryButtonState extends State<AppSecondaryButton> {
+  bool _isPressed = false;
+
+  @override
   Widget build(BuildContext context) {
-    final effectiveOnPressed = isEnabled && !isLoading ? onPressed : null;
+    final effectiveOnPressed = widget.isEnabled && !widget.isLoading ? widget.onPressed : null;
     final theme = Theme.of(context);
     final isLight = theme.brightness == Brightness.light;
     
-    final effectiveBorderColor = borderColor ?? AppColors.primary;
-    final effectiveTextColor = textColor ?? AppColors.primary;
+    final effectiveBorderColor = widget.borderColor ?? AppColors.primary;
+    final effectiveTextColor = widget.textColor ?? AppColors.primary;
     final disabledColor = isLight 
         ? AppColors.grey.withValues(alpha: 0.5)
         : AppColors.white.withValues(alpha: 0.3);
 
-    return SizedBox(
-      width: width ?? double.infinity,
-      height: _height,
-      child: OutlinedButton(
-        onPressed: effectiveOnPressed,
-        style: OutlinedButton.styleFrom(
-          foregroundColor: effectiveTextColor,
-          disabledForegroundColor: disabledColor,
-          side: BorderSide(
-            color: effectiveOnPressed != null 
-                ? effectiveBorderColor 
-                : disabledColor,
-            width: 1.5,
+    return Listener(
+      onPointerDown: (_) {
+        if (effectiveOnPressed != null) setState(() => _isPressed = true);
+      },
+      onPointerUp: (_) => setState(() => _isPressed = false),
+      onPointerCancel: (_) => setState(() => _isPressed = false),
+      child: AnimatedScale(
+        scale: _isPressed ? 0.97 : 1.0,
+        duration: const Duration(milliseconds: 150),
+        curve: Curves.easeInOutCubic,
+        child: SizedBox(
+          width: widget.width ?? double.infinity,
+          height: widget._height,
+          child: OutlinedButton(
+            onPressed: effectiveOnPressed,
+            style: OutlinedButton.styleFrom(
+              foregroundColor: effectiveTextColor,
+              disabledForegroundColor: disabledColor,
+              side: BorderSide(
+                color: effectiveOnPressed != null 
+                    ? effectiveBorderColor 
+                    : disabledColor,
+                width: 1.5,
+              ),
+              shape: RoundedRectangleBorder(
+                borderRadius: AppSpacing.borderRadiusMd,
+              ),
+              padding: widget.size.padding,
+            ),
+            child: _buildChild(effectiveTextColor, disabledColor),
           ),
-          shape: RoundedRectangleBorder(
-            borderRadius: AppSpacing.borderRadiusMd,
-          ),
-          padding: size.padding,
         ),
-        child: _buildChild(effectiveTextColor, disabledColor),
       ),
     );
   }
 
   Widget _buildChild(Color textColor, Color disabledColor) {
-    if (isLoading) {
+    if (widget.isLoading) {
       return SizedBox(
         width: AppSpacing.iconDf,
         height: AppSpacing.iconDf,
@@ -113,14 +132,14 @@ class AppSecondaryButton extends StatelessWidget {
       mainAxisAlignment: MainAxisAlignment.center,
       mainAxisSize: MainAxisSize.min,
       children: [
-        if (icon != null) ...[
-          icon!,
+        if (widget.icon != null) ...[
+          widget.icon!,
           AppSpacing.horizontalSm,
         ],
         Flexible(
           child: Text(
-            text,
-            style: (size == AppButtonSize.small
+            widget.text,
+            style: (widget.size == AppButtonSize.small
                 ? AppTextStyles.buttonSmall
                 : AppTextStyles.button),
             overflow: TextOverflow.ellipsis,

@@ -1,9 +1,12 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, time
 from typing import Literal
+from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, Field, model_validator
+
+from app.config import get_settings
 
 
 class AuthRequest(BaseModel):
@@ -154,9 +157,11 @@ class ActionResponse(BaseModel):
     url: str | None = Field(default=None, max_length=2048)
 
 
-# auth & profile request schemas
+_EMAIL_PATTERN = r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$"
+
+
 class UserRegisterRequest(BaseModel):
-    email: str = Field(min_length=3, max_length=255)
+    email: str = Field(min_length=3, max_length=255, pattern=_EMAIL_PATTERN)
     password: str = Field(min_length=1, max_length=128)
 
 
@@ -290,7 +295,7 @@ _TIME_PATTERN = r"^([01]\d|2[0-3]):[0-5]\d$"
 
 
 class FlutterRegisterRequest(BaseModel):
-    email: str = Field(min_length=3, max_length=255)
+    email: str = Field(min_length=3, max_length=255, pattern=_EMAIL_PATTERN)
     password: str = Field(min_length=8, max_length=128)
     first_name: str = Field(min_length=1, max_length=64)
 
@@ -335,22 +340,112 @@ class FlutterEventItem(BaseModel):
 
 class FlutterEventCreate(BaseModel):
     title: str = Field(min_length=1, max_length=255)
-    description: str = Field(min_length=1)
+    description: str = Field(min_length=1, max_length=1000)
     event_date: date
     event_time: str = Field(pattern=_TIME_PATTERN)
     event_end_time: str = Field(pattern=_TIME_PATTERN)
     location: str = Field(min_length=1, max_length=255)
     category_id: int
     organizer_name: str = Field(min_length=1, max_length=255)
-    it_equipment: str | None = None
-    materials: str | None = None
+    it_equipment: str | None = Field(default=None, max_length=500)
+    materials: str | None = Field(default=None, max_length=500)
     registration_url: str | None = Field(default=None, max_length=1024)
+
+    @model_validator(mode="after")
+    def validate_dates_and_times(self) -> FlutterEventCreate:
+        settings = get_settings()
+        tz = ZoneInfo(settings.app_timezone)
+        now = datetime.now(tz)
+        today = now.date()
+
+        if self.event_date < today:
+            raise ValueError("Event date cannot be in the past.")
+
+        try:
+            start_t = datetime.strptime(self.event_time, "%H:%M").time()
+            end_t = datetime.strptime(self.event_end_time, "%H:%M").time()
+        except ValueError:
+            raise ValueError("Invalid time format. Use HH:MM.")
+
+        if self.event_date == today and start_t < now.time():
+            raise ValueError("Event start time has already passed today.")
+
+        if end_t <= start_t:
+            raise ValueError("End time must be strictly later than start time.")
+
+        return self
 
 
 class FlutterEventPatch(BaseModel):
+    event_time: str | None = Field(default=None, pattern=_TIME_PATTERN)
     event_end_time: str | None = Field(default=None, pattern=_TIME_PATTERN)
+
+    @model_validator(mode="after")
+    def validate_patch_times(self) -> FlutterEventPatch:
+        if self.event_time and self.event_end_time:
+            try:
+                start_t = datetime.strptime(self.event_time, "%H:%M").time()
+                end_t = datetime.strptime(self.event_end_time, "%H:%M").time()
+                if end_t <= start_t:
+                    raise ValueError("End time must be strictly later than start time.")
+            except ValueError:
+                pass # Pattern handles formatting
+        return self
 
 
 class FlutterEventStatusUpdate(BaseModel):
-    status: Literal["approved", "rejected", "needs_changes", "cancelled"]
+    status: Literal[
+        "approved", "rejected", "needs_changes", "resubmitted", "cancelled"
+    ]
     comment: str | None = Field(default=None, max_length=500)
+
+
+class FlutterEventResubmit(BaseModel):
+    """Optional updated fields applied to an existing event on resubmission.
+
+    Every field is optional: a creator may resubmit unchanged, or supply an
+    updated payload (same shape as FlutterEventCreate). `note` is the creator's
+    optional message stored on the moderation log.
+    """
+
+    title: str | None = Field(default=None, min_length=1, max_length=255)
+    description: str | None = Field(default=None, min_length=1, max_length=1000)
+    event_date: date | None = None
+    event_time: str | None = Field(default=None, pattern=_TIME_PATTERN)
+    event_end_time: str | None = Field(default=None, pattern=_TIME_PATTERN)
+    location: str | None = Field(default=None, min_length=1, max_length=255)
+    category_id: int | None = None
+    organizer_name: str | None = Field(default=None, min_length=1, max_length=255)
+    it_equipment: str | None = Field(default=None, max_length=500)
+    materials: str | None = Field(default=None, max_length=500)
+    registration_url: str | None = Field(default=None, max_length=1024)
+    note: str | None = Field(default=None, max_length=500)
+
+    @model_validator(mode="after")
+    def validate_dates_and_times(self) -> FlutterEventResubmit:
+        settings = get_settings()
+        tz = ZoneInfo(settings.app_timezone)
+        now = datetime.now(tz)
+        today = now.date()
+
+        if self.event_date is not None and self.event_date < today:
+            raise ValueError("Event date cannot be in the past.")
+
+        start_t = end_t = None
+        if self.event_time is not None:
+            start_t = datetime.strptime(self.event_time, "%H:%M").time()
+        if self.event_end_time is not None:
+            end_t = datetime.strptime(self.event_end_time, "%H:%M").time()
+
+        if (
+            self.event_date is not None
+            and self.event_date == today
+            and start_t is not None
+            and start_t < now.time()
+        ):
+            raise ValueError("Event start time has already passed today.")
+
+        if start_t is not None and end_t is not None and end_t <= start_t:
+            raise ValueError("End time must be strictly later than start time.")
+
+        return self

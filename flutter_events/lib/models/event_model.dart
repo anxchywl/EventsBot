@@ -67,6 +67,10 @@ class EventModel {
 
   bool get isPending => status == 'pending';
 
+  bool get isNeedsChanges => status == 'needs_changes';
+
+  bool get isResubmitted => status == 'resubmitted';
+
   String get statusLabel {
     switch (status) {
       case 'approved':
@@ -75,6 +79,8 @@ class EventModel {
         return AppLocalizations.get('pendingLabel');
       case 'needs_changes':
         return AppLocalizations.get('needsChangesLabel');
+      case 'resubmitted':
+        return AppLocalizations.get('resubmitted');
       case 'rejected':
         return AppLocalizations.get('rejectedLabel');
       case 'cancelled':
@@ -100,6 +106,8 @@ class EventModel {
         return AppColors.grey;
       case 'needs_changes':
         return AppColors.warning;
+      case 'resubmitted':
+        return AppColors.primary;
       case 'rejected':
         return AppColors.error;
       case 'cancelled':

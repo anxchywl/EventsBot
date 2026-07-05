@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:app_ui/app_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -5,7 +7,9 @@ import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/api_client.dart';
+import '../../core/auth_store.dart';
 import '../../core/localization.dart';
+import '../../core/realtime_updates.dart';
 import '../../models/category_model.dart';
 import '../../models/event_model.dart';
 import '../submit/submit_screen.dart';
@@ -78,6 +82,7 @@ class _EventsScreenState extends State<EventsScreen> {
 
   List<EventModel> _events = [];
   List<CategoryModel> _categories = [];
+  StreamSubscription<RealtimeUpdate>? _updatesSub;
 
   // Derived option lists from loaded events
   List<String> _organizerOptions = [];
@@ -108,6 +113,7 @@ class _EventsScreenState extends State<EventsScreen> {
     } else {
       _load();
     }
+    _updatesSub = RealtimeUpdates.instance.stream.listen(_handleRealtimeUpdate);
   }
 
   Future<void> _loadFavorites() async {
@@ -136,8 +142,15 @@ class _EventsScreenState extends State<EventsScreen> {
 
   @override
   void dispose() {
+    _updatesSub?.cancel();
     _searchController.dispose();
     super.dispose();
+  }
+
+  void _handleRealtimeUpdate(RealtimeUpdate update) {
+    if (update.type == 'event_status_changed') {
+      unawaited(_load(silent: true));
+    }
   }
 
   Future<void> _load({bool silent = false}) async {
@@ -436,7 +449,8 @@ class _EventsScreenState extends State<EventsScreen> {
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
       useSafeArea: false,
-      builder: (context) => SubmitScreen(initialDate: initialDate, asSheet: true),
+      builder: (context) =>
+          SubmitScreen(initialDate: initialDate, asSheet: true),
     );
     if (submitted == true) {
       await _load(silent: true);
@@ -465,7 +479,9 @@ class _EventsScreenState extends State<EventsScreen> {
           subtitle: event.title,
           date: date,
           time: _parseTime(event.eventTime),
-          endTime: event.eventEndTime != null ? _parseTime(event.eventEndTime!) : null,
+          endTime: event.eventEndTime != null
+              ? _parseTime(event.eventEndTime!)
+              : null,
           color: event.isPending ? AppColors.grey : AppColors.error,
           metadata: event,
         ),
@@ -496,20 +512,15 @@ class _EventsScreenState extends State<EventsScreen> {
                 child: ScaleTransition(scale: animation, child: child),
               );
             },
-            child: Icon(
-              _calendarMode
-                  ? Icons.view_agenda_outlined
-                  : Icons.calendar_month_outlined,
+            child: AppIcon(
+              _calendarMode ? AppIcons.assignment : AppIcons.calendarMonth,
               key: ValueKey(_calendarMode),
             ),
           ),
           onPressed: _toggleCalendarMode,
         ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.add_outlined),
-            onPressed: _openSubmit,
-          ),
+          IconButton(icon: const AppIcon(AppIcons.add), onPressed: _openSubmit),
         ],
       ),
       body: _buildBody(),
@@ -535,15 +546,9 @@ class _EventsScreenState extends State<EventsScreen> {
     }
 
     return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 520),
-      switchInCurve: Curves.easeOutCubic,
-      switchOutCurve: Curves.easeInCubic,
-      transitionBuilder: (child, animation) {
-        return _WaveModeTransition(
-          animation: animation,
-          child: FadeTransition(opacity: animation, child: child),
-        );
-      },
+      duration: const Duration(milliseconds: 260),
+      switchInCurve: Curves.easeOut,
+      switchOutCurve: Curves.easeIn,
       child: _calendarMode
           ? _CalendarModeView(
               key: const ValueKey('calendar'),
@@ -753,6 +758,11 @@ class _EventsListModeView extends StatelessWidget {
                           child: EventCard(
                             event: event,
                             mutedPending: event.isPending,
+                            showCategory: false,
+                            statusLabelOverride:
+                                !AuthStore.isAdmin && event.isNeedsChanges
+                                ? AppLocalizations.get('pendingLabel')
+                                : null,
                             isFavorite:
                                 browseUiEnabled &&
                                 favoriteIds.contains(event.id),
@@ -812,40 +822,6 @@ class _CalendarModeView extends StatelessWidget {
   }
 }
 
-class _WaveModeTransition extends StatelessWidget {
-  const _WaveModeTransition({required this.animation, required this.child});
-
-  final Animation<double> animation;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: animation,
-      builder: (context, _) {
-        return ClipPath(clipper: _WaveClipper(animation.value), child: child);
-      },
-    );
-  }
-}
-
-class _WaveClipper extends CustomClipper<Path> {
-  const _WaveClipper(this.progress);
-
-  final double progress;
-
-  @override
-  Path getClip(Size size) {
-    final eased = Curves.easeOutCubic.transform(progress.clamp(0, 1));
-    final origin = Offset(size.width - 48, 0);
-    final radius = size.longestSide * 1.35 * eased;
-    return Path()..addOval(Rect.fromCircle(center: origin, radius: radius));
-  }
-
-  @override
-  bool shouldReclip(_WaveClipper oldClipper) => oldClipper.progress != progress;
-}
-
 class _DateHeader extends StatelessWidget {
   const _DateHeader({required this.label, this.first = false});
   final String label;
@@ -895,7 +871,7 @@ class _SortButton extends StatelessWidget {
                   width: 1,
                 ),
         ),
-        child: Icon(Icons.swap_vert_rounded, size: 18, color: color),
+        child: AppIcon(AppIcons.transfer, size: 18, color: color),
       ),
     );
   }
@@ -944,7 +920,7 @@ class _FilterChip extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 4),
-            Icon(Icons.keyboard_arrow_down_rounded, size: 16, color: color),
+            AppIcon(AppIcons.chevronDown, size: 16, color: color),
           ],
         ),
       ),
@@ -984,11 +960,7 @@ class _FavoritesChip extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              active ? Icons.favorite_rounded : Icons.favorite_border_rounded,
-              size: 15,
-              color: color,
-            ),
+            AppIcon(AppIcons.heart, size: 15, color: color),
             const SizedBox(width: 4),
             Text(
               'Favorites',
@@ -1128,7 +1100,7 @@ class _SortOptionState extends State<_SortOption> {
               ),
             ),
             if (widget.selected)
-              Icon(Icons.check_rounded, size: 18, color: AppColors.primary),
+              AppIcon(AppIcons.check, size: 18, color: AppColors.primary),
           ],
         ),
       ),
@@ -1166,7 +1138,9 @@ class _MultiSelectSheetState extends State<_MultiSelectSheet> {
   void initState() {
     super.initState();
     _selected = Set.from(widget.selected);
-    _focusNode.addListener(() => setState(() => _focused = _focusNode.hasFocus));
+    _focusNode.addListener(
+      () => setState(() => _focused = _focusNode.hasFocus),
+    );
   }
 
   @override
@@ -1277,16 +1251,17 @@ class _MultiSelectSheetState extends State<_MultiSelectSheet> {
                                 setState(() => _query = v.trim().toLowerCase()),
                             decoration: InputDecoration(
                               hintText: 'Search',
-                              prefixIcon: Icon(
-                                Icons.search,
+                              prefixIcon: AppIcon(
+                                AppIcons.search,
                                 size: 18,
                                 color: _focused
                                     ? AppColors.primary
                                     : AppColors.grey,
                               ),
                               border: InputBorder.none,
-                              contentPadding:
-                                  const EdgeInsets.symmetric(vertical: 10),
+                              contentPadding: const EdgeInsets.symmetric(
+                                vertical: 10,
+                              ),
                             ),
                             style: const TextStyle(fontSize: 15),
                           ),
@@ -1336,8 +1311,10 @@ class _MultiSelectSheetState extends State<_MultiSelectSheet> {
                           child: Center(
                             child: Text(
                               'Nothing found',
-                              style:
-                                  TextStyle(color: AppColors.grey, fontSize: 14),
+                              style: TextStyle(
+                                color: AppColors.grey,
+                                fontSize: 14,
+                              ),
                             ),
                           ),
                         ),

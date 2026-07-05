@@ -5,8 +5,8 @@ import 'package:flutter/material.dart';
 
 import '../../core/api_client.dart';
 import '../../core/localization.dart';
+import '../../core/realtime_updates.dart';
 import '../../models/event_model.dart';
-import '../events/event_detail_screen.dart';
 
 /// Event Manager analytics from the Flutter event endpoints.
 class EventManagerScreen extends StatefulWidget {
@@ -24,18 +24,27 @@ class _EventManagerScreenState extends State<EventManagerScreen> {
   List<EventModel> _approved = [];
   List<EventModel> _pending = [];
   Timer? _pollTimer;
+  StreamSubscription<RealtimeUpdate>? _updatesSub;
 
   @override
   void initState() {
     super.initState();
     _load();
     _pollTimer = Timer.periodic(_pollInterval, (_) => _refreshSilently());
+    _updatesSub = RealtimeUpdates.instance.stream.listen(_handleRealtimeUpdate);
   }
 
   @override
   void dispose() {
     _pollTimer?.cancel();
+    _updatesSub?.cancel();
     super.dispose();
+  }
+
+  void _handleRealtimeUpdate(RealtimeUpdate update) {
+    if (update.type == 'event_status_changed') {
+      unawaited(_refreshSilently());
+    }
   }
 
   Future<void> _load() async {
@@ -80,17 +89,6 @@ class _EventManagerScreenState extends State<EventManagerScreen> {
 
   // ── Derived analytics ──────────────────────────────────────────────────────
 
-  /// Groups of events that collide on the same date + location (case-insensitive),
-  /// across approved and pending. Each returned group has 2+ events.
-  List<List<EventModel>> get _conflicts {
-    final bySlot = <String, List<EventModel>>{};
-    for (final e in [..._approved, ..._pending]) {
-      final key = '${e.eventDate}|${e.location.trim().toLowerCase()}';
-      bySlot.putIfAbsent(key, () => []).add(e);
-    }
-    return bySlot.values.where((g) => g.length > 1).toList();
-  }
-
   Map<String, int> _countBy(String Function(EventModel) key) {
     final map = <String, int>{};
     for (final e in [..._approved, ..._pending]) {
@@ -132,7 +130,6 @@ class _EventManagerScreenState extends State<EventManagerScreen> {
       );
     }
 
-    final conflicts = _conflicts;
     final byClub = _countBy((e) => e.organizerName);
     final byCategory = _countBy((e) => e.category);
     final total = _totalVisible;
@@ -142,11 +139,7 @@ class _EventManagerScreenState extends State<EventManagerScreen> {
       child: ListView(
         padding: AppSpacing.screenPadding,
         children: [
-          _OverviewPanel(
-            approved: _approved.length,
-            pending: _pending.length,
-            conflicts: conflicts.length,
-          ),
+          _OverviewPanel(approved: _approved.length, pending: _pending.length),
           const SizedBox(height: AppSpacing.lg),
           _DistributionPanel(
             title: AppLocalizations.get('categories'),
@@ -161,119 +154,17 @@ class _EventManagerScreenState extends State<EventManagerScreen> {
             counts: byClub,
             total: total,
           ),
-          const SizedBox(height: AppSpacing.lg),
-          Text(AppLocalizations.get('slotConflicts'), style: AppTextStyles.sectionHeader),
-          const SizedBox(height: AppSpacing.xs),
-          Text(
-            AppLocalizations.get('slotConflictsSub'),
-            style: Theme.of(
-              context,
-            ).textTheme.bodySmall?.copyWith(color: AppColors.grey),
-          ),
-          const SizedBox(height: AppSpacing.sm),
-          if (conflicts.isEmpty)
-            _EmptyInsight(
-              icon: Icons.check_circle_outline_rounded,
-              text: AppLocalizations.get('noConflicts'),
-            )
-          else
-            for (final group in conflicts) _conflictCard(group),
         ],
       ),
     );
-  }
-
-  Widget _conflictCard(List<EventModel> group) {
-    final theme = Theme.of(context);
-    final first = group.first;
-    return Container(
-      margin: const EdgeInsets.only(bottom: AppSpacing.sm),
-      padding: const EdgeInsets.all(AppSpacing.md),
-      decoration: BoxDecoration(
-        color: AppColors.error.withValues(alpha: 0.08),
-        borderRadius: AppSpacing.borderRadiusMd,
-        border: Border.all(color: AppColors.error.withValues(alpha: 0.4)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Icon(
-                Icons.warning_amber_rounded,
-                size: AppSpacing.iconSm,
-                color: AppColors.error,
-              ),
-              const SizedBox(width: AppSpacing.xs),
-              Expanded(
-                child: Text(
-                  '${first.eventDate} · ${first.location}',
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.xs),
-          for (final e in group)
-            InkWell(
-              onTap: () => _openDetail(e),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 6,
-                      height: 6,
-                      margin: const EdgeInsets.only(right: AppSpacing.sm),
-                      decoration: BoxDecoration(
-                        color: e.statusColor,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                    Expanded(
-                      child: Text(
-                        '${e.title} — ${e.organizerName}',
-                        style: theme.textTheme.bodySmall,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    Text(
-                      e.eventTime,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: AppColors.grey,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _openDetail(EventModel event) async {
-    await Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => EventDetailScreen(event: event)),
-    );
-    await _load();
   }
 }
 
 class _OverviewPanel extends StatelessWidget {
-  const _OverviewPanel({
-    required this.approved,
-    required this.pending,
-    required this.conflicts,
-  });
+  const _OverviewPanel({required this.approved, required this.pending});
 
   final int approved;
   final int pending;
-  final int conflicts;
 
   @override
   Widget build(BuildContext context) {
@@ -288,7 +179,10 @@ class _OverviewPanel extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(AppLocalizations.get('summary'), style: AppTextStyles.sectionHeader),
+          Text(
+            AppLocalizations.get('summary'),
+            style: AppTextStyles.sectionHeader,
+          ),
           const SizedBox(height: AppSpacing.md),
           Row(
             children: [
@@ -325,12 +219,6 @@ class _OverviewPanel extends StatelessWidget {
                       label: AppLocalizations.get('pending'),
                       value: pending,
                       color: AppColors.orange,
-                    ),
-                    const SizedBox(height: AppSpacing.sm),
-                    _MetricRow(
-                      label: AppLocalizations.get('slotConflicts'),
-                      value: conflicts,
-                      color: conflicts == 0 ? AppColors.grey : AppColors.error,
                     ),
                   ],
                 ),

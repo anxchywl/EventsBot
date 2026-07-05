@@ -459,12 +459,34 @@ async def process_changes_reason(
         f"📝 Event #{event_id} marked as 'Needs Changes' with reason: {reason}"
     )
 
-    # notify creator
+    # notify creator, with a deep link back into the flutter app to edit
     try:
+        from app.services.telegram_links import (
+            build_event_deep_link,
+            build_telegram_miniapp_direct_link,
+        )
+
+        bot_user = await message.bot.get_me()
+        edit_link = build_telegram_miniapp_direct_link(
+            bot_username=bot_user.username,
+            miniapp_short_name=settings.telegram_miniapp_short_name,
+            public_token=event.public_token,
+        ) or build_event_deep_link(
+            bot_username=bot_user.username,
+            public_token=event.public_token,
+        )
+
+        reply_markup = None
+        if edit_link:
+            builder = InlineKeyboardBuilder()
+            builder.button(text="Edit event", url=edit_link)
+            reply_markup = builder.as_markup()
+
         await message.bot.send_message(
             event.creator.telegram_id,
             f"📝 <b>Your event '{html.escape(event.title)}' requires changes.</b>\n\n<b>Admin's note:</b> {html.escape(reason)}",
             parse_mode="HTML",
+            reply_markup=reply_markup,
         )
     except Exception:
         pass

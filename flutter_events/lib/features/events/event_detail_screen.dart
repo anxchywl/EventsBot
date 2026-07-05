@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:app_ui/app_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -6,7 +8,9 @@ import '../../core/api_client.dart';
 import '../../core/auth_store.dart';
 import '../../core/exceptions.dart';
 import '../../core/localization.dart';
+import '../../core/realtime_updates.dart';
 import '../../models/event_model.dart';
+import '../submit/submit_screen.dart';
 
 class EventDetailScreen extends StatefulWidget {
   const EventDetailScreen({
@@ -25,10 +29,52 @@ class EventDetailScreen extends StatefulWidget {
 class _EventDetailScreenState extends State<EventDetailScreen> {
   late EventModel _event = widget.event;
   bool _moderating = false;
+  StreamSubscription<RealtimeUpdate>? _updatesSub;
 
+  // Only coordinators (admins) moderate. The backend
+  // (PATCH /api/flutter/events/{id}/status via require_flutter_admin) is the
+  // authority; this gate just keeps the moderation bar out of an event
+  // submitter's view of their own request.
+  //
+  // Admins retain full control from every reviewable state, including after an
+  // event is approved or rejected — the available buttons adapt to the current
+  // status (see [_moderationSection]).
   bool get _canModerate =>
       AuthStore.isAdmin &&
-      (_event.status == 'pending' || _event.status == 'needs_changes');
+      (_event.status == 'pending' ||
+          _event.status == 'needs_changes' ||
+          _event.status == 'resubmitted' ||
+          _event.status == 'approved' ||
+          _event.status == 'rejected');
+
+  // creators may edit & resubmit their own event once it needs changes
+  bool get _canResubmit => !AuthStore.isAdmin && _event.isNeedsChanges;
+
+  @override
+  void initState() {
+    super.initState();
+    _updatesSub = RealtimeUpdates.instance.stream.listen(_handleRealtimeUpdate);
+  }
+
+  @override
+  void dispose() {
+    _updatesSub?.cancel();
+    super.dispose();
+  }
+
+  void _handleRealtimeUpdate(RealtimeUpdate update) {
+    if (update.type != 'event_status_changed') return;
+    if (update.data['event_id'] != _event.id) return;
+    unawaited(_refreshEvent());
+  }
+
+  Future<void> _refreshEvent() async {
+    try {
+      final updated = await fetchEvent(_event.id);
+      if (!mounted) return;
+      setState(() => _event = updated);
+    } catch (_) {}
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -42,13 +88,17 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
         elevation: 0,
         scrolledUnderElevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: AppColors.textPrimary),
+          icon: const AppIcon(AppIcons.back, color: AppColors.textPrimary),
           onPressed: () => Navigator.pop(context),
         ),
       ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(
-            AppSpacing.df, 0, AppSpacing.df, AppSpacing.xxl),
+          AppSpacing.df,
+          0,
+          AppSpacing.df,
+          AppSpacing.xxl,
+        ),
         children: [
           if (hasImage) ...[
             ClipRRect(
@@ -77,38 +127,58 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
             _section('Materials', _event.materials!),
           if (_event.registrationUrl?.isNotEmpty == true)
             _registrationCard(_event.registrationUrl!, theme),
-          if (_event.moderationNote?.isNotEmpty == true)
-            _section(
-              AppLocalizations.get('coordinatorComment'),
-              _event.moderationNote!,
-            ),
           const SizedBox(height: AppSpacing.xxl),
         ],
       ),
-      bottomNavigationBar: _canModerate
-          ? SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(
-                    AppSpacing.df, AppSpacing.sm, AppSpacing.df, AppSpacing.md),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (_event.moderationNote != null) ...[
-                      Text(
-                        _event.moderationNote!,
-                        style: AppTextStyles.bodySmall
-                            .copyWith(color: _event.statusColor),
-                      ),
-                      const SizedBox(height: AppSpacing.sm),
-                    ],
-                    _moderationSection(),
-                  ],
-                ),
-              ),
-            )
-          : null,
+      bottomNavigationBar: _buildBottomBar(),
     );
+  }
+
+  Widget? _buildBottomBar() {
+    if (_canModerate) {
+      return SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.df,
+            AppSpacing.sm,
+            AppSpacing.df,
+            AppSpacing.md,
+          ),
+          child: _moderationSection(),
+        ),
+      );
+    }
+    if (_canResubmit) {
+      return SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.df,
+            AppSpacing.sm,
+            AppSpacing.df,
+            AppSpacing.md,
+          ),
+          child: AppPrimaryButton(
+            size: AppButtonSize.medium,
+            text: AppLocalizations.get('editAndResubmit'),
+            onPressed: _openResubmit,
+          ),
+        ),
+      );
+    }
+    return null;
+  }
+
+  Future<void> _openResubmit() async {
+    final result = await showModalBottomSheet<bool>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      useSafeArea: false,
+      builder: (context) => SubmitScreen(initialEvent: _event, asSheet: true),
+    );
+    if (result == true && mounted) {
+      Navigator.pop(context, true);
+    }
   }
 
   Widget _titleCard(ThemeData theme) {
@@ -149,28 +219,37 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
                 horizontal: AppSpacing.md,
               ),
               color: _event.statusColor.withValues(alpha: 0.12),
-              child: Row(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  if (_event.status != 'approved' &&
-                      _event.status != 'rejected' &&
-                      _event.status != 'pending') ...[
-                    Icon(
-                      Icons.info_outline_rounded,
-                      size: 14,
-                      color: _event.statusColor,
-                    ),
-                    const SizedBox(width: AppSpacing.xs),
-                  ],
-                  Expanded(
-                    child: Text(
-                      _event.statusLabel,
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          _event.statusLabel,
+                          style: AppTextStyles.bodySmall.copyWith(
+                            color: _event.statusColor,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  // Coordinator comment shown under any status that has one
+                  // (approved / needs_changes / rejected), visible to the
+                  // event submitter.
+                  if (_event.moderationNote != null &&
+                      _event.moderationNote!.trim().isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      '${AppLocalizations.get('coordinatorComment')}: ${_event.moderationNote!}',
                       style: AppTextStyles.bodySmall.copyWith(
                         color: _event.statusColor,
-                        fontWeight: FontWeight.w600,
                         fontSize: 12,
                       ),
                     ),
-                  ),
+                  ],
                 ],
               ),
             ),
@@ -182,16 +261,18 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
   Widget _factsCard() {
     return AppCard(
       padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.df, vertical: AppSpacing.xs),
+        horizontal: AppSpacing.df,
+        vertical: AppSpacing.xs,
+      ),
       child: Column(
         children: [
-          _fact(Icons.calendar_today_rounded, _formatDate(_event.eventDate)),
+          _fact(AppIcons.calendar, _formatDate(_event.eventDate)),
           _factDivider(),
-          _fact(Icons.schedule_rounded, _timeRange()),
+          _fact(AppIcons.time, _timeRange()),
           _factDivider(),
-          _fact(Icons.place_rounded, _event.location),
+          _fact(AppIcons.location, _event.location),
           _factDivider(),
-          _fact(Icons.category_rounded, _event.category),
+          _fact(AppIcons.hub, _event.category),
         ],
       ),
     );
@@ -207,7 +288,7 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
       ? '${_event.eventTime} – ${_event.eventEndTime}'
       : _event.eventTime;
 
-  Widget _fact(IconData icon, String value) {
+  Widget _fact(AppIconData icon, String value) {
     final theme = Theme.of(context);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
@@ -217,16 +298,17 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
               color: AppColors.primary.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: AppSpacing.borderRadiusMd,
             ),
-            child: Icon(icon, size: 20, color: AppColors.primary),
+            child: AppIcon(icon, size: 20, color: AppColors.primary),
           ),
           const SizedBox(width: AppSpacing.md),
           Expanded(
             child: Text(
               value,
-              style: theme.textTheme.bodyMedium
-                  ?.copyWith(fontWeight: FontWeight.w500),
+              style: theme.textTheme.bodyMedium?.copyWith(
+                fontWeight: FontWeight.w500,
+              ),
             ),
           ),
         ],
@@ -237,7 +319,7 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
   Widget _factDivider() =>
       const Divider(height: 1, thickness: 1, color: AppColors.borderGrey);
 
-  Widget _section(String title, String body, [IconData? icon]) {
+  Widget _section(String title, String body, [AppIconData? icon]) {
     final theme = Theme.of(context);
     return Padding(
       padding: const EdgeInsets.only(top: AppSpacing.lg),
@@ -249,7 +331,7 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
             Row(
               children: [
                 if (icon != null) ...[
-                  Icon(icon, size: 20, color: AppColors.primary),
+                  AppIcon(icon, size: 20, color: AppColors.primary),
                   const SizedBox(width: AppSpacing.sm),
                 ],
                 Text(
@@ -280,18 +362,12 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                const Icon(Icons.link_rounded, size: 20, color: AppColors.primary),
-                const SizedBox(width: AppSpacing.sm),
-                Text(
-                  'Registration',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.primary,
-                  ),
-                ),
-              ],
+            Text(
+              'Registration',
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+                color: AppColors.primary,
+              ),
             ),
             const SizedBox(height: AppSpacing.sm),
             GestureDetector(
@@ -328,7 +404,9 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
       elevation: WidgetStatePropertyAll(0),
       padding: WidgetStatePropertyAll(EdgeInsets.symmetric(horizontal: 8)),
       shape: WidgetStatePropertyAll(
-        RoundedRectangleBorder(borderRadius: BorderRadius.all(Radius.circular(12))),
+        RoundedRectangleBorder(
+          borderRadius: BorderRadius.all(Radius.circular(12)),
+        ),
       ),
     );
     const labelStyle = TextStyle(
@@ -337,136 +415,155 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
       letterSpacing: -0.1,
     );
 
+    // The button set always mirrors the current status so admins keep full,
+    // symmetric control:
+    //   approved            -> Edits + Reject
+    //   rejected            -> Approve + Edits
+    //   pending/needs/resub -> Approve + Edits + Reject
+    // "Edits" (needs_changes) is reachable from every state.
+    final showApprove = _event.status != 'approved';
+    final showReject = _event.status != 'rejected';
+
+    final approveButton = SizedBox(
+      height: h,
+      child: ElevatedButton(
+        onPressed: _moderating ? null : _confirmApprove,
+        style: style.copyWith(
+          backgroundColor: const WidgetStatePropertyAll(AppColors.success),
+          foregroundColor: const WidgetStatePropertyAll(AppColors.white),
+        ),
+        child: const Text('Approve', style: labelStyle),
+      ),
+    );
+
+    final editsButton = SizedBox(
+      height: h,
+      child: ElevatedButton(
+        onPressed: _moderating ? null : _confirmRequestEdits,
+        style: style.copyWith(
+          backgroundColor: WidgetStatePropertyAll(
+            AppColors.warning.withValues(alpha: 0.15),
+          ),
+          foregroundColor: const WidgetStatePropertyAll(Color(0xFFB87800)),
+          overlayColor: WidgetStatePropertyAll(
+            AppColors.warning.withValues(alpha: 0.15),
+          ),
+        ),
+        child: const Text('Edits', style: labelStyle),
+      ),
+    );
+
+    final rejectButton = SizedBox(
+      height: h,
+      child: ElevatedButton(
+        onPressed: _moderating ? null : _confirmReject,
+        style: style.copyWith(
+          backgroundColor: WidgetStatePropertyAll(
+            AppColors.error.withValues(alpha: 0.10),
+          ),
+          foregroundColor: const WidgetStatePropertyAll(AppColors.error),
+          overlayColor: WidgetStatePropertyAll(
+            AppColors.error.withValues(alpha: 0.10),
+          ),
+        ),
+        child: const Text('Reject', style: labelStyle),
+      ),
+    );
+
+    final buttons = <Widget>[
+      if (showApprove) approveButton,
+      editsButton,
+      if (showReject) rejectButton,
+    ];
+
     return Row(
       children: [
-        Expanded(
-          child: SizedBox(
-            height: h,
-            child: ElevatedButton(
-              onPressed: _moderating ? null : _confirmApprove,
-              style: style.copyWith(
-                backgroundColor: WidgetStateProperty.resolveWith((states) =>
-                  states.contains(WidgetState.disabled)
-                    ? AppColors.success.withValues(alpha: 0.5)
-                    : AppColors.success,
-                ),
-                foregroundColor: const WidgetStatePropertyAll(AppColors.white),
-              ),
-              child: _moderating
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation<Color>(AppColors.white),
-                      ),
-                    )
-                  : const Text('Approve', style: labelStyle),
-            ),
-          ),
-        ),
-        const SizedBox(width: AppSpacing.sm),
-        Expanded(
-          child: SizedBox(
-            height: h,
-            child: ElevatedButton(
-              onPressed: _confirmRequestEdits,
-              style: style.copyWith(
-                backgroundColor: WidgetStatePropertyAll(
-                  AppColors.warning.withValues(alpha: 0.15),
-                ),
-                foregroundColor: const WidgetStatePropertyAll(Color(0xFFB87800)),
-                overlayColor: WidgetStatePropertyAll(
-                  AppColors.warning.withValues(alpha: 0.15),
-                ),
-              ),
-              child: const Text('Edits', style: labelStyle),
-            ),
-          ),
-        ),
-        const SizedBox(width: AppSpacing.sm),
-        Expanded(
-          child: SizedBox(
-            height: h,
-            child: ElevatedButton(
-              onPressed: _confirmReject,
-              style: style.copyWith(
-                backgroundColor: WidgetStatePropertyAll(
-                  AppColors.error.withValues(alpha: 0.10),
-                ),
-                foregroundColor: const WidgetStatePropertyAll(AppColors.error),
-                overlayColor: WidgetStatePropertyAll(
-                  AppColors.error.withValues(alpha: 0.10),
-                ),
-              ),
-              child: const Text('Reject', style: labelStyle),
-            ),
-          ),
-        ),
+        for (var i = 0; i < buttons.length; i++) ...[
+          if (i > 0) const SizedBox(width: AppSpacing.sm),
+          Expanded(child: buttons[i]),
+        ],
       ],
     );
   }
 
   Future<void> _confirmApprove() async {
-    final confirmed = await AppPremiumDialog.show(
-      context: context,
+    await _moderateWithComment(
+      status: 'approved',
       icon: AppIcons.check,
       iconColor: AppColors.success,
       title: 'Approve event?',
       description: 'The event will be published and the organiser notified.',
-      confirmText: 'Approve',
-      cancelText: 'Cancel',
-      showIcon: false,
+      actionText: 'Approve',
     );
-    if (!confirmed || !mounted) return;
-    await _moderate('approved', null);
   }
 
   Future<void> _confirmReject() async {
-    final confirmed = await AppPremiumDialog.show(
-      context: context,
+    await _moderateWithComment(
+      status: 'rejected',
       icon: AppIcons.close,
       iconColor: AppColors.error,
       title: 'Reject event?',
-      description: 'The organiser will be notified that the request was declined.',
-      confirmText: 'Reject',
-      cancelText: 'Cancel',
+      description:
+          'The organiser will be notified that the request was declined.',
+      actionText: 'Reject',
       isDestructive: true,
-      showIcon: false,
     );
-    if (!confirmed || !mounted) return;
-    await _moderateWithComment('rejected');
   }
 
   Future<void> _confirmRequestEdits() async {
-    final confirmed = await AppPremiumDialog.show(
-      context: context,
+    await _moderateWithComment(
+      status: 'needs_changes',
       icon: AppIcons.edit,
       iconColor: AppColors.warning,
       title: 'Request changes?',
       description: 'Add a comment explaining what needs to be fixed.',
-      confirmText: 'Continue',
-      cancelText: 'Cancel',
-      showIcon: false,
+      actionText: 'Request changes',
     );
-    if (!confirmed || !mounted) return;
-    await _moderateWithComment('needs_changes');
   }
 
-  Future<void> _moderateWithComment(String status) async {
-    final comment = await _promptComment();
+  Future<void> _moderateWithComment({
+    required String status,
+    required AppIconData icon,
+    required Color iconColor,
+    required String title,
+    required String description,
+    required String actionText,
+    bool isDestructive = false,
+  }) async {
+    final comment = await _promptComment(
+      icon: icon,
+      iconColor: iconColor,
+      title: title,
+      description: description,
+      actionText: actionText,
+      isDestructive: isDestructive,
+    );
     if (comment == null) return;
     await _moderate(status, comment.isEmpty ? null : comment);
   }
 
-  Future<String?> _promptComment() {
+  Future<String?> _promptComment({
+    required AppIconData icon,
+    required Color iconColor,
+    required String title,
+    required String description,
+    required String actionText,
+    required bool isDestructive,
+  }) {
     return showModalBottomSheet<String>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       barrierColor: Colors.black.withValues(alpha: 0.48),
       enableDrag: true,
-      builder: (_) => const _CommentSheet(),
+      builder: (_) => _ModerationCommentSheet(
+        icon: icon,
+        iconColor: iconColor,
+        title: title,
+        description: description,
+        actionText: actionText,
+        isDestructive: isDestructive,
+      ),
     );
   }
 
@@ -476,7 +573,6 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
       final updated = await updateEventStatus(_event.id, status, comment);
       if (!mounted) return;
       setState(() => _event = updated);
-      _showMessage('Done');
     } on ApiException catch (e) {
       _showMessage(e.message);
     } finally {
@@ -485,22 +581,38 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
   }
 
   void _showMessage(String message) {
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 }
 
-// ── Comment bottom sheet ──────────────────────────────────────────────────────
+class _ModerationCommentSheet extends StatefulWidget {
+  const _ModerationCommentSheet({
+    required this.icon,
+    required this.iconColor,
+    required this.title,
+    required this.description,
+    required this.actionText,
+    required this.isDestructive,
+  });
 
-class _CommentSheet extends StatefulWidget {
-  const _CommentSheet();
+  final AppIconData icon;
+  final Color iconColor;
+  final String title;
+  final String description;
+  final String actionText;
+  final bool isDestructive;
 
   @override
-  State<_CommentSheet> createState() => _CommentSheetState();
+  State<_ModerationCommentSheet> createState() =>
+      _ModerationCommentSheetState();
 }
 
-class _CommentSheetState extends State<_CommentSheet> {
+class _ModerationCommentSheetState extends State<_ModerationCommentSheet>
+    with SingleTickerProviderStateMixin {
   final _controller = TextEditingController();
+  bool _showComment = false;
 
   @override
   void dispose() {
@@ -515,6 +627,9 @@ class _CommentSheetState extends State<_CommentSheet> {
     final surface = isLight ? Colors.white : const Color(0xFF1C1C1E);
     final textPrimary = isLight ? const Color(0xFF0A0A1A) : Colors.white;
     final textSub = isLight ? const Color(0xFF6B6B80) : const Color(0xFF8E8EA3);
+    final actionColor = widget.isDestructive
+        ? AppColors.error
+        : widget.iconColor;
 
     return AnimatedPadding(
       duration: const Duration(milliseconds: 200),
@@ -528,9 +643,7 @@ class _CommentSheetState extends State<_CommentSheet> {
         padding: EdgeInsets.fromLTRB(20, 8, 20, mq.padding.bottom + 12),
         child: Column(
           mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Handle
             Center(
               child: Container(
                 width: 32,
@@ -544,76 +657,211 @@ class _CommentSheetState extends State<_CommentSheet> {
               ),
             ),
             const SizedBox(height: 14),
+            AnimatedSize(
+              duration: const Duration(milliseconds: 320),
+              curve: Curves.easeOutCubic,
+              alignment: Alignment.topCenter,
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 280),
+                switchInCurve: Curves.easeOutCubic,
+                switchOutCurve: Curves.easeInCubic,
+                layoutBuilder: (currentChild, previousChildren) {
+                  return Stack(
+                    alignment: Alignment.topCenter,
+                    children: [...previousChildren, ?currentChild],
+                  );
+                },
+                transitionBuilder: (child, animation) {
+                  final curved = CurvedAnimation(
+                    parent: animation,
+                    curve: Curves.easeOutCubic,
+                    reverseCurve: Curves.easeInCubic,
+                  );
+                  final offset = Tween<Offset>(
+                    begin: const Offset(0, 0.06),
+                    end: Offset.zero,
+                  ).animate(curved);
 
-            Text(
-              'Comment',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                letterSpacing: -0.3,
-                color: textPrimary,
-                height: 1.2,
+                  return FadeTransition(
+                    opacity: curved,
+                    child: SlideTransition(position: offset, child: child),
+                  );
+                },
+                child: _showComment
+                    ? _buildCommentStep(
+                        key: const ValueKey('comment'),
+                        textPrimary: textPrimary,
+                        textSub: textSub,
+                        actionColor: actionColor,
+                        isLight: isLight,
+                      )
+                    : _buildConfirmStep(
+                        key: const ValueKey('confirm'),
+                        textPrimary: textPrimary,
+                        textSub: textSub,
+                        actionColor: actionColor,
+                        isLight: isLight,
+                      ),
               ),
-            ),
-            const SizedBox(height: 10),
-
-            AppTextField(controller: _controller, maxLines: 3),
-            const SizedBox(height: 12),
-
-            Row(
-              children: [
-                // Cancel
-                GestureDetector(
-                  onTap: () => Navigator.pop(context),
-                  child: Container(
-                    height: 42,
-                    padding: const EdgeInsets.symmetric(horizontal: 18),
-                    decoration: BoxDecoration(
-                      color: isLight
-                          ? const Color(0xFFF2F2F7)
-                          : const Color(0xFF2C2C2E),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    alignment: Alignment.center,
-                    child: Text(
-                      'Cancel',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
-                        color: textSub,
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                // Done — fills rest
-                Expanded(
-                  child: GestureDetector(
-                    onTap: () => Navigator.pop(context, _controller.text),
-                    child: Container(
-                      height: 42,
-                      decoration: BoxDecoration(
-                        color: AppColors.primary,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      alignment: Alignment.center,
-                      child: const Text(
-                        'Done',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
-                          letterSpacing: -0.2,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
             ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildConfirmStep({
+    required Key key,
+    required Color textPrimary,
+    required Color textSub,
+    required Color actionColor,
+    required bool isLight,
+  }) {
+    return Column(
+      key: key,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          widget.title,
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            letterSpacing: -0.3,
+            color: textPrimary,
+            height: 1.2,
+          ),
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: 4),
+        Text(
+          widget.description,
+          style: TextStyle(fontSize: 13, color: textSub, height: 1.4),
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: 16),
+        _SheetActionRow(
+          cancelColor: textSub,
+          cancelBackground: isLight
+              ? const Color(0xFFF2F2F7)
+              : const Color(0xFF2C2C2E),
+          actionColor: actionColor,
+          actionText: 'Continue',
+          onCancel: () => Navigator.pop(context),
+          onAction: () => setState(() => _showComment = true),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildCommentStep({
+    required Key key,
+    required Color textPrimary,
+    required Color textSub,
+    required Color actionColor,
+    required bool isLight,
+  }) {
+    return Column(
+      key: key,
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Center(
+          child: Text(
+            'Comment',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+              letterSpacing: -0.3,
+              color: textPrimary,
+              height: 1.2,
+            ),
+          ),
+        ),
+        const SizedBox(height: 10),
+        AppTextField(controller: _controller, maxLines: 3),
+        const SizedBox(height: 12),
+        _SheetActionRow(
+          cancelColor: textSub,
+          cancelBackground: isLight
+              ? const Color(0xFFF2F2F7)
+              : const Color(0xFF2C2C2E),
+          actionColor: actionColor,
+          actionText: widget.actionText,
+          onCancel: () => Navigator.pop(context),
+          onAction: () => Navigator.pop(context, _controller.text),
+        ),
+      ],
+    );
+  }
+}
+
+class _SheetActionRow extends StatelessWidget {
+  const _SheetActionRow({
+    required this.cancelColor,
+    required this.cancelBackground,
+    required this.actionColor,
+    required this.actionText,
+    required this.onCancel,
+    required this.onAction,
+  });
+
+  final Color cancelColor;
+  final Color cancelBackground;
+  final Color actionColor;
+  final String actionText;
+  final VoidCallback onCancel;
+  final VoidCallback onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        GestureDetector(
+          onTap: onCancel,
+          child: Container(
+            height: 42,
+            padding: const EdgeInsets.symmetric(horizontal: 18),
+            decoration: BoxDecoration(
+              color: cancelBackground,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            alignment: Alignment.center,
+            child: Text(
+              'Cancel',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+                color: cancelColor,
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: GestureDetector(
+            onTap: onAction,
+            child: Container(
+              height: 42,
+              decoration: BoxDecoration(
+                color: actionColor,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              alignment: Alignment.center,
+              child: Text(
+                actionText,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: -0.2,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

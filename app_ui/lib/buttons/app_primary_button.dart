@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import '../tokens/app_colors.dart';
 import '../tokens/app_spacing.dart';
 import '../tokens/app_text_styles.dart';
@@ -13,7 +13,7 @@ import '../tokens/app_text_styles.dart';
 ///   onPressed: () => doSomething(),
 /// )
 /// ```
-class AppPrimaryButton extends StatelessWidget {
+class AppPrimaryButton extends StatefulWidget {
   const AppPrimaryButton({
     super.key,
     required this.text,
@@ -53,32 +53,51 @@ class AppPrimaryButton extends StatelessWidget {
   double get _height => height ?? size.height;
 
   @override
-  Widget build(BuildContext context) {
-    final effectiveOnPressed = isEnabled && !isLoading ? onPressed : null;
+  State<AppPrimaryButton> createState() => _AppPrimaryButtonState();
+}
 
-    return SizedBox(
-      width: width ?? double.infinity,
-      height: _height,
-      child: ElevatedButton(
-        onPressed: effectiveOnPressed,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: AppColors.primary,
-          foregroundColor: AppColors.white,
-          disabledBackgroundColor: AppColors.primary.withValues(alpha: 0.5),
-          disabledForegroundColor: AppColors.white.withValues(alpha: 0.7),
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: AppSpacing.borderRadiusMd,
+class _AppPrimaryButtonState extends State<AppPrimaryButton> {
+  bool _isPressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final effectiveOnPressed = widget.isEnabled && !widget.isLoading ? widget.onPressed : null;
+
+    return Listener(
+      onPointerDown: (_) {
+        if (effectiveOnPressed != null) setState(() => _isPressed = true);
+      },
+      onPointerUp: (_) => setState(() => _isPressed = false),
+      onPointerCancel: (_) => setState(() => _isPressed = false),
+      child: AnimatedScale(
+        scale: _isPressed ? 0.97 : 1.0,
+        duration: const Duration(milliseconds: 150),
+        curve: Curves.easeInOutCubic,
+        child: SizedBox(
+          width: widget.width ?? double.infinity,
+          height: widget._height,
+          child: ElevatedButton(
+            onPressed: effectiveOnPressed,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              foregroundColor: AppColors.white,
+              disabledBackgroundColor: AppColors.primary.withValues(alpha: 0.5),
+              disabledForegroundColor: AppColors.white.withValues(alpha: 0.7),
+              elevation: 0,
+              shape: RoundedRectangleBorder(
+                borderRadius: AppSpacing.borderRadiusMd,
+              ),
+              padding: widget.size.padding,
+            ),
+            child: _buildChild(),
           ),
-          padding: size.padding,
         ),
-        child: _buildChild(),
       ),
     );
   }
 
   Widget _buildChild() {
-    if (isLoading) {
+    if (widget.isLoading) {
       return SizedBox(
         width: AppSpacing.iconDf,
         height: AppSpacing.iconDf,
@@ -93,14 +112,14 @@ class AppPrimaryButton extends StatelessWidget {
       mainAxisAlignment: MainAxisAlignment.center,
       mainAxisSize: MainAxisSize.min,
       children: [
-        if (icon != null) ...[
-          icon!,
+        if (widget.icon != null) ...[
+          widget.icon!,
           AppSpacing.horizontalSm,
         ],
         Flexible(
           child: Text(
-            text,
-            style: size == AppButtonSize.small
+            widget.text,
+            style: widget.size == AppButtonSize.small
                 ? AppTextStyles.buttonSmall
                 : AppTextStyles.button,
             overflow: TextOverflow.ellipsis,

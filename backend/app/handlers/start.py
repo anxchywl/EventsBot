@@ -2,8 +2,7 @@ from aiogram import Bot, F, Router
 from aiogram.filters import CommandObject, CommandStart, StateFilter
 from aiogram.filters import Filter
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message, MenuButtonWebApp, WebAppInfo
-from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
+from aiogram.types import CallbackQuery, Message, MenuButtonWebApp, ReplyKeyboardRemove, WebAppInfo
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
@@ -81,7 +80,6 @@ async def send_main_menu(
         return
     user = await upsert_user_from_telegram(session, message.from_user)
     settings = get_settings()
-    is_admin = user.telegram_id in settings.admin_ids
 
     # set chat menu button to default base mini app url
     if settings.miniapp_base_url:
@@ -100,9 +98,8 @@ async def send_main_menu(
     # send the main menu with admin controls when allowed
     msg = await message.answer(
         "Welcome to NU Events Bot. I am here to help you stay updated with university life. "
-        "Press the Launch App button to see the latest events in the Mini App. "
-        "You can also use the menu below to manage your own submissions.",
-        reply_markup=get_main_menu_keyboard(is_admin),
+        "Press the Launch App button to see the latest events in the Mini App.",
+        reply_markup=get_main_menu_keyboard(),
         parse_mode="Markdown",
     )
     if len(last_welcome_messages) >= _MAX_WELCOME_CACHE:
@@ -124,9 +121,8 @@ async def process_start_menu(
     """
     Returns the user to the main menu by deleting active menu panels and resending the welcome menu.
     """
-    user = await upsert_user_from_telegram(session, callback.from_user)
+    await upsert_user_from_telegram(session, callback.from_user)
     settings = get_settings()
-    is_admin = user.telegram_id in settings.admin_ids
 
     # set chat menu button to default base mini app url
     if settings.miniapp_base_url:
@@ -226,9 +222,7 @@ async def cleanup_main_menu_warnings(message: Message, state: FSMContext) -> Non
     MainMenuActiveFilter(),
     F.chat.type == "private",
     F.text,
-    ~F.text.in_(
-        {"Create Event", "My Events", "Admin Panel", "⚙️ Admin Panel", "Back to Menu"}
-    ),
+    ~F.text.in_({"Back to Menu"}),
 )
 # handle main menu unknown text
 async def handle_main_menu_unknown_text(
@@ -239,25 +233,15 @@ async def handle_main_menu_unknown_text(
     if warning_ids:
         await delete_messages_fast(message.bot, message.chat.id, warning_ids)
 
-    user = await upsert_user_from_telegram(session, message.from_user)
-    settings = get_settings()
     sent = await message.answer(
-        "Please choose an action from the buttons below.",
-        reply_markup=get_main_menu_keyboard(user.telegram_id in settings.admin_ids),
+        "Press the Launch App button to continue in the Mini App.",
+        reply_markup=get_main_menu_keyboard(),
     )
     await state.update_data(
         main_menu_warning_ids=[message.message_id, sent.message_id],
     )
 
 
-# builds the private main menu keyboard
 def get_main_menu_keyboard(is_admin: bool = False):
-    builder = ReplyKeyboardBuilder()
-    builder.button(text="Create Event")
-    builder.button(text="My Events")
-
-    if is_admin:
-        builder.button(text="Admin Panel")
-
-    builder.adjust(1)
-    return builder.as_markup(resize_keyboard=True)
+    # telegram keeps old reply keyboards unless they are explicitly removed
+    return ReplyKeyboardRemove()

@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:app_ui/app_ui.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/api_client.dart';
 import '../../core/localization.dart';
+import '../../core/realtime_updates.dart';
 import '../../models/event_model.dart';
 import '../events/event_card.dart';
 import '../events/event_detail_screen.dart';
@@ -20,11 +23,25 @@ class _PendingEventsScreenState extends State<PendingEventsScreen> {
   bool _loading = true;
   String? _error;
   List<EventModel> _events = [];
+  StreamSubscription<RealtimeUpdate>? _updatesSub;
 
   @override
   void initState() {
     super.initState();
     _load();
+    _updatesSub = RealtimeUpdates.instance.stream.listen(_handleRealtimeUpdate);
+  }
+
+  @override
+  void dispose() {
+    _updatesSub?.cancel();
+    super.dispose();
+  }
+
+  void _handleRealtimeUpdate(RealtimeUpdate update) {
+    if (update.type == 'event_status_changed') {
+      unawaited(_refreshSilently());
+    }
   }
 
   Future<void> _load() async {
@@ -46,6 +63,17 @@ class _PendingEventsScreenState extends State<PendingEventsScreen> {
         _loading = false;
       });
     }
+  }
+
+  Future<void> _refreshSilently() async {
+    try {
+      final events = await fetchPendingEvents();
+      if (!mounted) return;
+      setState(() {
+        _events = events;
+        _error = null;
+      });
+    } catch (_) {}
   }
 
   Future<void> _openDetail(EventModel event) async {
@@ -92,10 +120,9 @@ class _PendingEventsScreenState extends State<PendingEventsScreen> {
       return Center(
         child: Text(
           AppLocalizations.get('noEventsPending'),
-          style: Theme.of(context)
-              .textTheme
-              .bodyLarge
-              ?.copyWith(color: AppColors.grey),
+          style: Theme.of(
+            context,
+          ).textTheme.bodyLarge?.copyWith(color: AppColors.grey),
         ),
       );
     }
@@ -105,11 +132,19 @@ class _PendingEventsScreenState extends State<PendingEventsScreen> {
       itemCount: _events.length,
       itemBuilder: (context, index) {
         final event = _events[index];
+        String? badge;
+        if (event.isNeedsChanges) {
+          badge = AppLocalizations.get('waitingForCreator');
+        } else if (event.isResubmitted) {
+          badge = AppLocalizations.get('readyForReview');
+        }
         return Padding(
-          padding: const EdgeInsets.only(bottom: AppSpacing.md),
+          padding: const EdgeInsets.only(bottom: AppSpacing.sm),
           child: EventCard(
             event: event,
             alwaysShowStatus: true,
+            showCategory: false,
+            statusLabelOverride: badge,
             onTap: () => _openDetail(event),
           ),
         );

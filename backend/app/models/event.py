@@ -58,7 +58,7 @@ class Event(TimestampMixin, Base):
     # enforce status values and common lookup indexes
     __table_args__ = (
         CheckConstraint(
-            "status IN ('pending', 'approved', 'archived', 'rejected', 'needs_changes', 'cancelled')",
+            "status IN ('pending', 'approved', 'archived', 'rejected', 'needs_changes', 'resubmitted', 'cancelled')",
             name="status",
         ),
         Index(

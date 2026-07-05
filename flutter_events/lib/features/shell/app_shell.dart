@@ -1,4 +1,5 @@
 import 'package:app_ui/app_ui.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/auth_store.dart';
@@ -25,46 +26,36 @@ class _AppShellState extends State<AppShell> {
     _currentIndex = AuthStore.isAdmin ? 1 : 0;
   }
 
-  List<({Widget body, BottomNavigationBarItem item})> get _destinations {
+  List<({Widget body, AppIconData icon, String label})> get _destinations {
     if (AuthStore.isAdmin) {
       return [
         (
           body: const CoordinatorDashboardScreen(),
-          item: BottomNavigationBarItem(
-            icon: const Icon(Icons.inbox_outlined),
-            label: AppLocalizations.get('requests'),
-          ),
+          icon: AppIcons.request,
+          label: AppLocalizations.get('requests'),
         ),
         (
           body: const EventsScreen(),
-          item: BottomNavigationBarItem(
-            icon: const Icon(Icons.event_outlined),
-            label: AppLocalizations.get('events'),
-          ),
+          icon: AppIcons.event,
+          label: AppLocalizations.get('events'),
         ),
         (
           body: const EventManagerScreen(),
-          item: BottomNavigationBarItem(
-            icon: const Icon(Icons.insights_outlined),
-            label: AppLocalizations.get('analytics'),
-          ),
+          icon: AppIcons.statistics,
+          label: AppLocalizations.get('analytics'),
         ),
       ];
     }
     return [
       (
         body: const EventsScreen(),
-        item: BottomNavigationBarItem(
-          icon: const Icon(Icons.event_outlined),
-          label: AppLocalizations.get('events'),
-        ),
+        icon: AppIcons.event,
+        label: AppLocalizations.get('events'),
       ),
       (
         body: const MyEventsScreen(),
-        item: BottomNavigationBarItem(
-          icon: const Icon(Icons.assignment_outlined),
-          label: AppLocalizations.get('myBookings'),
-        ),
+        icon: AppIcons.assignment,
+        label: AppLocalizations.get('myRequests'),
       ),
     ];
   }
@@ -74,25 +65,36 @@ class _AppShellState extends State<AppShell> {
     final index = _currentIndex.clamp(0, destinations.length - 1);
     return IndexedStack(
       index: index,
-      children: destinations.map((d) => d.body).toList(),
+      children: destinations.map((destination) => destination.body).toList(),
     );
+  }
+
+  void _setCurrentIndex(int index) {
+    setState(() => _currentIndex = index);
   }
 
   Future<void> _handleNavigationTap(int index) async {
     final eventsIndex = AuthStore.isAdmin ? 1 : 0;
+    if (index == _currentIndex && index != eventsIndex) return;
+
     if (index != eventsIndex) {
       _eventsTapCount = 0;
-      setState(() => _currentIndex = index);
+      _setCurrentIndex(index);
       return;
     }
 
-    _eventsTapCount += 1;
-    if (_eventsTapCount >= 5) {
-      _eventsTapCount = 0;
-      await AuthStore.cycleTestRole();
+    // Debug-only role switcher: 5 taps on the Events tab flips admin↔user so
+    // both shells can be exercised on a single account. Compiled out of release
+    // builds so real users can't trip it.
+    if (kDebugMode) {
+      _eventsTapCount += 1;
+      if (_eventsTapCount >= 5) {
+        _eventsTapCount = 0;
+        await AuthStore.cycleTestRole();
+      }
     }
     if (!mounted) return;
-    setState(() => _currentIndex = index);
+    _setCurrentIndex(index);
   }
 
   @override
@@ -101,14 +103,88 @@ class _AppShellState extends State<AppShell> {
     final currentIndex = _currentIndex.clamp(0, destinations.length - 1);
     return Scaffold(
       body: _buildBody(),
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: currentIndex,
-        onTap: _handleNavigationTap,
-        type: BottomNavigationBarType.fixed,
-        selectedItemColor: AppColors.primary,
-        unselectedItemColor: AppColors.grey,
-        backgroundColor: AppColors.white,
-        items: destinations.map((destination) => destination.item).toList(),
+      bottomNavigationBar: SafeArea(
+        top: false,
+        minimum: const EdgeInsets.fromLTRB(
+          AppSpacing.df,
+          0,
+          AppSpacing.df,
+          AppSpacing.sm,
+        ),
+        child: Align(
+          heightFactor: 1,
+          alignment: Alignment.bottomCenter,
+          child: Container(
+            height: AppSpacing.xxxl + AppSpacing.sm,
+            constraints: const BoxConstraints(maxWidth: 320),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: AppSpacing.borderRadiusXl,
+              border: Border.all(color: AppColors.borderGrey),
+              boxShadow: HomeShadows.navBar,
+            ),
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.sm,
+              vertical: AppSpacing.xs,
+            ),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                return Row(
+                  children: [
+                    for (var i = 0; i < destinations.length; i++)
+                      Expanded(
+                        child: _NavIconButton(
+                          icon: destinations[i].icon,
+                          label: destinations[i].label,
+                          selected: i == currentIndex,
+                          onTap: () => _handleNavigationTap(i),
+                        ),
+                      ),
+                  ],
+                );
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _NavIconButton extends StatelessWidget {
+  const _NavIconButton({
+    required this.icon,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final AppIconData icon;
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = selected ? AppColors.primary : AppColors.iconSecondary;
+    return Tooltip(
+      message: label,
+      child: Semantics(
+        label: label,
+        selected: selected,
+        button: true,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: AppSpacing.borderRadiusLg,
+          child: Center(
+            child: AnimatedScale(
+              scale: selected ? 1.08 : 1,
+              duration: const Duration(milliseconds: 160),
+              curve: Curves.easeOutCubic,
+              child: AppIcon(icon, size: AppSpacing.xl, color: color),
+            ),
+          ),
+        ),
       ),
     );
   }

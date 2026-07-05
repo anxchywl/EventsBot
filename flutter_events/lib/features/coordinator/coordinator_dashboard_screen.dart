@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 
 import '../../core/api_client.dart';
 import '../../core/localization.dart';
+import '../../core/realtime_updates.dart';
 import '../../models/event_model.dart';
 import '../events/event_card.dart';
 import '../events/event_detail_screen.dart';
@@ -19,9 +20,6 @@ import '../events/event_detail_screen.dart';
 /// (IT needs, materials, location, organizer) and the approve / request-changes
 /// / reject actions wired to `PATCH /events/{id}/status`. On approval the slot
 /// auto-blocks in the shared calendar, since the calendar reads approved events.
-///
-/// Realtime note: no backend WebSocket exists, so new requests are picked up via
-/// [_pollInterval] polling plus pull-to-refresh.
 class CoordinatorDashboardScreen extends StatefulWidget {
   const CoordinatorDashboardScreen({super.key});
 
@@ -38,24 +36,36 @@ class _CoordinatorDashboardScreenState
   String? _error;
   List<EventModel> _events = [];
   Timer? _pollTimer;
+  StreamSubscription<RealtimeUpdate>? _updatesSub;
 
   // Work filters
   String _sort = 'date_asc';
   Set<String> _categories = {};
   Set<String> _locations = {};
   Set<String> _organizers = {};
+  // When on, the queue is swapped for a rejected / needs-changes review view.
+  // This also opts the backend fetch into returning rejected events.
+  bool _showRejected = false;
 
   @override
   void initState() {
     super.initState();
     _load();
     _pollTimer = Timer.periodic(_pollInterval, (_) => _refreshSilently());
+    _updatesSub = RealtimeUpdates.instance.stream.listen(_handleRealtimeUpdate);
   }
 
   @override
   void dispose() {
     _pollTimer?.cancel();
+    _updatesSub?.cancel();
     super.dispose();
+  }
+
+  void _handleRealtimeUpdate(RealtimeUpdate update) {
+    if (update.type == 'event_status_changed') {
+      unawaited(_refreshSilently());
+    }
   }
 
   Future<void> _load() async {
@@ -64,7 +74,7 @@ class _CoordinatorDashboardScreenState
       _error = null;
     });
     try {
-      final pending = await fetchPendingEvents();
+      final pending = await fetchPendingEvents(includeRejected: _showRejected);
       if (!mounted) return;
       setState(() {
         _events = pending;
@@ -81,7 +91,7 @@ class _CoordinatorDashboardScreenState
 
   Future<void> _refreshSilently() async {
     try {
-      final pending = await fetchPendingEvents();
+      final pending = await fetchPendingEvents(includeRejected: _showRejected);
       if (!mounted) return;
       setState(() {
         _events = pending;
@@ -103,8 +113,20 @@ class _CoordinatorDashboardScreenState
 
   bool get _sortByDate => _sort == 'date_asc' || _sort == 'date_desc';
 
+  Future<void> _toggleRejected() async {
+    setState(() => _showRejected = !_showRejected);
+    await _refreshSilently();
+  }
+
   List<EventModel> get _filtered {
-    final filtered = _events.where((e) {
+    // In rejected view only rejected / needs-changes events are shown; the
+    // default view keeps the full moderation queue.
+    final source = _showRejected
+        ? _events.where(
+            (e) => e.status == 'rejected' || e.status == 'needs_changes',
+          )
+        : _events;
+    final filtered = source.where((e) {
       if (_categories.isNotEmpty && !_categories.contains(e.category)) {
         return false;
       }
@@ -293,25 +315,36 @@ class _CoordinatorDashboardScreenState
 
     final filtered = _filtered;
 
+    // Hide sorting / filtering controls entirely when there is nothing under
+    // review. The rejected view stays accessible while it is active so it can
+    // be toggled back off even if it yields no results.
+    final showFilters = _events.isNotEmpty || _showRejected;
+
     return Column(
       children: [
-        _filterBar(),
+        if (showFilters) _filterBar(),
         Expanded(
           child: RefreshIndicator(
             onRefresh: _refreshSilently,
             child: filtered.isEmpty
-                ? ListView(
-                    // ListView keeps pull-to-refresh working even when empty.
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.only(top: 80),
+                ? CustomScrollView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    slivers: [
+                      SliverFillRemaining(
+                        hasScrollBody: false,
                         child: Center(
-                          child: Text(
-                            _events.isEmpty
-                                ? AppLocalizations.get('noRequestsUnderReview')
-                                : AppLocalizations.get('nothingFound'),
-                            style: Theme.of(context).textTheme.bodyLarge
-                                ?.copyWith(color: AppColors.grey),
+                          child: Padding(
+                            padding: AppSpacing.screenPadding,
+                            child: Text(
+                              _events.isEmpty
+                                  ? AppLocalizations.get(
+                                      'noRequestsUnderReview',
+                                    )
+                                  : AppLocalizations.get('nothingFound'),
+                              textAlign: TextAlign.center,
+                              style: Theme.of(context).textTheme.bodyLarge
+                                  ?.copyWith(color: AppColors.grey),
+                            ),
                           ),
                         ),
                       ),
@@ -344,10 +377,7 @@ class _CoordinatorDashboardScreenState
         int remaining = index;
         for (final group in groups) {
           if (remaining == 0) {
-            return _RequestDateHeader(
-              label: group.label,
-              first: index == 0,
-            );
+            return _RequestDateHeader(label: group.label, first: index == 0);
           }
           remaining--;
           if (remaining < group.events.length) {
@@ -374,10 +404,11 @@ class _CoordinatorDashboardScreenState
 
   Widget _requestCard(EventModel event) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: AppSpacing.md),
+      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
       child: EventCard(
         event: event,
         hideStatus: true,
+        showCategory: false,
         onTap: () => _openDetail(event),
       ),
     );
@@ -419,6 +450,14 @@ class _CoordinatorDashboardScreenState
               count: _organizers.length,
               active: _organizers.isNotEmpty,
               onTap: _pickOrganizer,
+            ),
+          ),
+          const SizedBox(width: AppSpacing.sm),
+          Center(
+            child: _DashIconFilterChip(
+              icon: Icons.block_rounded,
+              active: _showRejected,
+              onTap: _toggleRejected,
             ),
           ),
         ],
@@ -676,7 +715,11 @@ class _RequestMultiPickerSheetState extends State<_RequestMultiPickerSheet> {
                   },
                   decoration: InputDecoration(
                     hintText: AppLocalizations.get('search'),
-                    prefixIcon: Icon(Icons.search, size: 18, color: AppColors.grey),
+                    prefixIcon: Icon(
+                      Icons.search,
+                      size: 18,
+                      color: AppColors.grey,
+                    ),
                     filled: true,
                     fillColor: AppColors.fieldBackground,
                     border: OutlineInputBorder(
@@ -787,9 +830,9 @@ class _RequestDateHeader extends StatelessWidget {
             Expanded(
               child: Text(
                 label,
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
               ),
             ),
           ],
@@ -885,6 +928,39 @@ class _DashSortChip extends StatelessWidget {
           borderRadius: BorderRadius.circular(18),
         ),
         child: Icon(Icons.swap_vert_rounded, size: 18, color: color),
+      ),
+    );
+  }
+}
+
+/// Icon-only filter chip (no text label), styled to match [_DashFilterChip]'s
+/// active / inactive colour logic. Used for the rejected review-view toggle.
+class _DashIconFilterChip extends StatelessWidget {
+  const _DashIconFilterChip({
+    required this.icon,
+    required this.active,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final bool active;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = active ? AppColors.primary : AppColors.textSecondary;
+    final bg = active ? AppColors.primaryLight : AppColors.fieldBackground;
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        width: 36,
+        height: 36,
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(18),
+        ),
+        child: Icon(icon, size: 18, color: color),
       ),
     );
   }
