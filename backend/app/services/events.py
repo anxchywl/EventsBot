@@ -62,6 +62,7 @@ async def create_pending_event(
 
     log = ModerationLog(
         event=event,
+        actor_user_id=creator.id,
         action=ModerationAction.SUBMITTED.value,
     )
     session.add(log)

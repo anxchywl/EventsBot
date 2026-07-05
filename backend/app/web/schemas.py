@@ -514,6 +514,27 @@ class FlutterAnalyticsEngagement(BaseModel):
     views_over_time: list[FlutterTrendPoint]
 
 
+class FlutterAnalyticsCategory(BaseModel):
+    category_id: int
+    category: str
+    event_count: int
+    views: int
+    registration_clicks: int
+    average_rating: float | None = None
+    approval_rate: float
+
+
+class FlutterAnalyticsOrganizer(BaseModel):
+    organizer: str
+    events_created: int
+    approval_rate: float
+    rejection_rate: float
+    average_rating: float | None = None
+    views: int
+    registration_clicks: int
+    favorites: int
+
+
 class FlutterAnalyticsEventOption(BaseModel):
     id: int
     title: str
@@ -529,3 +550,38 @@ class FlutterAnalyticsRatings(BaseModel):
     events_with_zero_reviews: int
     top_rated: list[FlutterAnalyticsRankedEvent]
     lowest_rated: list[FlutterAnalyticsRankedEvent]
+
+
+class FlutterModerationLogEntry(BaseModel):
+    action: str
+    actor_name: str | None = None
+    comment: str | None = None
+    created_at: str
+
+
+class FlutterEventModerationDetail(BaseModel):
+    current_status: str
+    submitted_at: str | None = None
+    first_reviewed_at: str | None = None
+    approved_at: str | None = None
+    rejected_at: str | None = None
+    total_review_seconds: float | None = None
+    review_iterations: int
+    needs_changes_count: int
+    resubmission_count: int
+    latest_moderator: str | None = None
+    latest_comment: str | None = None
+    last_status_update: str | None = None
+    creator_resubmitted: bool
+    history: list[FlutterModerationLogEntry] = []
+
+
+class FlutterEventReview(BaseModel):
+    rating_id: int
+    user_id: int
+    display_name: str
+    username: str | None = None
+    photo_url: str | None = None
+    score: int
+    content: str | None = None
+    created_at: str

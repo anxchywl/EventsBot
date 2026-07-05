@@ -5,12 +5,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 
-import '../../core/api_client.dart';
+import '../../core/cache_store.dart';
 import '../../core/localization.dart';
-import '../../core/realtime_updates.dart';
 import '../../models/event_model.dart';
 import '../events/event_card.dart';
 import '../events/event_detail_screen.dart';
+import '../shared/stale_banner.dart';
 
 /// University Coordinator dashboard: every incoming request awaiting a decision,
 /// with work filters by club (organizer) and by date.
@@ -30,13 +30,16 @@ class CoordinatorDashboardScreen extends StatefulWidget {
 
 class _CoordinatorDashboardScreenState
     extends State<CoordinatorDashboardScreen> {
+  // The queue is time-critical; the poll cadence is retained as an SSE fallback,
+  // but a tick only reaches the network when the (shorter) pending TTL has
+  // elapsed — see [EventCache.pending].
   static const _pollInterval = Duration(seconds: 20);
 
   bool _loading = true;
   String? _error;
+  bool _stale = false;
   List<EventModel> _events = [];
   Timer? _pollTimer;
-  StreamSubscription<RealtimeUpdate>? _updatesSub;
 
   // Work filters
   String _sort = 'date_asc';
@@ -44,61 +47,75 @@ class _CoordinatorDashboardScreenState
   Set<String> _locations = {};
   Set<String> _organizers = {};
   // When on, the queue is swapped for a rejected / needs-changes review view.
-  // This also opts the backend fetch into returning rejected events.
+  // This also opts the backend fetch into returning rejected events, and is
+  // cached under a separate key from the default queue.
   bool _showRejected = false;
 
   @override
   void initState() {
     super.initState();
-    _load();
-    _pollTimer = Timer.periodic(_pollInterval, (_) => _refreshSilently());
-    _updatesSub = RealtimeUpdates.instance.stream.listen(_handleRealtimeUpdate);
+    final cached = EventCache.instance.peekPending(includeRejected: _showRejected);
+    _events = cached ?? [];
+    _loading = cached == null;
+    EventCache.instance.addListener(_onCacheChanged);
+    _refresh();
+    _pollTimer = Timer.periodic(_pollInterval, (_) => _refresh());
   }
 
   @override
   void dispose() {
     _pollTimer?.cancel();
-    _updatesSub?.cancel();
+    EventCache.instance.removeListener(_onCacheChanged);
     super.dispose();
   }
 
-  void _handleRealtimeUpdate(RealtimeUpdate update) {
-    if (update.type == 'event_status_changed') {
-      unawaited(_refreshSilently());
+  void _onCacheChanged() {
+    if (!mounted) return;
+    final cached = EventCache.instance.peekPending(includeRejected: _showRejected);
+    if (cached != null) {
+      setState(() {
+        _events = cached;
+        _loading = false;
+      });
     }
+    _refresh();
   }
 
-  Future<void> _load() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+  /// Revalidate the active queue. Skips the network while the cache is fresh;
+  /// keeps the last list visible on failure and flags staleness once it is old.
+  Future<void> _refresh({bool force = false}) async {
+    final includeRejected = _showRejected;
     try {
-      final pending = await fetchPendingEvents(includeRejected: _showRejected);
-      if (!mounted) return;
+      final pending = await EventCache.instance.pending(
+        includeRejected: includeRejected,
+        force: force,
+      );
+      if (!mounted || includeRejected != _showRejected) return;
       setState(() {
         _events = pending;
         _loading = false;
+        _error = null;
+        _stale = false;
       });
     } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _error = e.toString();
-        _loading = false;
-      });
-    }
-  }
-
-  Future<void> _refreshSilently() async {
-    try {
-      final pending = await fetchPendingEvents(includeRejected: _showRejected);
-      if (!mounted) return;
-      setState(() {
-        _events = pending;
-        _error = null;
-      });
-    } catch (_) {
-      // Keep last known list; next tick retries.
+      if (!mounted || includeRejected != _showRejected) return;
+      final cached =
+          EventCache.instance.peekPending(includeRejected: includeRejected);
+      if (cached != null) {
+        final at =
+            EventCache.instance.fetchedAtPending(includeRejected: includeRejected);
+        setState(() {
+          _events = cached;
+          _loading = false;
+          _stale = at != null &&
+              DateTime.now().difference(at) > CacheTtl.stalenessThreshold;
+        });
+      } else {
+        setState(() {
+          _error = e.toString();
+          _loading = false;
+        });
+      }
     }
   }
 
@@ -114,8 +131,16 @@ class _CoordinatorDashboardScreenState
   bool get _sortByDate => _sort == 'date_asc' || _sort == 'date_desc';
 
   Future<void> _toggleRejected() async {
-    setState(() => _showRejected = !_showRejected);
-    await _refreshSilently();
+    setState(() {
+      _showRejected = !_showRejected;
+      // Adopt the other key's cached contents instantly (may be null → spinner
+      // only if that view was never loaded this session).
+      final cached =
+          EventCache.instance.peekPending(includeRejected: _showRejected);
+      _events = cached ?? [];
+      _loading = cached == null;
+    });
+    await _refresh();
   }
 
   List<EventModel> get _filtered {
@@ -281,7 +306,7 @@ class _CoordinatorDashboardScreenState
       context,
       MaterialPageRoute(builder: (_) => EventDetailScreen(event: event)),
     );
-    await _load();
+    await _refresh(force: true);
   }
 
   @override
@@ -305,7 +330,7 @@ class _CoordinatorDashboardScreenState
               const SizedBox(height: AppSpacing.df),
               AppSecondaryButton(
                 text: AppLocalizations.get('retry'),
-                onPressed: _load,
+                onPressed: () => _refresh(force: true),
               ),
             ],
           ),
@@ -322,10 +347,11 @@ class _CoordinatorDashboardScreenState
 
     return Column(
       children: [
+        if (_stale) const StaleBanner(),
         if (showFilters) _filterBar(),
         Expanded(
           child: RefreshIndicator(
-            onRefresh: _refreshSilently,
+            onRefresh: () => _refresh(force: true),
             child: filtered.isEmpty
                 ? CustomScrollView(
                     physics: const AlwaysScrollableScrollPhysics(),

@@ -6,10 +6,9 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../../core/api_client.dart';
 import '../../core/auth_store.dart';
+import '../../core/cache_store.dart';
 import '../../core/localization.dart';
-import '../../core/realtime_updates.dart';
 import '../../models/category_model.dart';
 import '../../models/event_model.dart';
 import '../submit/submit_screen.dart';
@@ -82,7 +81,6 @@ class _EventsScreenState extends State<EventsScreen> {
 
   List<EventModel> _events = [];
   List<CategoryModel> _categories = [];
-  StreamSubscription<RealtimeUpdate>? _updatesSub;
 
   // Derived option lists from loaded events
   List<String> _organizerOptions = [];
@@ -108,12 +106,40 @@ class _EventsScreenState extends State<EventsScreen> {
   @override
   void initState() {
     super.initState();
+    // Render from cache instantly (survives restart); the spinner shows only
+    // when nothing has been fetched yet this install.
+    _adoptCache();
+    _loading = EventCache.instance.peekApproved() == null &&
+        EventCache.instance.peekPending() == null;
     if (_browseUiEnabled) {
-      _loadFavorites().then((_) => _load());
-    } else {
-      _load();
+      _loadFavorites();
     }
-    _updatesSub = RealtimeUpdates.instance.stream.listen(_handleRealtimeUpdate);
+    EventCache.instance.addListener(_onCacheChanged);
+    _refresh();
+  }
+
+  /// Pull the latest cached approved + pending events and categories into local
+  /// state, rebuilding the derived option lists and grouped view.
+  void _adoptCache() {
+    final approved = EventCache.instance.peekApproved() ?? const [];
+    final pending = EventCache.instance.peekPending() ?? const [];
+    final categories = EventCache.instance.peekCategories();
+    final events = [...approved, ...pending];
+    _events = events;
+    if (categories != null) _categories = categories;
+    _organizerOptions = events.map((e) => e.organizerName).toSet().toList()
+      ..sort();
+    _locationOptions = events.map((e) => e.location).toSet().toList()..sort();
+    _applyFilters();
+  }
+
+  void _onCacheChanged() {
+    if (!mounted) return;
+    setState(() {
+      _adoptCache();
+      _loading = false;
+    });
+    _refresh();
   }
 
   Future<void> _loadFavorites() async {
@@ -142,45 +168,39 @@ class _EventsScreenState extends State<EventsScreen> {
 
   @override
   void dispose() {
-    _updatesSub?.cancel();
+    EventCache.instance.removeListener(_onCacheChanged);
     _searchController.dispose();
     super.dispose();
   }
 
-  void _handleRealtimeUpdate(RealtimeUpdate update) {
-    if (update.type == 'event_status_changed') {
-      unawaited(_load(silent: true));
-    }
-  }
-
-  Future<void> _load({bool silent = false}) async {
-    if (!silent) {
-      setState(() {
-        _loading = true;
-        _error = null;
-      });
-    }
+  /// Revalidate approved + pending + categories. Each call is stale-while-
+  /// revalidate: fresh cache entries skip the network. Cached content stays on
+  /// screen if the fetch fails; the error state shows only when nothing is
+  /// cached at all.
+  Future<void> _refresh({bool force = false}) async {
     try {
-      final approved = await fetchApprovedEvents();
-      final pending = await fetchPendingEvents();
-      final categories = await fetchCategories();
+      await Future.wait([
+        EventCache.instance.approved(force: force),
+        EventCache.instance.pending(force: force),
+        EventCache.instance.categories(force: force),
+      ]);
       if (!mounted) return;
-      final events = [...approved, ...pending];
       setState(() {
-        _events = events;
-        _categories = categories;
-        _organizerOptions = events.map((e) => e.organizerName).toSet().toList()
-          ..sort();
-        _locationOptions = events.map((e) => e.location).toSet().toList()
-          ..sort();
+        _adoptCache();
         _loading = false;
-        _applyFilters();
+        _error = null;
       });
     } catch (e) {
       if (!mounted) return;
+      final hasCache = EventCache.instance.peekApproved() != null ||
+          EventCache.instance.peekPending() != null;
       setState(() {
-        _error = e.toString();
         _loading = false;
+        if (hasCache) {
+          _adoptCache();
+        } else {
+          _error = e.toString();
+        }
       });
     }
   }
@@ -453,7 +473,7 @@ class _EventsScreenState extends State<EventsScreen> {
           SubmitScreen(initialDate: initialDate, asSheet: true),
     );
     if (submitted == true) {
-      await _load(silent: true);
+      await _refresh(force: true);
     }
   }
 
@@ -464,7 +484,7 @@ class _EventsScreenState extends State<EventsScreen> {
       context,
       MaterialPageRoute(builder: (_) => EventDetailScreen(event: model)),
     );
-    await _load(silent: true);
+    await _refresh(force: true);
   }
 
   List<AppCalendarEvent> _calendarEvents() {
@@ -538,7 +558,7 @@ class _EventsScreenState extends State<EventsScreen> {
             children: [
               Text(_error!, textAlign: TextAlign.center),
               const SizedBox(height: AppSpacing.df),
-              AppSecondaryButton(text: 'Retry', onPressed: _load),
+              AppSecondaryButton(text: 'Retry', onPressed: () => _refresh(force: true)),
             ],
           ),
         ),

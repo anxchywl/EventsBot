@@ -4,11 +4,10 @@ import 'package:app_ui/app_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../../core/api_client.dart';
 import '../../core/auth_store.dart';
+import '../../core/cache_store.dart';
 import '../../core/exceptions.dart';
 import '../../core/localization.dart';
-import '../../core/realtime_updates.dart';
 import '../../models/event_model.dart';
 import '../submit/submit_screen.dart';
 
@@ -29,7 +28,6 @@ class EventDetailScreen extends StatefulWidget {
 class _EventDetailScreenState extends State<EventDetailScreen> {
   late EventModel _event = widget.event;
   bool _moderating = false;
-  StreamSubscription<RealtimeUpdate>? _updatesSub;
 
   // Only coordinators (admins) moderate. The backend
   // (PATCH /api/flutter/events/{id}/status via require_flutter_admin) is the
@@ -53,27 +51,37 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
   @override
   void initState() {
     super.initState();
-    _updatesSub = RealtimeUpdates.instance.stream.listen(_handleRealtimeUpdate);
+    // Share the canonical cached object so a status change patched by an SSE
+    // event or a mutation elsewhere is reflected here without a manual refresh.
+    EventCache.instance.seed(_event);
+    EventCache.instance.addListener(_onCacheChanged);
+    // Opened from a list; pull the freshest copy in the background (cache-first
+    // for instant render, revalidated silently).
+    unawaited(_refreshEvent());
   }
 
   @override
   void dispose() {
-    _updatesSub?.cancel();
+    EventCache.instance.removeListener(_onCacheChanged);
     super.dispose();
   }
 
-  void _handleRealtimeUpdate(RealtimeUpdate update) {
-    if (update.type != 'event_status_changed') return;
-    if (update.data['event_id'] != _event.id) return;
-    unawaited(_refreshEvent());
+  void _onCacheChanged() {
+    if (!mounted) return;
+    final updated = EventCache.instance.peekEvent(_event.id);
+    if (updated != null && !identical(updated, _event)) {
+      setState(() => _event = updated);
+    }
   }
 
   Future<void> _refreshEvent() async {
     try {
-      final updated = await fetchEvent(_event.id);
+      final updated = await EventCache.instance.event(_event.id, force: true);
       if (!mounted) return;
       setState(() => _event = updated);
-    } catch (_) {}
+    } catch (_) {
+      // Offline / transient: keep the copy we were handed.
+    }
   }
 
   @override
@@ -570,7 +578,8 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
   Future<void> _moderate(String status, String? comment) async {
     setState(() => _moderating = true);
     try {
-      final updated = await updateEventStatus(_event.id, status, comment);
+      final updated =
+          await EventCache.instance.updateStatus(_event.id, status, comment);
       if (!mounted) return;
       setState(() => _event = updated);
     } on ApiException catch (e) {

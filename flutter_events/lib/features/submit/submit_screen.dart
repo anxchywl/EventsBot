@@ -3,7 +3,8 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
-import '../../core/api_client.dart';
+import '../../core/auth_store.dart';
+import '../../core/cache_store.dart';
 import '../../core/exceptions.dart';
 import '../../core/localization.dart';
 import '../../models/category_model.dart';
@@ -93,6 +94,11 @@ class _SubmitScreenState extends State<SubmitScreen> {
     }
     if (widget.initialEvent != null) {
       _prefillFromEvent(widget.initialEvent!);
+    } else {
+      final name = AuthStore.firstName;
+      if (name != null && name.isNotEmpty) {
+        _organizerController.text = name;
+      }
     }
     _setupFocusTracking();
     _loadCategories();
@@ -225,7 +231,7 @@ class _SubmitScreenState extends State<SubmitScreen> {
       _categoriesError = null;
     });
     try {
-      final categories = await fetchCategories();
+      final categories = await EventCache.instance.categories();
       if (!mounted) return;
       setState(() {
         _categories = categories;
@@ -262,8 +268,8 @@ class _SubmitScreenState extends State<SubmitScreen> {
 
   Future<void> _loadExistingEvents() async {
     try {
-      final approved = await fetchApprovedEvents();
-      final pending = await fetchPendingEvents();
+      final approved = await EventCache.instance.approved();
+      final pending = await EventCache.instance.pending();
       if (!mounted) return;
       setState(() => _existingEvents = [...approved, ...pending]);
     } catch (_) {
@@ -464,9 +470,9 @@ class _SubmitScreenState extends State<SubmitScreen> {
         'registration_url': _nullIfEmpty(_registrationController.text),
       };
       if (_isResubmit) {
-        await resubmitEvent(widget.initialEvent!.id, fields);
+        await EventCache.instance.resubmit(widget.initialEvent!.id, fields);
       } else {
-        await submitEvent(fields);
+        await EventCache.instance.submit(fields);
       }
       if (!mounted) return;
       setState(() => _viewMode = _SubmitViewMode.success);

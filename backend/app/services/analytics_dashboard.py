@@ -16,18 +16,21 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
+from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import Float, and_, cast, func, select
+from sqlalchemy import Float, and_, case, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.models.analytics import EventAnalytics
+from app.models.comment import Comment
 from app.models.enums import EventStatus, ModerationAction
 from app.models.event import Event, EventCategory
 from app.models.favorite import Favorite
 from app.models.moderation import ModerationLog
 from app.models.rating import Rating
+from app.models.user import User
 
 logger = logging.getLogger(__name__)
 
@@ -587,6 +590,369 @@ async def compute_ratings(
         "top_rated": top_rated,
         "lowest_rated": lowest_rated,
     }
+
+
+# ── Categories ───────────────────────────────────────────────────────────────
+
+
+async def compute_categories(
+    session: AsyncSession, filters: AnalyticsFilters
+) -> list[dict]:
+    """Per-category breakdown: event count, views, registration clicks, average
+    rating and approval rate — over the filtered event set. Computed with a few
+    grouped queries merged in Python (no per-category round trips)."""
+    conditions = filters.event_conditions()
+    base = and_(*conditions) if conditions else True
+    event_ids = _filtered_event_ids(filters)
+
+    approved_case = case((Event.status == EventStatus.APPROVED.value, 1), else_=0)
+    cat_rows = (
+        await session.execute(
+            select(
+                EventCategory.id,
+                EventCategory.name,
+                func.count(Event.id),
+                func.coalesce(func.sum(approved_case), 0),
+            )
+            .join(Event, Event.category_id == EventCategory.id)
+            .where(base)
+            .group_by(EventCategory.id, EventCategory.name)
+        )
+    ).all()
+
+    view_rows = (
+        await session.execute(
+            select(
+                Event.category_id,
+                func.count().filter(EventAnalytics.action.in_(VIEW_ACTIONS)),
+                func.count().filter(EventAnalytics.action == REGISTER_ACTION),
+            )
+            .join(EventAnalytics, EventAnalytics.event_id == Event.id)
+            .where(Event.id.in_(event_ids))
+            .group_by(Event.category_id)
+        )
+    ).all()
+    views_by_cat = {cid: (v, r) for cid, v, r in view_rows}
+
+    rating_rows = (
+        await session.execute(
+            select(Event.category_id, func.avg(cast(Rating.score, Float)))
+            .join(Rating, Rating.event_id == Event.id)
+            .where(Event.id.in_(event_ids), Rating.deleted_at.is_(None))
+            .group_by(Event.category_id)
+        )
+    ).all()
+    rating_by_cat = {cid: avg for cid, avg in rating_rows}
+
+    result = []
+    for cid, name, count, approved in cat_rows:
+        views, regs = views_by_cat.get(cid, (0, 0))
+        avg = rating_by_cat.get(cid)
+        result.append(
+            {
+                "category_id": cid,
+                "category": name,
+                "event_count": count,
+                "views": views or 0,
+                "registration_clicks": regs or 0,
+                "average_rating": round(float(avg), 2) if avg is not None else None,
+                "approval_rate": round(approved / count, 4) if count else 0.0,
+            }
+        )
+    result.sort(key=lambda r: r["event_count"], reverse=True)
+    return result
+
+
+# ── Organizers ───────────────────────────────────────────────────────────────
+
+
+async def compute_organizers(
+    session: AsyncSession,
+    filters: AnalyticsFilters,
+    limit: int,
+    offset: int,
+) -> list[dict]:
+    """Most-active organizers (paginated) with events created, approval/rejection
+    rate, average rating and engagement attributable to their events. Only
+    aggregate/attributable figures are exposed — never per-student data."""
+    conditions = filters.event_conditions()
+    base = and_(*conditions) if conditions else True
+
+    approved_case = case((Event.status == EventStatus.APPROVED.value, 1), else_=0)
+    rejected_case = case((Event.status == EventStatus.REJECTED.value, 1), else_=0)
+
+    # page of organizers ranked by activity, with their event-state counts
+    org_rows = (
+        await session.execute(
+            select(
+                Event.organizer_name,
+                func.count(Event.id).label("events_created"),
+                func.coalesce(func.sum(approved_case), 0),
+                func.coalesce(func.sum(rejected_case), 0),
+            )
+            .where(base)
+            .group_by(Event.organizer_name)
+            .order_by(func.count(Event.id).desc(), Event.organizer_name.asc())
+            .limit(limit)
+            .offset(offset)
+        )
+    ).all()
+    names = [row[0] for row in org_rows]
+    if not names:
+        return []
+
+    event_ids = _filtered_event_ids(filters)
+
+    eng_rows = (
+        await session.execute(
+            select(
+                Event.organizer_name,
+                func.count().filter(EventAnalytics.action.in_(VIEW_ACTIONS)),
+                func.count().filter(EventAnalytics.action == REGISTER_ACTION),
+            )
+            .join(EventAnalytics, EventAnalytics.event_id == Event.id)
+            .where(Event.id.in_(event_ids), Event.organizer_name.in_(names))
+            .group_by(Event.organizer_name)
+        )
+    ).all()
+    eng_by_org = {name: (v, r) for name, v, r in eng_rows}
+
+    fav_rows = (
+        await session.execute(
+            select(Event.organizer_name, func.count())
+            .join(Favorite, Favorite.event_id == Event.id)
+            .where(Event.id.in_(event_ids), Event.organizer_name.in_(names))
+            .group_by(Event.organizer_name)
+        )
+    ).all()
+    fav_by_org = {name: count for name, count in fav_rows}
+
+    rating_rows = (
+        await session.execute(
+            select(Event.organizer_name, func.avg(cast(Rating.score, Float)))
+            .join(Rating, Rating.event_id == Event.id)
+            .where(
+                Event.id.in_(event_ids),
+                Event.organizer_name.in_(names),
+                Rating.deleted_at.is_(None),
+            )
+            .group_by(Event.organizer_name)
+        )
+    ).all()
+    rating_by_org = {name: avg for name, avg in rating_rows}
+
+    result = []
+    for name, events_created, approved, rejected in org_rows:
+        views, regs = eng_by_org.get(name, (0, 0))
+        avg = rating_by_org.get(name)
+        result.append(
+            {
+                "organizer": name,
+                "events_created": events_created,
+                "approval_rate": round(approved / events_created, 4)
+                if events_created
+                else 0.0,
+                "rejection_rate": round(rejected / events_created, 4)
+                if events_created
+                else 0.0,
+                "average_rating": round(float(avg), 2) if avg is not None else None,
+                "views": views or 0,
+                "registration_clicks": regs or 0,
+                "favorites": fav_by_org.get(name, 0),
+            }
+        )
+    return result
+
+
+# ── Per-event moderation detail ──────────────────────────────────────────────
+
+
+async def compute_event_moderation_detail(
+    session: AsyncSession, event_id: int
+) -> dict | None:
+    """Exact moderation timeline for a single event.
+
+    Returns None if the event does not exist. Never aggregates — every value
+    is the actual timestamp or count for this event's history.
+    """
+    CreatorUser = User.__table__.alias("creator_user")
+    event_row = (
+        await session.execute(
+            select(Event.status, Event.created_at, CreatorUser.c.first_name)
+            .outerjoin(CreatorUser, Event.creator_user_id == CreatorUser.c.id)
+            .where(Event.id == event_id)
+        )
+    ).first()
+    if event_row is None:
+        return None
+
+    status, event_created_at, creator_first_name = event_row
+
+    ActorUser = User.__table__.alias("actor_user")
+    log_rows = (
+        await session.execute(
+            select(
+                ModerationLog.action,
+                ModerationLog.comment,
+                ModerationLog.created_at,
+                ModerationLog.actor_user_id,
+                ActorUser.c.first_name,
+            )
+            .outerjoin(ActorUser, ModerationLog.actor_user_id == ActorUser.c.id)
+            .where(ModerationLog.event_id == event_id)
+            .order_by(ModerationLog.created_at.asc(), ModerationLog.id.asc())
+        )
+    ).all()
+
+    entries = [_LogEntry(action=r.action, created_at=r.created_at) for r in log_rows]
+    # note: r.first_name is now the actor's name (column index 4); r.actor_user_id is index 3
+    submitted_at = _submission_start(entries, event_created_at)
+
+    first_reviewed_at: datetime | None = None
+    approved_at: datetime | None = None
+    rejected_at: datetime | None = None
+    for r in log_rows:
+        if r.action in _DECISION_ACTIONS and first_reviewed_at is None:
+            first_reviewed_at = r.created_at
+        if r.action in (ModerationAction.APPROVED.value, ModerationAction.RESTORED.value) and approved_at is None:
+            approved_at = r.created_at
+        if r.action == ModerationAction.REJECTED.value and rejected_at is None:
+            rejected_at = r.created_at
+
+    tr = total_review_seconds(entries, event_created_at)
+    iterations = review_iterations(entries) or 0
+    needs_changes_count = sum(
+        1 for r in log_rows if r.action == ModerationAction.NEEDS_CHANGES.value
+    )
+    resubmission_count = sum(
+        1 for r in log_rows if r.action == ModerationAction.RESUBMITTED.value
+    )
+
+    latest_moderator: str | None = None
+    latest_comment: str | None = None
+    for r in reversed(log_rows):
+        if r.action in _DECISION_ACTIONS and latest_moderator is None:
+            latest_moderator = r.first_name
+        if r.comment and latest_comment is None:
+            latest_comment = r.comment
+        if latest_moderator is not None and latest_comment is not None:
+            break
+
+    last_status_update = log_rows[-1].created_at if log_rows else None
+
+    def _fmt(dt: datetime | None) -> str | None:
+        return dt.isoformat() if dt is not None else None
+
+    _CREATOR_ACTIONS = frozenset((ModerationAction.SUBMITTED.value, ModerationAction.RESUBMITTED.value))
+    history = [
+        {
+            "action": r.action,
+            # Only show a name for submission entries (who submitted/resubmitted).
+            # Coordinator decision rows (approved, rejected, needs_changes, etc.)
+            # carry no name — the action and comment are sufficient.
+            "actor_name": (
+                r.first_name or creator_first_name
+                if r.action in _CREATOR_ACTIONS
+                else None
+            ),
+            "comment": r.comment,
+            "created_at": _fmt(r.created_at),
+        }
+        for r in log_rows
+    ]
+
+    return {
+        "current_status": status,
+        "submitted_at": _fmt(submitted_at),
+        "first_reviewed_at": _fmt(first_reviewed_at),
+        "approved_at": _fmt(approved_at),
+        "rejected_at": _fmt(rejected_at),
+        "total_review_seconds": tr,
+        "review_iterations": iterations,
+        "needs_changes_count": needs_changes_count,
+        "resubmission_count": resubmission_count,
+        "latest_moderator": latest_moderator,
+        "latest_comment": latest_comment,
+        "last_status_update": _fmt(last_status_update),
+        "creator_resubmitted": resubmission_count > 0,
+        "history": history,
+    }
+
+
+# ── Per-event reviews ────────────────────────────────────────────────────────
+
+
+async def compute_event_reviews(
+    session: AsyncSession, event_id: int, limit: int, offset: int
+) -> list[dict]:
+    """Paginated reviews (rating + optional comment) for a single event.
+
+    Only non-deleted ratings are included. Comments are outer-joined so a
+    rating without a review text still appears. Results are newest-first.
+    """
+    rows = (
+        await session.execute(
+            select(
+                Rating.id,
+                Rating.user_id,
+                Rating.score,
+                Rating.created_at,
+                User.first_name,
+                User.username,
+                User.photo_url,
+                User.telegram_id,
+                User.photo_updated_at,
+                Comment.content,
+            )
+            .join(User, User.id == Rating.user_id)
+            .outerjoin(
+                Comment,
+                and_(
+                    Comment.user_id == Rating.user_id,
+                    Comment.event_id == Rating.event_id,
+                    Comment.deleted_at.is_(None),
+                ),
+            )
+            .where(Rating.event_id == event_id, Rating.deleted_at.is_(None))
+            .order_by(Rating.created_at.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+    ).all()
+
+    return [
+        {
+            "rating_id": r.id,
+            "user_id": r.user_id,
+            "display_name": r.first_name or f"User {r.user_id}",
+            "username": r.username,
+            "photo_url": _resolve_avatar_url(
+                r.photo_url, r.telegram_id, r.photo_updated_at
+            ),
+            "score": r.score,
+            "content": r.content,
+            "created_at": r.created_at.isoformat(),
+        }
+        for r in rows
+    ]
+
+
+def _resolve_avatar_url(
+    photo_url: str | None,
+    telegram_id: int | None,
+    photo_updated_at: datetime | None,
+) -> str | None:
+    """Mirror the Mini App's avatar resolution: prefer a stored Telegram photo
+    URL, otherwise fall back to the backend avatar proxy keyed by telegram_id so
+    users without a cached photo_url still get their picture."""
+    if photo_url:
+        return photo_url
+    if telegram_id and telegram_id > 0:
+        version = (
+            photo_updated_at.isoformat() if photo_updated_at else str(telegram_id)
+        )
+        return f"/api/events/avatar/{telegram_id}?{urlencode({'v': version})}"
+    return None
 
 
 # ── Event picker search ──────────────────────────────────────────────────────

@@ -63,6 +63,29 @@ class EventModel {
     );
   }
 
+  /// Serialises back to the same JSON shape [fromJson] consumes, so a cached
+  /// event round-trips through SharedPreferences. [coverUrl] is stored already
+  /// resolved to an absolute URL; [_resolveUrl] leaves `http…` values untouched
+  /// on the way back in, so the round-trip is stable.
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'public_token': publicToken,
+        'title': title,
+        'description': description,
+        'event_date': eventDate,
+        'event_time': eventTime,
+        'event_end_time': eventEndTime,
+        'location': location,
+        'category': category,
+        'organizer_name': organizerName,
+        'status': status,
+        'cover_url': coverUrl,
+        'it_equipment': itEquipment,
+        'materials': materials,
+        'registration_url': registrationUrl,
+        'moderation_note': moderationNote,
+      };
+
   bool get isApproved => status == 'approved';
 
   bool get isPending => status == 'pending';

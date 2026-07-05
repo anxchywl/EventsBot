@@ -24,12 +24,16 @@ from app.web.cache import TTLCache
 from app.web.flutter_auth import require_flutter_admin
 from app.web.limiter import check_rate_limit
 from app.web.schemas import (
+    FlutterAnalyticsCategory,
     FlutterAnalyticsEngagement,
     FlutterAnalyticsEventOption,
     FlutterAnalyticsModeration,
+    FlutterAnalyticsOrganizer,
     FlutterAnalyticsRankedEvent,
     FlutterAnalyticsRatings,
     FlutterAnalyticsSummary,
+    FlutterEventModerationDetail,
+    FlutterEventReview,
 )
 
 logger = logging.getLogger(__name__)
@@ -88,6 +92,7 @@ def _cache_key(name: str, filters: svc.AnalyticsFilters, *extra: object) -> str:
             str(filters.category_id),
             filters.organizer or "",
             filters.status or "",
+            str(filters.event_id),
             *[str(e) for e in extra],
         ]
     )
@@ -194,6 +199,70 @@ async def ratings(
         cached = await svc.compute_ratings(session, filters, top_limit)
         _agg_cache.set(key, cached)
     return FlutterAnalyticsRatings(**cached)
+
+
+@router.get("/categories", response_model=list[FlutterAnalyticsCategory])
+async def categories(
+    request: Request,
+    filters: svc.AnalyticsFilters = Depends(analytics_filters),
+    user=Depends(require_flutter_admin),
+    session: AsyncSession = Depends(get_session),
+) -> list[FlutterAnalyticsCategory]:
+    await _limit(request, user.id, "categories")
+    key = _cache_key("categories", filters)
+    cached = _agg_cache.get(key)
+    if cached is None:
+        cached = await svc.compute_categories(session, filters)
+        _agg_cache.set(key, cached)
+    return [FlutterAnalyticsCategory(**row) for row in cached]
+
+
+@router.get("/organizers", response_model=list[FlutterAnalyticsOrganizer])
+async def organizers(
+    request: Request,
+    limit: int = Query(default=10, ge=1, le=_MAX_TOP_LIMIT),
+    offset: int = Query(default=0, ge=0, le=100_000),
+    filters: svc.AnalyticsFilters = Depends(analytics_filters),
+    user=Depends(require_flutter_admin),
+    session: AsyncSession = Depends(get_session),
+) -> list[FlutterAnalyticsOrganizer]:
+    await _limit(request, user.id, "organizers")
+    key = _cache_key("organizers", filters, limit, offset)
+    cached = _agg_cache.get(key)
+    if cached is None:
+        cached = await svc.compute_organizers(session, filters, limit, offset)
+        _agg_cache.set(key, cached)
+    return [FlutterAnalyticsOrganizer(**row) for row in cached]
+
+
+@router.get("/moderation/event", response_model=FlutterEventModerationDetail)
+async def event_moderation_detail(
+    request: Request,
+    event_id: int = Query(ge=1),
+    user=Depends(require_flutter_admin),
+    session: AsyncSession = Depends(get_session),
+) -> FlutterEventModerationDetail:
+    """Exact moderation timeline for a single event (not aggregated)."""
+    await _limit(request, user.id, "mod_event")
+    data = await svc.compute_event_moderation_detail(session, event_id)
+    if data is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "event not found")
+    return FlutterEventModerationDetail(**data)
+
+
+@router.get("/ratings/reviews", response_model=list[FlutterEventReview])
+async def event_reviews(
+    request: Request,
+    event_id: int = Query(ge=1),
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0, le=100_000),
+    user=Depends(require_flutter_admin),
+    session: AsyncSession = Depends(get_session),
+) -> list[FlutterEventReview]:
+    """Paginated reviews (rating + optional comment text) for a single event."""
+    await _limit(request, user.id, "reviews")
+    rows = await svc.compute_event_reviews(session, event_id, limit, offset)
+    return [FlutterEventReview(**r) for r in rows]
 
 
 @router.get("/events", response_model=list[FlutterAnalyticsEventOption])

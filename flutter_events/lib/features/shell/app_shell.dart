@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/auth_store.dart';
+import '../../core/cache_store.dart';
 import '../../core/localization.dart';
 import '../coordinator/coordinator_dashboard_screen.dart';
 import '../event_manager/event_manager_screen.dart';
@@ -24,6 +25,10 @@ class _AppShellState extends State<AppShell> {
   void initState() {
     super.initState();
     _currentIndex = AuthStore.isAdmin ? 1 : 0;
+    // Single, app-wide realtime subscription. The cache patches the shared event
+    // map on each event_status_changed and notifies every screen — screens no
+    // longer each open their own SSE listener and refetch independently.
+    EventCache.instance.attachRealtime();
   }
 
   List<({Widget body, AppIconData icon, String label})> get _destinations {
@@ -101,8 +106,14 @@ class _AppShellState extends State<AppShell> {
   Widget build(BuildContext context) {
     final destinations = _destinations;
     final currentIndex = _currentIndex.clamp(0, destinations.length - 1);
+    final navBarHeight = AppSpacing.xxxl + AppSpacing.sm +
+        MediaQuery.of(context).padding.bottom + AppSpacing.sm;
     return Scaffold(
-      body: _buildBody(),
+      extendBody: true,
+      body: Padding(
+        padding: EdgeInsets.only(bottom: navBarHeight),
+        child: _buildBody(),
+      ),
       bottomNavigationBar: SafeArea(
         top: false,
         minimum: const EdgeInsets.fromLTRB(

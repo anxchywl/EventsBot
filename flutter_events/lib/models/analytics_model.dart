@@ -5,6 +5,17 @@
 /// so a new backend card can be added without a model change here.
 library;
 
+import '../core/constants.dart';
+
+/// Resolves a possibly-relative avatar/media path (e.g. the backend avatar
+/// proxy `/api/events/avatar/...`) to an absolute URL. Absolute `http…` values
+/// (Telegram CDN photos) pass through untouched.
+String? _resolveMediaUrl(String? url) {
+  if (url == null || url.isEmpty) return null;
+  if (url.startsWith('http')) return url;
+  return '$kBaseUrl$url';
+}
+
 /// Keyed summary-card metrics (`/api/flutter/analytics/summary`).
 class AnalyticsSummary {
   final Map<String, num?> metrics;
@@ -216,6 +227,190 @@ List<RankedEvent> _rankedList(dynamic raw) {
   return ((raw as List<dynamic>?) ?? [])
       .map((e) => RankedEvent.fromJson(e as Map<String, dynamic>))
       .toList();
+}
+
+class AnalyticsCategory {
+  final int categoryId;
+  final String category;
+  final int eventCount;
+  final int views;
+  final int registrationClicks;
+  final double? averageRating;
+  final double approvalRate;
+
+  const AnalyticsCategory({
+    required this.categoryId,
+    required this.category,
+    required this.eventCount,
+    required this.views,
+    required this.registrationClicks,
+    required this.averageRating,
+    required this.approvalRate,
+  });
+
+  factory AnalyticsCategory.fromJson(Map<String, dynamic> json) {
+    return AnalyticsCategory(
+      categoryId: json['category_id'] as int,
+      category: json['category'] as String,
+      eventCount: json['event_count'] as int,
+      views: json['views'] as int,
+      registrationClicks: json['registration_clicks'] as int,
+      averageRating: (json['average_rating'] as num?)?.toDouble(),
+      approvalRate: (json['approval_rate'] as num).toDouble(),
+    );
+  }
+}
+
+class AnalyticsOrganizer {
+  final String organizer;
+  final int eventsCreated;
+  final double approvalRate;
+  final double rejectionRate;
+  final double? averageRating;
+  final int views;
+  final int registrationClicks;
+  final int favorites;
+
+  const AnalyticsOrganizer({
+    required this.organizer,
+    required this.eventsCreated,
+    required this.approvalRate,
+    required this.rejectionRate,
+    required this.averageRating,
+    required this.views,
+    required this.registrationClicks,
+    required this.favorites,
+  });
+
+  factory AnalyticsOrganizer.fromJson(Map<String, dynamic> json) {
+    return AnalyticsOrganizer(
+      organizer: json['organizer'] as String,
+      eventsCreated: json['events_created'] as int,
+      approvalRate: (json['approval_rate'] as num).toDouble(),
+      rejectionRate: (json['rejection_rate'] as num).toDouble(),
+      averageRating: (json['average_rating'] as num?)?.toDouble(),
+      views: json['views'] as int,
+      registrationClicks: json['registration_clicks'] as int,
+      favorites: json['favorites'] as int,
+    );
+  }
+}
+
+/// One entry in the moderation log for a single event.
+class ModerationLogEntry {
+  final String action;
+  final String? actorName;
+  final String? comment;
+  final String createdAt;
+
+  const ModerationLogEntry({
+    required this.action,
+    this.actorName,
+    this.comment,
+    required this.createdAt,
+  });
+
+  factory ModerationLogEntry.fromJson(Map<String, dynamic> json) {
+    return ModerationLogEntry(
+      action: json['action'] as String,
+      actorName: json['actor_name'] as String?,
+      comment: json['comment'] as String?,
+      createdAt: json['created_at'] as String,
+    );
+  }
+}
+
+/// Exact moderation timeline for a single event (`/api/flutter/analytics/moderation/event`).
+class EventModerationDetail {
+  final String currentStatus;
+  final String? submittedAt;
+  final String? firstReviewedAt;
+  final String? approvedAt;
+  final String? rejectedAt;
+  final double? totalReviewSeconds;
+  final int reviewIterations;
+  final int needsChangesCount;
+  final int resubmissionCount;
+  final String? latestModerator;
+  final String? latestComment;
+  final String? lastStatusUpdate;
+  final bool creatorResubmitted;
+
+  final List<ModerationLogEntry> history;
+
+  const EventModerationDetail({
+    required this.currentStatus,
+    this.submittedAt,
+    this.firstReviewedAt,
+    this.approvedAt,
+    this.rejectedAt,
+    this.totalReviewSeconds,
+    required this.reviewIterations,
+    required this.needsChangesCount,
+    required this.resubmissionCount,
+    this.latestModerator,
+    this.latestComment,
+    this.lastStatusUpdate,
+    required this.creatorResubmitted,
+    required this.history,
+  });
+
+  factory EventModerationDetail.fromJson(Map<String, dynamic> json) {
+    return EventModerationDetail(
+      currentStatus: json['current_status'] as String,
+      submittedAt: json['submitted_at'] as String?,
+      firstReviewedAt: json['first_reviewed_at'] as String?,
+      approvedAt: json['approved_at'] as String?,
+      rejectedAt: json['rejected_at'] as String?,
+      totalReviewSeconds: (json['total_review_seconds'] as num?)?.toDouble(),
+      reviewIterations: json['review_iterations'] as int,
+      needsChangesCount: json['needs_changes_count'] as int,
+      resubmissionCount: json['resubmission_count'] as int,
+      latestModerator: json['latest_moderator'] as String?,
+      latestComment: json['latest_comment'] as String?,
+      lastStatusUpdate: json['last_status_update'] as String?,
+      creatorResubmitted: json['creator_resubmitted'] as bool,
+      history: ((json['history'] as List<dynamic>?) ?? [])
+          .map((e) => ModerationLogEntry.fromJson(e as Map<String, dynamic>))
+          .toList(),
+    );
+  }
+}
+
+/// One review (rating + optional text) for the per-event reviews sheet.
+class EventReview {
+  final int ratingId;
+  final int userId;
+  final String displayName;
+  final String? username;
+  final String? photoUrl;
+  final int score;
+  final String? content;
+  final String createdAt;
+
+  const EventReview({
+    required this.ratingId,
+    required this.userId,
+    required this.displayName,
+    this.username,
+    this.photoUrl,
+    required this.score,
+    this.content,
+    required this.createdAt,
+  });
+
+  factory EventReview.fromJson(Map<String, dynamic> json) {
+    return EventReview(
+      ratingId: json['rating_id'] as int,
+      userId: json['user_id'] as int,
+      displayName: json['display_name'] as String,
+      username: json['username'] as String?,
+      photoUrl: _resolveMediaUrl(json['photo_url'] as String?),
+      score: json['score'] as int,
+      content: json['content'] as String?,
+      createdAt: json['created_at'] as String,
+    );
+  }
 }
 
 /// One row in the analytics event-picker (`/api/flutter/analytics/events`).

@@ -353,6 +353,68 @@ Future<AnalyticsRatings> fetchAnalyticsRatings(
   return AnalyticsRatings.fromJson(json);
 }
 
+Future<List<AnalyticsCategory>> fetchAnalyticsCategories(
+  AnalyticsFilters filters,
+) async {
+  final response = await _get(
+    _uri('/api/flutter/analytics/categories', filters.toQuery()),
+    headers: _headers(auth: true),
+  );
+  if (!_isOk(response.statusCode)) _throwFor(response);
+  final list = jsonDecode(response.body) as List<dynamic>;
+  return list
+      .map((e) => AnalyticsCategory.fromJson(e as Map<String, dynamic>))
+      .toList();
+}
+
+Future<List<AnalyticsOrganizer>> fetchAnalyticsOrganizers(
+  AnalyticsFilters filters, {
+  int limit = 10,
+  int offset = 0,
+}) async {
+  final response = await _get(
+    _uri('/api/flutter/analytics/organizers', {
+      ...filters.toQuery(),
+      'limit': '$limit',
+      'offset': '$offset',
+    }),
+    headers: _headers(auth: true),
+  );
+  if (!_isOk(response.statusCode)) _throwFor(response);
+  final list = jsonDecode(response.body) as List<dynamic>;
+  return list
+      .map((e) => AnalyticsOrganizer.fromJson(e as Map<String, dynamic>))
+      .toList();
+}
+
+Future<EventModerationDetail> fetchEventModerationDetail(int eventId) async {
+  final json = await _getJson(
+    '/api/flutter/analytics/moderation/event',
+    {'event_id': '$eventId'},
+  );
+  return EventModerationDetail.fromJson(json);
+}
+
+Future<List<EventReview>> fetchEventReviews(
+  int eventId, {
+  int limit = 20,
+  int offset = 0,
+}) async {
+  final response = await _get(
+    _uri('/api/flutter/analytics/ratings/reviews', {
+      'event_id': '$eventId',
+      'limit': '$limit',
+      'offset': '$offset',
+    }),
+    headers: _headers(auth: true),
+  );
+  if (!_isOk(response.statusCode)) _throwFor(response);
+  final list = jsonDecode(response.body) as List<dynamic>;
+  return list
+      .map((e) => EventReview.fromJson(e as Map<String, dynamic>))
+      .toList();
+}
+
 /// Paginated, searchable event list for the analytics event-picker.
 Future<List<AnalyticsEventOption>> fetchAnalyticsEvents({
   String? search,
