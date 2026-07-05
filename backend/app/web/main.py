@@ -35,6 +35,7 @@ from app.web.routers import (
     admin_router,
     flutter_auth_router,
     flutter_events_router,
+    flutter_analytics_router,
 )
 from app.web.schemas import AuthRequest, AuthResponse
 
@@ -98,6 +99,7 @@ web_app.include_router(ratings_router)
 web_app.include_router(admin_router)
 web_app.include_router(flutter_auth_router)
 web_app.include_router(flutter_events_router)
+web_app.include_router(flutter_analytics_router)
 
 
 # set browser security headers for the mini app

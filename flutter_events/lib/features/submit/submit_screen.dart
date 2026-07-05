@@ -355,7 +355,7 @@ class _SubmitScreenState extends State<SubmitScreen> {
         !hasScheme ||
         uri.host.isEmpty ||
         !uri.host.contains('.')) {
-      return 'Please enter a valid URL (e.g. https://example.com)';
+      return 'Please enter a valid URL';
     }
     return null;
   }

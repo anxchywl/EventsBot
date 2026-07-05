@@ -449,3 +449,83 @@ class FlutterEventResubmit(BaseModel):
             raise ValueError("End time must be strictly later than start time.")
 
         return self
+
+
+# ── Coordinator analytics dashboard ──────────────────────────────────────────
+
+
+class FlutterAnalyticsSummary(BaseModel):
+    """Keyed summary-card metrics.
+
+    A map (not fixed fields) so a new card can be added later without a breaking
+    change to the response shape; unknown/absent keys degrade gracefully client
+    side. Values may be null when a metric has no data yet (e.g. no ratings).
+    """
+
+    metrics: dict[str, float | int | None]
+
+
+class FlutterAnalyticsRankedEvent(BaseModel):
+    event_id: int
+    title: str
+    value: float
+    count: int | None = None
+
+
+class FlutterLongestPending(BaseModel):
+    event_id: int
+    title: str
+    waiting_seconds: float
+
+
+class FlutterAnalyticsThresholdBucket(BaseModel):
+    threshold_hours: int
+    count: int
+
+
+class FlutterAnalyticsModeration(BaseModel):
+    approval_rate: float
+    rejection_rate: float
+    needs_changes_rate: float
+    avg_time_to_first_decision_seconds: float | None = None
+    avg_total_review_seconds: float | None = None
+    avg_review_iterations: float | None = None
+    queue_size: int
+    longest_pending: FlutterLongestPending | None = None
+    threshold_buckets: list[FlutterAnalyticsThresholdBucket]
+
+
+class FlutterEngagementTotals(BaseModel):
+    views: int
+    register_clicks: int
+    share_clicks: int
+    reminder_creates: int
+    favorites_added: int
+    favorites_removed: int
+
+
+class FlutterTrendPoint(BaseModel):
+    date: str
+    count: int
+
+
+class FlutterAnalyticsEngagement(BaseModel):
+    totals: FlutterEngagementTotals
+    views_over_time: list[FlutterTrendPoint]
+
+
+class FlutterAnalyticsEventOption(BaseModel):
+    id: int
+    title: str
+    category: str
+    event_date: str
+    status: str
+
+
+class FlutterAnalyticsRatings(BaseModel):
+    average: float | None = None
+    distribution: dict[str, int]
+    total_reviews: int
+    events_with_zero_reviews: int
+    top_rated: list[FlutterAnalyticsRankedEvent]
+    lowest_rated: list[FlutterAnalyticsRankedEvent]

@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import '../models/analytics_model.dart';
 import '../models/category_model.dart';
 import '../models/event_model.dart';
 import 'auth_store.dart';
@@ -235,5 +236,140 @@ List<EventModel> _decodeEventList(String body) {
   final list = jsonDecode(body) as List<dynamic>;
   return list
       .map((e) => EventModel.fromJson(e as Map<String, dynamic>))
+      .toList();
+}
+
+// ── Coordinator analytics ────────────────────────────────────────────────────
+
+/// Composable analytics filter set, mirrored 1:1 by the backend query params so
+/// every panel loads against the same filtered event set.
+class AnalyticsFilters {
+  final String? dateFrom; // YYYY-MM-DD
+  final String? dateTo; // YYYY-MM-DD
+  final int? categoryId;
+  final String? organizer;
+  final String? status;
+  final int? eventId;
+
+  const AnalyticsFilters({
+    this.dateFrom,
+    this.dateTo,
+    this.categoryId,
+    this.organizer,
+    this.status,
+    this.eventId,
+  });
+
+  Map<String, String> toQuery() {
+    final q = <String, String>{};
+    if (dateFrom != null) q['date_from'] = dateFrom!;
+    if (dateTo != null) q['date_to'] = dateTo!;
+    if (categoryId != null) q['category_id'] = '$categoryId';
+    if (organizer != null && organizer!.isNotEmpty) q['organizer'] = organizer!;
+    if (status != null && status!.isNotEmpty) q['status'] = status!;
+    if (eventId != null) q['event_id'] = '$eventId';
+    return q;
+  }
+}
+
+Future<Map<String, dynamic>> _getJson(
+  String path,
+  Map<String, String> query,
+) async {
+  final response = await _get(
+    _uri(path, query.isEmpty ? null : query),
+    headers: _headers(auth: true),
+  );
+  if (!_isOk(response.statusCode)) _throwFor(response);
+  return jsonDecode(response.body) as Map<String, dynamic>;
+}
+
+Future<AnalyticsSummary> fetchAnalyticsSummary(AnalyticsFilters filters) async {
+  final json = await _getJson('/api/flutter/analytics/summary', filters.toQuery());
+  return AnalyticsSummary.fromJson(json);
+}
+
+Future<AnalyticsModeration> fetchAnalyticsModeration(
+  AnalyticsFilters filters, {
+  List<int> thresholds = const [24, 48],
+}) async {
+  final query = filters.toQuery();
+  final response = await _get(
+    _uri('/api/flutter/analytics/moderation', query).replace(
+      queryParameters: {
+        ...query,
+        'thresholds': thresholds.map((h) => '$h').toList(),
+      },
+    ),
+    headers: _headers(auth: true),
+  );
+  if (!_isOk(response.statusCode)) _throwFor(response);
+  return AnalyticsModeration.fromJson(
+    jsonDecode(response.body) as Map<String, dynamic>,
+  );
+}
+
+Future<AnalyticsEngagement> fetchAnalyticsEngagement(
+  AnalyticsFilters filters, {
+  int trendDays = 30,
+}) async {
+  final json = await _getJson('/api/flutter/analytics/engagement', {
+    ...filters.toQuery(),
+    'trend_days': '$trendDays',
+  });
+  return AnalyticsEngagement.fromJson(json);
+}
+
+Future<List<RankedEvent>> fetchAnalyticsTop(
+  AnalyticsFilters filters, {
+  String metric = 'views',
+  int limit = 10,
+  int offset = 0,
+}) async {
+  final response = await _get(
+    _uri('/api/flutter/analytics/engagement/top', {
+      ...filters.toQuery(),
+      'metric': metric,
+      'limit': '$limit',
+      'offset': '$offset',
+    }),
+    headers: _headers(auth: true),
+  );
+  if (!_isOk(response.statusCode)) _throwFor(response);
+  final list = jsonDecode(response.body) as List<dynamic>;
+  return list
+      .map((e) => RankedEvent.fromJson(e as Map<String, dynamic>))
+      .toList();
+}
+
+Future<AnalyticsRatings> fetchAnalyticsRatings(
+  AnalyticsFilters filters, {
+  int topLimit = 5,
+}) async {
+  final json = await _getJson('/api/flutter/analytics/ratings', {
+    ...filters.toQuery(),
+    'top_limit': '$topLimit',
+  });
+  return AnalyticsRatings.fromJson(json);
+}
+
+/// Paginated, searchable event list for the analytics event-picker.
+Future<List<AnalyticsEventOption>> fetchAnalyticsEvents({
+  String? search,
+  int limit = 20,
+  int offset = 0,
+}) async {
+  final query = <String, String>{'limit': '$limit', 'offset': '$offset'};
+  if (search != null && search.trim().isNotEmpty) {
+    query['search'] = search.trim();
+  }
+  final response = await _get(
+    _uri('/api/flutter/analytics/events', query),
+    headers: _headers(auth: true),
+  );
+  if (!_isOk(response.statusCode)) _throwFor(response);
+  final list = jsonDecode(response.body) as List<dynamic>;
+  return list
+      .map((e) => AnalyticsEventOption.fromJson(e as Map<String, dynamic>))
       .toList();
 }

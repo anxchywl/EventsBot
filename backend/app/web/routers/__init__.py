@@ -9,6 +9,7 @@ from app.web.routers.ratings import router as ratings_router
 from app.web.routers.admin import router as admin_router
 from app.web.routers.flutter_auth import router as flutter_auth_router
 from app.web.routers.flutter_events import router as flutter_events_router
+from app.web.routers.flutter_analytics import router as flutter_analytics_router
 
 __all__ = (
     "events_router",
@@ -22,4 +23,5 @@ __all__ = (
     "admin_router",
     "flutter_auth_router",
     "flutter_events_router",
+    "flutter_analytics_router",
 )
