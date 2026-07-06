@@ -41,7 +41,9 @@ class _EventManagerScreenState extends State<EventManagerScreen> {
   String? _organizer;
 
   final ValueNotifier<int> _refreshSignal = ValueNotifier(0);
-  final ScrollController _scrollController = ScrollController();
+  final _nestedKey = GlobalKey<NestedScrollViewState>();
+  ScrollController get _scrollController =>
+      _nestedKey.currentState?.innerController ?? ScrollController();
   Timer? _pollTimer;
   Timer? _deferredRefreshTimer;
   StreamSubscription<RealtimeUpdate>? _updatesSub;
@@ -88,7 +90,6 @@ class _EventManagerScreenState extends State<EventManagerScreen> {
     _pollTimer?.cancel();
     _deferredRefreshTimer?.cancel();
     _updatesSub?.cancel();
-    _scrollController.dispose();
     _refreshSignal.dispose();
     super.dispose();
   }
@@ -226,15 +227,21 @@ class _EventManagerScreenState extends State<EventManagerScreen> {
     final filters = _filters;
     final reloadKey = _reloadKeyFor(filters);
     return Scaffold(
-      appBar: AppAppBar(title: AppLocalizations.get('analytics')),
-      body: RefreshIndicator(
-        onRefresh: () async => _bumpTick(force: true),
-        child: NotificationListener<ScrollNotification>(
-          onNotification: _handleScrollNotification,
-          child: ListView(
-            controller: _scrollController,
-            padding: AppSpacing.screenPadding,
-            children: [
+      body: NestedScrollView(
+        key: _nestedKey,
+        headerSliverBuilder: (ctx, _) => [
+          AppSliverAppBar(title: AppLocalizations.get('analytics')),
+        ],
+        body: RefreshIndicator(
+          onRefresh: () async => _bumpTick(force: true),
+          child: NotificationListener<ScrollNotification>(
+            onNotification: _handleScrollNotification,
+            child: CustomScrollView(
+              slivers: [
+                SliverPadding(
+                  padding: AppSpacing.screenPadding,
+                  sliver: SliverList(
+                    delegate: SliverChildListDelegate([
               _FilterBar(
                 period: _period,
                 selectedEvent: _selectedEvent,
@@ -380,7 +387,11 @@ class _EventManagerScreenState extends State<EventManagerScreen> {
                 ),
               ],
               const SizedBox(height: AppSpacing.xl),
-            ],
+                    ]),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),

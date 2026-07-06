@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:app_ui/app_ui.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../core/api_client.dart';
 import '../../core/localization.dart';
@@ -116,7 +117,7 @@ class _EventPickerSheetState extends State<_EventPickerSheet> {
           children: [
             for (final prev in previousChildren)
               Positioned(left: 0, right: 0, top: 0, child: prev),
-            if (currentChild != null) currentChild,
+            ?currentChild,
           ],
         ),
         transitionBuilder: (child, animation) =>
@@ -274,6 +275,7 @@ class _EventPickerSheetState extends State<_EventPickerSheet> {
                   focusNode: _focusNode,
                   hint: AppLocalizations.get('searchEvents'),
                   autofocus: false,
+                  inputFormatters: [SanitizingFormatter()],
                   onChanged: _onSearchChanged,
                   onClear: () {
                     _query = '';
@@ -490,6 +492,37 @@ class _EventTile extends StatelessWidget {
       ),
       selected: selected,
       onTap: onTap,
+    );
+  }
+}
+
+class SanitizingFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    String text = newValue.text;
+    if (text.startsWith(' ')) {
+      text = text.trimLeft();
+    }
+    text = text.replaceAll(RegExp(r'\s{2,}'), ' ');
+    text = text
+        .replaceAll("'", "")
+        .replaceAll('"', "")
+        .replaceAll(';', "")
+        .replaceAll('--', "")
+        .replaceAll('/*', "")
+        .replaceAll('*/', "");
+
+    int selectionIndex =
+        newValue.selection.end - (newValue.text.length - text.length);
+    if (selectionIndex < 0) selectionIndex = 0;
+    if (selectionIndex > text.length) selectionIndex = text.length;
+
+    return TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(offset: selectionIndex),
     );
   }
 }

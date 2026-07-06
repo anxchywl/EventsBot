@@ -4,7 +4,6 @@ import 'package:app_ui/app_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/auth_store.dart';
 import '../../core/cache_store.dart';
@@ -25,36 +24,55 @@ const _sortGroups = [
       (value: 'time_desc', label: 'Furthest first'),
     ],
   ),
-  (
-    label: 'Reminders',
-    options: [
-      (value: 'reminders_desc', label: 'Most reminders'),
-      (value: 'reminders_asc', label: 'Least reminders'),
-    ],
-  ),
-  (
-    label: 'Participants',
-    options: [
-      (value: 'participants_desc', label: 'Most participants'),
-      (value: 'participants_asc', label: 'Least participants'),
-    ],
-  ),
 ];
 
 // ── Relevance ─────────────────────────────────────────────────────────────────
 
 enum _Relevance { active, all, archived }
 
-// ── Time of day ───────────────────────────────────────────────────────────────
-
-const _timeOfDayOptions = [
-  (value: 'morning', label: 'Morning', start: 5, end: 12),
-  (value: 'afternoon', label: 'Afternoon', start: 12, end: 17),
-  (value: 'evening', label: 'Evening', start: 17, end: 22),
-  (value: 'night', label: 'Night', start: 22, end: 5),
-];
-
 // ─────────────────────────────────────────────────────────────────────────────
+
+String _sanitizeSearchInput(String input) {
+  return input
+      .trim()
+      .replaceAll("'", "")
+      .replaceAll('"', "")
+      .replaceAll(';', "")
+      .replaceAll('--', "")
+      .replaceAll('/*', "")
+      .replaceAll('*/', "");
+}
+
+class SanitizingFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    String text = newValue.text;
+    if (text.startsWith(' ')) {
+      text = text.trimLeft();
+    }
+    text = text.replaceAll(RegExp(r'\s{2,}'), ' ');
+    text = text
+        .replaceAll("'", "")
+        .replaceAll('"', "")
+        .replaceAll(';', "")
+        .replaceAll('--', "")
+        .replaceAll('/*', "")
+        .replaceAll('*/', "");
+
+    int selectionIndex =
+        newValue.selection.end - (newValue.text.length - text.length);
+    if (selectionIndex < 0) selectionIndex = 0;
+    if (selectionIndex > text.length) selectionIndex = text.length;
+
+    return TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(offset: selectionIndex),
+    );
+  }
+}
 
 class EventsScreen extends StatefulWidget {
   const EventsScreen({super.key, this.initialCalendarMode = false});
@@ -72,12 +90,18 @@ class _EventsScreenState extends State<EventsScreen> {
   // below so it can be re-enabled by flipping this flag. When false, only the
   // grouped, date-sorted event list renders and `_applyFilters` applies default
   // relevance/sort behaviour.
-  bool get _browseUiEnabled => false;
+  bool get _browseUiEnabled => true;
 
   bool _loading = true;
   String? _error;
   late bool _calendarMode = widget.initialCalendarMode;
   DateTime _selectedCalendarDate = DateTime.now();
+
+  // Bumped whenever a search should reposition the calendar. AppCalendar reads
+  // its target date only in initState, so changing this nonce (used as its key)
+  // remounts it onto [_selectedCalendarDate] — navigating to that month and
+  // marking the matched day.
+  int _calendarJumpNonce = 0;
 
   List<EventModel> _events = [];
   List<CategoryModel> _categories = [];
@@ -89,19 +113,20 @@ class _EventsScreenState extends State<EventsScreen> {
   final _searchController = TextEditingController();
   String _search = '';
 
+  bool _searchOpen = false;
+
   // Filters
   String _sort = 'time_asc';
   _Relevance _relevance = _Relevance.active;
   Set<String> _selectedCategories = {};
   Set<String> _selectedOrganizers = {};
   Set<String> _selectedLocations = {};
-  Set<String> _selectedTimeOfDay = {};
-  bool _favoritesOnly = false;
-  Set<int> _favoriteIds = {};
-
-  static const _kFavoritesKey = 'flutter_favorite_event_ids';
 
   List<({String label, List<EventModel> events})> _grouped = [];
+
+  // Single source of truth for the active search + filter result, shared by the
+  // list (grouped) and calendar views. Rebuilt by [_applyFilters].
+  List<EventModel> _filteredEvents = [];
 
   @override
   void initState() {
@@ -109,11 +134,9 @@ class _EventsScreenState extends State<EventsScreen> {
     // Render from cache instantly (survives restart); the spinner shows only
     // when nothing has been fetched yet this install.
     _adoptCache();
-    _loading = EventCache.instance.peekApproved() == null &&
+    _loading =
+        EventCache.instance.peekApproved() == null &&
         EventCache.instance.peekPending() == null;
-    if (_browseUiEnabled) {
-      _loadFavorites();
-    }
     EventCache.instance.addListener(_onCacheChanged);
     _refresh();
   }
@@ -142,30 +165,6 @@ class _EventsScreenState extends State<EventsScreen> {
     _refresh();
   }
 
-  Future<void> _loadFavorites() async {
-    final prefs = await SharedPreferences.getInstance();
-    final ids = prefs.getStringList(_kFavoritesKey) ?? [];
-    setState(
-      () => _favoriteIds = ids.map((s) => int.tryParse(s) ?? -1).toSet(),
-    );
-  }
-
-  Future<void> _toggleFavorite(int eventId) async {
-    final prefs = await SharedPreferences.getInstance();
-    setState(() {
-      if (_favoriteIds.contains(eventId)) {
-        _favoriteIds.remove(eventId);
-      } else {
-        _favoriteIds.add(eventId);
-      }
-    });
-    await prefs.setStringList(
-      _kFavoritesKey,
-      _favoriteIds.map((id) => '$id').toList(),
-    );
-    _applyFilters();
-  }
-
   @override
   void dispose() {
     EventCache.instance.removeListener(_onCacheChanged);
@@ -192,7 +191,8 @@ class _EventsScreenState extends State<EventsScreen> {
       });
     } catch (e) {
       if (!mounted) return;
-      final hasCache = EventCache.instance.peekApproved() != null ||
+      final hasCache =
+          EventCache.instance.peekApproved() != null ||
           EventCache.instance.peekPending() != null;
       setState(() {
         _loading = false;
@@ -208,15 +208,15 @@ class _EventsScreenState extends State<EventsScreen> {
   void _applyFilters() {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
-    final search = _search.trim().toLowerCase();
+    final search = _sanitizeSearchInput(_search).toLowerCase();
 
     var filtered = _events.where((e) {
       if (search.isNotEmpty &&
           !e.title.toLowerCase().contains(search) &&
-          !e.description.toLowerCase().contains(search)) {
-        return false;
-      }
-      if (_favoritesOnly && !_favoriteIds.contains(e.id)) {
+          !e.description.toLowerCase().contains(search) &&
+          !e.organizerName.toLowerCase().contains(search) &&
+          !e.category.toLowerCase().contains(search) &&
+          !e.location.toLowerCase().contains(search)) {
         return false;
       }
       if (_selectedCategories.isNotEmpty &&
@@ -239,18 +239,6 @@ class _EventsScreenState extends State<EventsScreen> {
         if (_relevance == _Relevance.archived && !isPast) return false;
       }
 
-      if (_selectedTimeOfDay.isNotEmpty) {
-        final hour = _parseHour(e.eventTime);
-        if (hour != null) {
-          final matchesAny = _selectedTimeOfDay.any((tod) {
-            final opt = _timeOfDayOptions.firstWhere((o) => o.value == tod);
-            if (opt.start < opt.end) return hour >= opt.start && hour < opt.end;
-            return hour >= opt.start || hour < opt.end;
-          });
-          if (!matchesAny) return false;
-        }
-      }
-
       return true;
     }).toList();
 
@@ -260,6 +248,10 @@ class _EventsScreenState extends State<EventsScreen> {
       final tb = _eventTimestamp(b);
       return _sort == 'time_desc' ? tb.compareTo(ta) : ta.compareTo(tb);
     });
+
+    // Shared filtered set — both the calendar and the grouped list derive from
+    // this, so there is a single filtering pass.
+    _filteredEvents = filtered;
 
     // Group by date
     final groups = <String, List<EventModel>>{};
@@ -321,6 +313,31 @@ class _EventsScreenState extends State<EventsScreen> {
 
   bool get _sortActive => _sort != 'time_asc';
   bool get _relevanceActive => _relevance != _Relevance.active;
+
+  /// True when any search or filter deviates from the default state. Drives the
+  /// visibility of the "Clear All" pill.
+  bool get _anyFilterActive =>
+      _search.trim().isNotEmpty ||
+      _selectedCategories.isNotEmpty ||
+      _selectedOrganizers.isNotEmpty ||
+      _selectedLocations.isNotEmpty ||
+      _relevance != _Relevance.active ||
+      _sort != 'time_asc';
+
+  void _clearAllFilters() {
+    HapticFeedback.selectionClick();
+    setState(() {
+      _search = '';
+      _searchController.clear();
+      _searchOpen = false;
+      _selectedCategories = {};
+      _selectedOrganizers = {};
+      _selectedLocations = {};
+      _relevance = _Relevance.active;
+      _sort = 'time_asc';
+      _applyFilters();
+    });
+  }
 
   String get _relevanceLabel {
     switch (_relevance) {
@@ -416,26 +433,6 @@ class _EventsScreenState extends State<EventsScreen> {
     );
   }
 
-  Future<void> _pickTimeOfDay() async {
-    final options = _timeOfDayOptions.map((o) => o.label).toList();
-    final valueByLabel = {for (final o in _timeOfDayOptions) o.label: o.value};
-    final labelByValue = {for (final o in _timeOfDayOptions) o.value: o.label};
-    final selectedLabels = _selectedTimeOfDay
-        .map((v) => labelByValue[v] ?? v)
-        .toSet();
-
-    await _showMultiSelect(
-      title: 'Time of day',
-      options: options,
-      selected: selectedLabels,
-      onChanged: (v) => setState(() {
-        _selectedTimeOfDay = v.map((l) => valueByLabel[l] ?? l).toSet();
-        _applyFilters();
-      }),
-      withSearch: false,
-    );
-  }
-
   Future<void> _showMultiSelect({
     required String title,
     required List<String> options,
@@ -487,9 +484,23 @@ class _EventsScreenState extends State<EventsScreen> {
     await _refresh(force: true);
   }
 
-  List<AppCalendarEvent> _calendarEvents() {
+  /// Move the calendar to the first matching event so a search in calendar mode
+  /// opens the right month and marks the day. No-op when nothing matches, so the
+  /// calendar stays put on an empty search result.
+  void _jumpCalendarToFirstMatch() {
+    for (final e in _filteredEvents) {
+      final date = _parseDate(e.eventDate);
+      if (date != null) {
+        _selectedCalendarDate = date;
+        _calendarJumpNonce++;
+        break;
+      }
+    }
+  }
+
+  List<AppCalendarEvent> _calendarEvents(List<EventModel> events) {
     final result = <AppCalendarEvent>[];
-    for (final event in _events) {
+    for (final event in events) {
       final date = _parseDate(event.eventDate);
       if (date == null) continue;
       result.add(
@@ -520,51 +531,98 @@ class _EventsScreenState extends State<EventsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppAppBar(
-        title: _calendarMode ? 'Event Calendar' : 'Events',
-        leading: IconButton(
-          tooltip: _calendarMode ? 'Events' : 'Calendar',
-          icon: AnimatedSwitcher(
-            duration: const Duration(milliseconds: 240),
-            transitionBuilder: (child, animation) {
-              return RotationTransition(
-                turns: Tween<double>(begin: -0.18, end: 0).animate(animation),
-                child: ScaleTransition(scale: animation, child: child),
-              );
-            },
-            child: AppIcon(
-              _calendarMode ? AppIcons.assignment : AppIcons.calendarMonth,
-              key: ValueKey(_calendarMode),
+      resizeToAvoidBottomInset: false,
+      // ClampingScrollPhysics avoids the stretch overscroll indicator, which
+      // throws a benign "Build scheduled during frame" assertion when it
+      // interacts with NestedScrollView's inner/outer scroll coordination.
+      body: ScrollConfiguration(
+        behavior: ScrollConfiguration.of(
+          context,
+        ).copyWith(physics: const ClampingScrollPhysics()),
+        child: NestedScrollView(
+          headerSliverBuilder: (context2, _) => [
+            AppSliverAppBar(
+              title: _calendarMode ? 'Events Calendar' : 'Events',
+              leading: IconButton(
+                tooltip: _calendarMode ? 'Events' : 'Calendar',
+                icon: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 240),
+                  transitionBuilder: (child, animation) {
+                    return RotationTransition(
+                      turns: Tween<double>(
+                        begin: -0.18,
+                        end: 0,
+                      ).animate(animation),
+                      child: ScaleTransition(scale: animation, child: child),
+                    );
+                  },
+                  child: AppIcon(
+                    _calendarMode
+                        ? AppIcons.assignment
+                        : AppIcons.calendarMonth,
+                    key: ValueKey(_calendarMode),
+                  ),
+                ),
+                onPressed: _toggleCalendarMode,
+              ),
+              actions: [
+                IconButton(
+                  icon: const AppIcon(AppIcons.add),
+                  onPressed: _openSubmit,
+                ),
+              ],
             ),
-          ),
-          onPressed: _toggleCalendarMode,
+            if (_browseUiEnabled)
+              SliverToBoxAdapter(
+                child: _buildFilterStrip(),
+              ),
+          ],
+          body: _buildBody(),
         ),
-        actions: [
-          IconButton(icon: const AppIcon(AppIcons.add), onPressed: _openSubmit),
-        ],
       ),
-      body: _buildBody(),
     );
   }
 
   Widget _buildBody() {
-    if (_loading) return const Center(child: AppLoader());
-    if (_error != null) {
-      return Center(
-        child: Padding(
-          padding: AppSpacing.screenPadding,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(_error!, textAlign: TextAlign.center),
-              const SizedBox(height: AppSpacing.df),
-              AppSecondaryButton(text: 'Retry', onPressed: () => _refresh(force: true)),
-            ],
+    if (_loading) {
+      return const CustomScrollView(
+        slivers: [
+          SliverFillRemaining(
+            hasScrollBody: false,
+            child: Center(child: AppLoader()),
           ),
-        ),
+        ],
+      );
+    }
+    if (_error != null) {
+      return CustomScrollView(
+        slivers: [
+          SliverFillRemaining(
+            hasScrollBody: false,
+            child: Center(
+              child: Padding(
+                padding: AppSpacing.screenPadding,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(_error!, textAlign: TextAlign.center),
+                    const SizedBox(height: AppSpacing.df),
+                    AppSecondaryButton(
+                      text: 'Retry',
+                      onPressed: () => _refresh(force: true),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
       );
     }
 
+    // The filter/search strip is now in the headerSliverBuilder so it scrolls
+    // away along with the app bar. Only the pills that make sense per mode 
+    // are shown.
     return AnimatedSwitcher(
       duration: const Duration(milliseconds: 260),
       switchInCurve: Curves.easeOut,
@@ -572,8 +630,9 @@ class _EventsScreenState extends State<EventsScreen> {
       child: _calendarMode
           ? _CalendarModeView(
               key: const ValueKey('calendar'),
-              events: _calendarEvents(),
+              events: _calendarEvents(_filteredEvents),
               selectedDate: _selectedCalendarDate,
+              jumpNonce: _calendarJumpNonce,
               onDateSelected: (date) {
                 setState(() => _selectedCalendarDate = date);
               },
@@ -581,39 +640,99 @@ class _EventsScreenState extends State<EventsScreen> {
             )
           : _EventsListModeView(
               key: const ValueKey('events'),
-              browseUiEnabled: _browseUiEnabled,
-              searchController: _searchController,
-              searchChanged: (value) => setState(() {
-                _search = value;
-                _applyFilters();
-              }),
-              clearSearch: () => setState(() {
-                _search = '';
-                _applyFilters();
-              }),
-              sortActive: _sortActive,
-              relevanceLabel: _relevanceLabel,
-              relevanceActive: _relevanceActive,
-              selectedTimeOfDay: _selectedTimeOfDay,
-              selectedCategories: _selectedCategories,
-              selectedOrganizers: _selectedOrganizers,
-              selectedLocations: _selectedLocations,
-              favoritesOnly: _favoritesOnly,
-              pickSort: _pickSort,
-              pickRelevance: _pickRelevance,
-              pickTimeOfDay: _pickTimeOfDay,
-              pickCategories: _pickCategories,
-              pickOrganizers: _pickOrganizers,
-              pickLocations: _pickLocations,
-              toggleFavoritesOnly: () => setState(() {
-                _favoritesOnly = !_favoritesOnly;
-                _applyFilters();
-              }),
               grouped: _grouped,
-              favoriteIds: _favoriteIds,
-              multiLabel: _multiLabel,
-              onToggleFavorite: _toggleFavorite,
             ),
+    );
+  }
+
+  /// The horizontal filter/search strip shared by both view modes. In calendar
+  /// mode the sort pill is omitted because the calendar orders by date itself.
+  Widget _buildFilterStrip() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.df,
+        AppSpacing.sm,
+        AppSpacing.df,
+        AppSpacing.sm,
+      ),
+      child: AnimatedCrossFade(
+        duration: const Duration(milliseconds: 220),
+        sizeCurve: Curves.easeInOut,
+        firstCurve: Curves.easeOut,
+        secondCurve: Curves.easeIn,
+        crossFadeState: _searchOpen
+            ? CrossFadeState.showSecond
+            : CrossFadeState.showFirst,
+        firstChild: SizedBox(
+          height: 44,
+          child: ListView(
+            scrollDirection: Axis.horizontal,
+            padding: EdgeInsets.zero,
+            children: [
+              _EventFilterPill(
+                icon: AppIcons.search,
+                onTap: () => setState(() => _searchOpen = true),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              if (!_calendarMode) ...[
+                _EventFilterPill(
+                  icon: AppIcons.transfer,
+                  highlighted: _sortActive,
+                  onTap: _pickSort,
+                ),
+                const SizedBox(width: AppSpacing.sm),
+              ],
+              _EventFilterPill(
+                label: _relevanceLabel,
+                highlighted: _relevanceActive,
+                onTap: _pickRelevance,
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              _EventFilterPill(
+                label: _multiLabel('Categories', _selectedCategories),
+                highlighted: _selectedCategories.isNotEmpty,
+                onTap: _pickCategories,
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              _EventFilterPill(
+                label: _multiLabel('Organizers', _selectedOrganizers),
+                highlighted: _selectedOrganizers.isNotEmpty,
+                onTap: _pickOrganizers,
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              _EventFilterPill(
+                label: _multiLabel('Locations', _selectedLocations),
+                highlighted: _selectedLocations.isNotEmpty,
+                onTap: _pickLocations,
+              ),
+              if (_anyFilterActive) ...[
+                const SizedBox(width: AppSpacing.sm),
+                _EventFilterPill(
+                  icon: AppIcons.close,
+                  label: 'Clear All',
+                  highlighted: true,
+                  onTap: _clearAllFilters,
+                ),
+              ],
+            ],
+          ),
+        ),
+        secondChild: _SearchBar(
+          controller: _searchController,
+          onChanged: (value) => setState(() {
+            _search = value;
+            _applyFilters();
+            if (_calendarMode) _jumpCalendarToFirstMatch();
+          }),
+          onClose: () => setState(() {
+            _searchOpen = false;
+            _search = '';
+            _searchController.clear();
+            _applyFilters();
+          }),
+          autoFocus: _searchOpen,
+        ),
+      ),
     );
   }
 }
@@ -621,191 +740,73 @@ class _EventsScreenState extends State<EventsScreen> {
 // ── Sub-widgets ───────────────────────────────────────────────────────────────
 
 class _EventsListModeView extends StatelessWidget {
-  const _EventsListModeView({
-    super.key,
-    required this.browseUiEnabled,
-    required this.searchController,
-    required this.searchChanged,
-    required this.clearSearch,
-    required this.sortActive,
-    required this.relevanceLabel,
-    required this.relevanceActive,
-    required this.selectedTimeOfDay,
-    required this.selectedCategories,
-    required this.selectedOrganizers,
-    required this.selectedLocations,
-    required this.favoritesOnly,
-    required this.pickSort,
-    required this.pickRelevance,
-    required this.pickTimeOfDay,
-    required this.pickCategories,
-    required this.pickOrganizers,
-    required this.pickLocations,
-    required this.toggleFavoritesOnly,
-    required this.grouped,
-    required this.favoriteIds,
-    required this.multiLabel,
-    required this.onToggleFavorite,
-  });
+  const _EventsListModeView({super.key, required this.grouped});
 
-  final bool browseUiEnabled;
-  final TextEditingController searchController;
-  final ValueChanged<String> searchChanged;
-  final VoidCallback clearSearch;
-  final bool sortActive;
-  final String relevanceLabel;
-  final bool relevanceActive;
-  final Set<String> selectedTimeOfDay;
-  final Set<String> selectedCategories;
-  final Set<String> selectedOrganizers;
-  final Set<String> selectedLocations;
-  final bool favoritesOnly;
-  final VoidCallback pickSort;
-  final VoidCallback pickRelevance;
-  final VoidCallback pickTimeOfDay;
-  final VoidCallback pickCategories;
-  final VoidCallback pickOrganizers;
-  final VoidCallback pickLocations;
-  final VoidCallback toggleFavoritesOnly;
   final List<({String label, List<EventModel> events})> grouped;
-  final Set<int> favoriteIds;
-  final String Function(String base, Set<String> selected) multiLabel;
-  final ValueChanged<int> onToggleFavorite;
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        if (browseUiEnabled) ...[
-          Padding(
-            padding: const EdgeInsets.fromLTRB(
-              AppSpacing.df,
-              AppSpacing.sm,
-              AppSpacing.df,
-              0,
+    final listSliver = grouped.isEmpty
+        ? SliverFillRemaining(
+            hasScrollBody: false,
+            child: Center(
+              child: Text(
+                'Nothing found',
+                style: Theme.of(
+                  context,
+                ).textTheme.bodyLarge?.copyWith(color: AppColors.grey),
+              ),
             ),
-            child: GlobalSearchBar(
-              controller: searchController,
-              hint: 'Search',
-              onChanged: searchChanged,
-              onClear: clearSearch,
+          )
+        : SliverPadding(
+            padding: const EdgeInsets.only(
+              left: AppSpacing.df,
+              right: AppSpacing.df,
+              bottom: AppSpacing.df,
             ),
-          ),
-          const SizedBox(height: AppSpacing.sm),
-          SizedBox(
-            height: 36,
-            child: ListView(
-              scrollDirection: Axis.horizontal,
-              padding: AppSpacing.screenHorizontal,
-              children: [
-                _SortButton(active: sortActive, onTap: pickSort),
-                const SizedBox(width: AppSpacing.sm),
-                _FilterChip(
-                  label: relevanceLabel,
-                  active: relevanceActive,
-                  onTap: pickRelevance,
-                ),
-                const SizedBox(width: AppSpacing.sm),
-                _FilterChip(
-                  label: multiLabel('Time of day', selectedTimeOfDay),
-                  active: selectedTimeOfDay.isNotEmpty,
-                  onTap: pickTimeOfDay,
-                ),
-                const SizedBox(width: AppSpacing.sm),
-                _FilterChip(
-                  label: multiLabel('Categories', selectedCategories),
-                  active: selectedCategories.isNotEmpty,
-                  onTap: pickCategories,
-                ),
-                const SizedBox(width: AppSpacing.sm),
-                _FilterChip(
-                  label: multiLabel('Organizers', selectedOrganizers),
-                  active: selectedOrganizers.isNotEmpty,
-                  onTap: pickOrganizers,
-                ),
-                const SizedBox(width: AppSpacing.sm),
-                _FilterChip(
-                  label: multiLabel('Locations', selectedLocations),
-                  active: selectedLocations.isNotEmpty,
-                  onTap: pickLocations,
-                ),
-                const SizedBox(width: AppSpacing.sm),
-                _FavoritesChip(
-                  active: favoritesOnly,
-                  onTap: toggleFavoritesOnly,
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: AppSpacing.sm),
-        ],
-        Expanded(
-          child: grouped.isEmpty
-              ? Center(
-                  child: Text(
-                    'Nothing found',
-                    style: Theme.of(
-                      context,
-                    ).textTheme.bodyLarge?.copyWith(color: AppColors.grey),
-                  ),
-                )
-              : ListView.builder(
-                  padding: const EdgeInsets.only(
-                    left: AppSpacing.df,
-                    right: AppSpacing.df,
-                    top: 0,
-                    bottom: AppSpacing.df,
-                  ),
-                  itemCount: grouped.fold<int>(
-                    0,
-                    (sum, group) => sum + 1 + group.events.length,
-                  ),
-                  itemBuilder: (context, index) {
-                    int remaining = index;
-                    for (final group in grouped) {
-                      if (remaining == 0) {
-                        return _DateHeader(
-                          label: group.label,
-                          first: index == 0,
-                        );
-                      }
-                      remaining--;
-                      if (remaining < group.events.length) {
-                        final event = group.events[remaining];
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-                          child: EventCard(
-                            event: event,
-                            mutedPending: event.isPending,
-                            showCategory: false,
-                            statusLabelOverride:
-                                !AuthStore.isAdmin && event.isNeedsChanges
-                                ? AppLocalizations.get('pendingLabel')
-                                : null,
-                            isFavorite:
-                                browseUiEnabled &&
-                                favoriteIds.contains(event.id),
-                            onToggleFavorite: browseUiEnabled
-                                ? () => onToggleFavorite(event.id)
-                                : null,
-                            onTap: () => Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => EventDetailScreen(event: event),
-                              ),
+            sliver: SliverList(
+              delegate: SliverChildBuilderDelegate(
+                (context, index) {
+                  int remaining = index;
+                  for (final group in grouped) {
+                    if (remaining == 0) {
+                      return _DateHeader(label: group.label, first: index == 0);
+                    }
+                    remaining--;
+                    if (remaining < group.events.length) {
+                      final event = group.events[remaining];
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                        child: EventCard(
+                          event: event,
+                          mutedPending: event.isPending,
+                          showCategory: false,
+                          statusLabelOverride:
+                              !AuthStore.isAdmin && event.isNeedsChanges
+                              ? AppLocalizations.get('pendingLabel')
+                              : null,
+                          onTap: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => EventDetailScreen(event: event),
                             ),
                           ),
-                        );
-                      }
-                      remaining -= group.events.length;
+                        ),
+                      );
                     }
-                    return const SizedBox.shrink();
-                  },
+                    remaining -= group.events.length;
+                  }
+                  return const SizedBox.shrink();
+                },
+                childCount: grouped.fold<int>(
+                  0,
+                  (sum, group) => sum + 1 + group.events.length,
                 ),
-        ),
-      ],
-    );
+              ),
+            ),
+          );
+
+    return CustomScrollView(slivers: [listSliver]);
   }
 }
 
@@ -814,30 +815,43 @@ class _CalendarModeView extends StatelessWidget {
     super.key,
     required this.events,
     required this.selectedDate,
+    required this.jumpNonce,
     required this.onDateSelected,
     required this.onEventTap,
   });
 
   final List<AppCalendarEvent> events;
   final DateTime selectedDate;
+
+  /// Incremented by the parent when a search should reposition the calendar.
+  /// Used as the [AppCalendar] key so it remounts onto [selectedDate].
+  final int jumpNonce;
   final ValueChanged<DateTime> onDateSelected;
   final ValueChanged<AppCalendarEvent> onEventTap;
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(AppSpacing.df),
-      child: AppCalendar(
-        events: events,
-        initialDate: selectedDate,
-        showEventList: true,
-        onDateSelected: onDateSelected,
-        onEventTap: onEventTap,
-        headerLabel: AppLocalizations.get('bookings'),
-        accentColor: AppColors.primary,
-        emptyStateTitle: AppLocalizations.get('available'),
-        emptyStateSubtitle: AppLocalizations.get('noBookingsOrRequests'),
-      ),
+    return CustomScrollView(
+      slivers: [
+        SliverFillRemaining(
+          hasScrollBody: false,
+          child: Padding(
+            padding: const EdgeInsets.all(AppSpacing.df),
+            child: AppCalendar(
+              key: ValueKey(jumpNonce),
+              events: events,
+              initialDate: selectedDate,
+              showEventList: true,
+              onDateSelected: onDateSelected,
+              onEventTap: onEventTap,
+              headerLabel: AppLocalizations.get('bookings'),
+              accentColor: AppColors.primary,
+              emptyStateTitle: AppLocalizations.get('available'),
+              emptyStateSubtitle: AppLocalizations.get('noBookingsOrRequests'),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -864,129 +878,236 @@ class _DateHeader extends StatelessWidget {
   }
 }
 
-class _SortButton extends StatelessWidget {
-  const _SortButton({required this.active, required this.onTap});
-  final bool active;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final color = active ? AppColors.primary : AppColors.textPrimary;
-    final bg = active ? AppColors.primaryLight : AppColors.fieldBackground;
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.md,
-          vertical: AppSpacing.xs,
-        ),
-        decoration: BoxDecoration(
-          color: bg,
-          borderRadius: BorderRadius.circular(20),
-          border: active
-              ? null
-              : Border.all(
-                  color: AppColors.primary.withValues(alpha: 0.18),
-                  width: 1,
-                ),
-        ),
-        child: AppIcon(AppIcons.transfer, size: 18, color: color),
-      ),
-    );
-  }
-}
-
-class _FilterChip extends StatelessWidget {
-  const _FilterChip({
-    required this.label,
-    required this.active,
+class _EventFilterPill extends StatelessWidget {
+  const _EventFilterPill({
+    this.icon,
+    this.label,
     required this.onTap,
+    this.highlighted = false,
   });
-  final String label;
-  final bool active;
+
+  final AppIconData? icon;
+  final String? label;
   final VoidCallback onTap;
+  final bool highlighted;
 
   @override
   Widget build(BuildContext context) {
-    final color = active ? AppColors.primary : AppColors.textPrimary;
-    final bg = active ? AppColors.primaryLight : AppColors.fieldBackground;
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.md,
-          vertical: AppSpacing.xs,
-        ),
-        decoration: BoxDecoration(
-          color: bg,
-          borderRadius: BorderRadius.circular(20),
-          border: active
-              ? null
-              : Border.all(
-                  color: AppColors.primary.withValues(alpha: 0.18),
-                  width: 1,
+    final fg = highlighted ? AppColors.primary : AppColors.textPrimary;
+    final radius = AppSpacing.borderRadiusLg;
+    return Material(
+      color: highlighted ? AppColors.primaryLight : Colors.white,
+      borderRadius: radius,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: radius,
+        child: Container(
+          height: 42,
+          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (icon != null) ...[
+                AppIcon(icon!, size: 16, color: fg),
+                if (label != null) const SizedBox(width: AppSpacing.sm),
+              ],
+              if (label != null)
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 140),
+                  child: Text(
+                    label!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTextStyles.bodySmall.copyWith(
+                      color: fg,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
                 ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              label,
-              style: AppTextStyles.chip.copyWith(
-                color: color,
-                fontWeight: active ? FontWeight.w600 : FontWeight.w500,
-              ),
-            ),
-            const SizedBox(width: 4),
-            AppIcon(AppIcons.chevronDown, size: 16, color: color),
-          ],
+            ],
+          ),
         ),
       ),
     );
   }
 }
 
-class _FavoritesChip extends StatelessWidget {
-  const _FavoritesChip({required this.active, required this.onTap});
-  final bool active;
-  final VoidCallback onTap;
+class _SearchBar extends StatefulWidget {
+  const _SearchBar({
+    required this.controller,
+    required this.onChanged,
+    required this.onClose,
+    required this.autoFocus,
+  });
+
+  final TextEditingController controller;
+  final ValueChanged<String> onChanged;
+  final VoidCallback onClose;
+  final bool autoFocus;
+
+  @override
+  State<_SearchBar> createState() => _SearchBarState();
+}
+
+class _SearchBarState extends State<_SearchBar>
+    with SingleTickerProviderStateMixin {
+  late final FocusNode _focus;
+  late final AnimationController _animCtrl;
+  late final Animation<double> _slideAnim;
+  late final Animation<double> _fadeAnim;
+
+  @override
+  void initState() {
+    super.initState();
+    _focus = FocusNode();
+    _focus.addListener(_onFocusChange);
+    _animCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 260),
+    );
+    _slideAnim = Tween<double>(
+      begin: -14,
+      end: 0,
+    ).animate(CurvedAnimation(parent: _animCtrl, curve: Curves.easeOutCubic));
+    _fadeAnim = CurvedAnimation(parent: _animCtrl, curve: Curves.easeOut);
+    if (widget.autoFocus) _open();
+  }
+
+  @override
+  void didUpdateWidget(_SearchBar old) {
+    super.didUpdateWidget(old);
+    if (widget.autoFocus && !old.autoFocus) _open();
+  }
+
+  void _open() {
+    _animCtrl.forward(from: 0);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _focus.requestFocus();
+    });
+  }
+
+  void _onFocusChange() {
+    if (mounted) {
+      if (!_focus.hasFocus) {
+        final trimmed = widget.controller.text.trim();
+        if (widget.controller.text != trimmed) {
+          widget.controller.text = trimmed;
+          widget.onChanged(trimmed);
+        }
+      }
+      setState(() {});
+    }
+  }
+
+  @override
+  void dispose() {
+    _focus.removeListener(_onFocusChange);
+    _focus.dispose();
+    _animCtrl.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    final color = active ? AppColors.error : AppColors.textPrimary;
-    final bg = active
-        ? AppColors.error.withValues(alpha: 0.12)
-        : AppColors.fieldBackground;
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.md,
-          vertical: AppSpacing.xs,
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    final borderColor = isLight ? AppColors.borderGrey : AppColors.borderDark;
+    final bg = isLight
+        ? AppColors.surface.withValues(alpha: 0.92)
+        : AppColors.surfaceDark.withValues(alpha: 0.92);
+    final hasText = widget.controller.text.isNotEmpty;
+
+    return AnimatedBuilder(
+      animation: _animCtrl,
+      builder: (context, child) => FadeTransition(
+        opacity: _fadeAnim,
+        child: Transform.translate(
+          offset: Offset(_slideAnim.value, 0),
+          child: child,
         ),
-        decoration: BoxDecoration(
-          color: bg,
-          borderRadius: BorderRadius.circular(20),
-          border: active
-              ? null
-              : Border.all(
-                  color: AppColors.primary.withValues(alpha: 0.18),
-                  width: 1,
-                ),
-        ),
+      ),
+      child: SizedBox(
+        height: 44,
         child: Row(
-          mainAxisSize: MainAxisSize.min,
           children: [
-            AppIcon(AppIcons.heart, size: 15, color: color),
-            const SizedBox(width: 4),
-            Text(
-              'Favorites',
-              style: AppTextStyles.chip.copyWith(
-                color: color,
-                fontWeight: active ? FontWeight.w600 : FontWeight.w500,
+            Expanded(
+              child: GestureDetector(
+                onTap: () => _focus.requestFocus(),
+                child: Container(
+                  height: 44,
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  decoration: BoxDecoration(
+                    color: bg,
+                    borderRadius: BorderRadius.circular(15),
+                    border: Border.all(color: borderColor, width: 1),
+                    boxShadow: null,
+                  ),
+                  child: Row(
+                    children: [
+                      AppIcon(
+                        AppIcons.search,
+                        size: 18,
+                        color: AppColors.textSecondary,
+                      ),
+                      const SizedBox(width: AppSpacing.sm),
+                      Expanded(
+                        child: TextField(
+                          controller: widget.controller,
+                          focusNode: _focus,
+                          scrollPadding: EdgeInsets.zero,
+                          inputFormatters: [SanitizingFormatter()],
+                          onChanged: widget.onChanged,
+                          style: TextStyle(
+                            fontFamily: 'Geist',
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                            color: isLight
+                                ? AppColors.textPrimary
+                                : AppColors.textPrimaryDark,
+                          ),
+                          decoration: InputDecoration(
+                            filled: false,
+                            hintText: 'Search events…',
+                            hintStyle: TextStyle(
+                              fontFamily: 'Geist',
+                              fontSize: 15,
+                              fontWeight: FontWeight.w500,
+                              color: AppColors.textSecondary,
+                            ),
+                            border: InputBorder.none,
+                            isDense: true,
+                            contentPadding: EdgeInsets.zero,
+                          ),
+                          textInputAction: TextInputAction.search,
+                        ),
+                      ),
+                      ValueListenableBuilder<TextEditingValue>(
+                        valueListenable: widget.controller,
+                        builder: (ctx, value, child) => GestureDetector(
+                          onTap: () {
+                            if (value.text.isNotEmpty) {
+                              widget.controller.clear();
+                              widget.onChanged('');
+                              _focus.requestFocus();
+                            } else {
+                              _focus.unfocus();
+                              widget.onClose();
+                            }
+                          },
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 4.0,
+                            ),
+                            child: AppIcon(
+                              AppIcons.close,
+                              size: 18,
+                              color: AppColors.textSecondary,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ),
           ],
@@ -1031,18 +1152,6 @@ class _SortSheetState extends State<_SortSheet> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         for (final group in _sortGroups) ...[
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 12, 20, 6),
-            child: Text(
-              group.label,
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: textSub,
-                letterSpacing: 0.3,
-              ),
-            ),
-          ),
           for (int i = 0; i < group.options.length; i++) ...[
             _SortOption(
               label: group.options[i].label,
@@ -1267,8 +1376,12 @@ class _MultiSelectSheetState extends State<_MultiSelectSheet> {
                           ),
                           child: TextField(
                             focusNode: _focusNode,
-                            onChanged: (v) =>
-                                setState(() => _query = v.trim().toLowerCase()),
+                            inputFormatters: [SanitizingFormatter()],
+                            onChanged: (v) => setState(
+                              () => _query = _sanitizeSearchInput(
+                                v,
+                              ).toLowerCase(),
+                            ),
                             decoration: InputDecoration(
                               hintText: 'Search',
                               prefixIcon: AppIcon(

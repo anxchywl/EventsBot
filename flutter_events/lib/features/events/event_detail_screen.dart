@@ -91,23 +91,23 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
 
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppBar(
-        backgroundColor: AppColors.background,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        leading: IconButton(
-          icon: const AppIcon(AppIcons.back, color: AppColors.textPrimary),
-          onPressed: () => Navigator.pop(context),
-        ),
-      ),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(
-          AppSpacing.df,
-          0,
-          AppSpacing.df,
-          AppSpacing.xxl,
-        ),
-        children: [
+      body: NestedScrollView(
+        headerSliverBuilder: (ctx, _) => [
+          AppSliverAppBar(
+            leading: IconButton(
+              icon: const AppIcon(AppIcons.back, color: AppColors.textPrimary),
+              onPressed: () => Navigator.pop(context),
+            ),
+          ),
+        ],
+        body: ListView(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.df,
+            0,
+            AppSpacing.df,
+            AppSpacing.xxl,
+          ),
+          children: [
           if (hasImage) ...[
             ClipRRect(
               borderRadius: AppSpacing.borderRadiusDf,
@@ -137,6 +137,7 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
             _registrationCard(_event.registrationUrl!, theme),
           const SizedBox(height: AppSpacing.xxl),
         ],
+      ),
       ),
       bottomNavigationBar: _buildBottomBar(),
     );

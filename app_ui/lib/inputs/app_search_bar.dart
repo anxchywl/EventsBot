@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../icons/app_icon.dart';
 import '../icons/app_icons.dart';
@@ -19,6 +20,7 @@ class GlobalSearchBar extends StatelessWidget {
     this.focusNode,
     this.showFilterButton = false,
     this.onFilterPressed,
+    this.inputFormatters,
   });
 
   final TextEditingController? controller;
@@ -32,6 +34,7 @@ class GlobalSearchBar extends StatelessWidget {
   final FocusNode? focusNode;
   final bool showFilterButton;
   final VoidCallback? onFilterPressed;
+  final List<TextInputFormatter>? inputFormatters;
 
   @override
   Widget build(BuildContext context) {
@@ -53,6 +56,7 @@ class GlobalSearchBar extends StatelessWidget {
             child: TextField(
               controller: controller,
               focusNode: focusNode,
+              inputFormatters: inputFormatters,
               decoration: const InputDecoration(
                 border: InputBorder.none,
                 enabledBorder: InputBorder.none,

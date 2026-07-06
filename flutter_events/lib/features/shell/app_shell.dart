@@ -24,7 +24,7 @@ class _AppShellState extends State<AppShell> {
   @override
   void initState() {
     super.initState();
-    _currentIndex = AuthStore.isAdmin ? 1 : 0;
+    _currentIndex = 0;
     // Single, app-wide realtime subscription. The cache patches the shared event
     // map on each event_status_changed and notifies every screen — screens no
     // longer each open their own SSE listener and refetch independently.
@@ -35,14 +35,14 @@ class _AppShellState extends State<AppShell> {
     if (AuthStore.isAdmin) {
       return [
         (
-          body: const CoordinatorDashboardScreen(),
-          icon: AppIcons.request,
-          label: AppLocalizations.get('requests'),
-        ),
-        (
           body: const EventsScreen(),
           icon: AppIcons.event,
           label: AppLocalizations.get('events'),
+        ),
+        (
+          body: const CoordinatorDashboardScreen(),
+          icon: AppIcons.request,
+          label: AppLocalizations.get('requests'),
         ),
         (
           body: const EventManagerScreen(),
@@ -59,7 +59,7 @@ class _AppShellState extends State<AppShell> {
       ),
       (
         body: const MyEventsScreen(),
-        icon: AppIcons.assignment,
+        icon: AppIcons.request,
         label: AppLocalizations.get('myRequests'),
       ),
     ];
@@ -79,7 +79,7 @@ class _AppShellState extends State<AppShell> {
   }
 
   Future<void> _handleNavigationTap(int index) async {
-    final eventsIndex = AuthStore.isAdmin ? 1 : 0;
+    const eventsIndex = 0;
     if (index == _currentIndex && index != eventsIndex) return;
 
     if (index != eventsIndex) {
@@ -109,6 +109,7 @@ class _AppShellState extends State<AppShell> {
     final navBarHeight = AppSpacing.xxxl + AppSpacing.sm +
         MediaQuery.of(context).padding.bottom + AppSpacing.sm;
     return Scaffold(
+      resizeToAvoidBottomInset: false,
       extendBody: true,
       body: Padding(
         padding: EdgeInsets.only(bottom: navBarHeight),

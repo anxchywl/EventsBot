@@ -153,6 +153,72 @@ class AppAppBar extends StatelessWidget implements PreferredSizeWidget {
   }
 }
 
+/// Floating sliver app bar that scrolls away on scroll-down and snaps back
+/// on scroll-up. Styled identically to [AppAppBar].
+///
+/// Use inside a [CustomScrollView]:
+/// ```dart
+/// CustomScrollView(slivers: [AppSliverAppBar(title: 'Events'), SliverList(...)])
+/// ```
+class AppSliverAppBar extends StatelessWidget {
+  const AppSliverAppBar({
+    super.key,
+    this.title,
+    this.titleWidget,
+    this.leading,
+    this.leadingWidth,
+    this.actions,
+    this.centerTitle = true,
+    this.pinned = false,
+  });
+
+  final String? title;
+  final Widget? titleWidget;
+  final Widget? leading;
+  final double? leadingWidth;
+  final List<Widget>? actions;
+  final bool centerTitle;
+  final bool pinned;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isLight = theme.brightness == Brightness.light;
+    final bg = isLight ? AppColors.background : const Color(0xFF171717);
+    final textColor = isLight ? AppColors.textPrimary : AppColors.textPrimaryDark;
+
+    Widget? titleW = titleWidget;
+    if (titleW == null && title != null) {
+      titleW = Text(
+        title!,
+        style: AppTextStyles.appBarTitle.copyWith(color: textColor),
+        overflow: TextOverflow.ellipsis,
+      );
+    }
+
+    return SliverAppBar(
+      leading: leading,
+      leadingWidth: leadingWidth,
+      automaticallyImplyLeading: false,
+      title: titleW,
+      centerTitle: centerTitle,
+      actions: actions,
+      backgroundColor: bg,
+      surfaceTintColor: Colors.transparent,
+      elevation: 0,
+      scrolledUnderElevation: 0,
+      toolbarHeight: AppSpacing.appBarHeight,
+      floating: true,
+      snap: true,
+      pinned: pinned,
+      iconTheme: IconThemeData(
+        color: isLight ? AppColors.iconGrey : AppColors.white,
+        size: AppSpacing.iconDf,
+      ),
+    );
+  }
+}
+
 /// Simple AppBar with just back button and title.
 class AppSimpleAppBar extends StatelessWidget implements PreferredSizeWidget {
   const AppSimpleAppBar({

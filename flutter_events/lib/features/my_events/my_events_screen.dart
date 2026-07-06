@@ -110,67 +110,93 @@ class _MyEventsScreenState extends State<MyEventsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final title = AppLocalizations.get('myRequests');
     return Scaffold(
-      appBar: AppAppBar(title: AppLocalizations.get('myRequests')),
-      body: _buildBody(),
+      body: NestedScrollView(
+        headerSliverBuilder: (ctx, _) => [AppSliverAppBar(title: title)],
+        body: _buildBody(context),
+      ),
     );
   }
 
-  Widget _buildBody() {
-    if (_loading) return const Center(child: AppLoader());
-    if (_error != null) {
-      return Center(
-        child: Padding(
-          padding: AppSpacing.screenPadding,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(_error!, textAlign: TextAlign.center),
-              const SizedBox(height: AppSpacing.df),
-              AppSecondaryButton(
-                text: AppLocalizations.get('retry'),
-                onPressed: () => _refresh(force: true),
-              ),
-            ],
+  Widget _buildBody(BuildContext context) {
+    if (_loading) {
+      return const CustomScrollView(
+        slivers: [
+          SliverFillRemaining(
+            hasScrollBody: false,
+            child: Center(child: AppLoader()),
           ),
-        ),
+        ],
+      );
+    }
+
+    if (_error != null) {
+      return CustomScrollView(
+        slivers: [
+          SliverFillRemaining(
+            hasScrollBody: false,
+            child: Center(
+              child: Padding(
+                padding: AppSpacing.screenPadding,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(_error!, textAlign: TextAlign.center),
+                    const SizedBox(height: AppSpacing.df),
+                    AppSecondaryButton(
+                      text: AppLocalizations.get('retry'),
+                      onPressed: () => _refresh(force: true),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
       );
     }
 
     if (_events.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: AppSpacing.screenPadding,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [Text(AppLocalizations.get('noBookings'))],
+      return CustomScrollView(
+        slivers: [
+          SliverFillRemaining(
+            hasScrollBody: false,
+            child: Center(
+              child: Padding(
+                padding: AppSpacing.screenPadding,
+                child: Text(AppLocalizations.get('noBookings')),
+              ),
+            ),
           ),
-        ),
+        ],
       );
     }
 
     return RefreshIndicator(
       onRefresh: () => _refresh(force: true),
-      child: Column(
-        children: [
-          if (_stale) const StaleBanner(),
-          Expanded(
-            child: ListView.builder(
-              padding: AppSpacing.screenPadding,
-              itemCount: _events.length,
-              itemBuilder: (context, index) {
-                final event = _events[index];
-                return Padding(
-                  key: ValueKey(event.id),
-                  padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-                  child: EventCard(
-                    event: event,
-                    alwaysShowStatus: true,
-                    showCategory: false,
-                    onTap: () => _openDetail(event),
-                  ),
-                );
-              },
+      child: CustomScrollView(
+        slivers: [
+          if (_stale) const SliverToBoxAdapter(child: StaleBanner()),
+          SliverPadding(
+            padding: AppSpacing.screenPadding,
+            sliver: SliverList(
+              delegate: SliverChildBuilderDelegate(
+                (context, index) {
+                  final event = _events[index];
+                  return Padding(
+                    key: ValueKey(event.id),
+                    padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                    child: EventCard(
+                      event: event,
+                      alwaysShowStatus: true,
+                      showCategory: false,
+                      onTap: () => _openDetail(event),
+                    ),
+                  );
+                },
+                childCount: _events.length,
+              ),
             ),
           ),
         ],
