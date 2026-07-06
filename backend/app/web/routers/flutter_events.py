@@ -100,10 +100,15 @@ async def list_events(
     )
 
     if search:
-        term = f"%{search.strip()}%"
+        # escape LIKE metacharacters so a search of "%%" or "____" is treated as
+        # literal text, not a wildcard that scans every row at maximum cost
+        escaped = (
+            search.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        )
+        term = f"%{escaped}%"
         stmt = stmt.where(
-            func.lower(Event.title).like(func.lower(term))
-            | func.lower(Event.description).like(func.lower(term))
+            func.lower(Event.title).like(func.lower(term), escape="\\")
+            | func.lower(Event.description).like(func.lower(term), escape="\\")
         )
     if category_slug:
         stmt = stmt.where(EventCategory.slug == category_slug)
@@ -129,7 +134,7 @@ async def list_my_events(
 @router.get("/pending", response_model=list[FlutterEventItem])
 async def list_pending_events(
     include_rejected: bool = Query(default=False),
-    user: User = Depends(require_flutter_user),
+    user: User = Depends(require_flutter_admin),
     session: AsyncSession = Depends(get_session),
 ) -> list[FlutterEventItem]:
     events = await get_pending_events(session, include_rejected=include_rejected)

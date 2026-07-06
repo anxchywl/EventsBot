@@ -3,7 +3,7 @@ from __future__ import annotations
 from functools import lru_cache
 
 from typing import Annotated, Any
-from pydantic import Field, SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
@@ -30,6 +30,42 @@ class Settings(BaseSettings):
     # flutter development toggles — extra cors origins and enabled api docs
     flutter_dev_cors: bool = Field(default=False, alias="FLUTTER_DEV_CORS")
     flutter_dev_docs: bool = Field(default=False, alias="FLUTTER_DEV_DOCS")
+
+    # ── University superapp identity bridge ──────────────────────────────────
+    # All optional and OFF by default: until an issuer + a verification key are
+    # set, the bridge is inert and the Flutter app keeps using its own tokens.
+    # When the superapp is ready, set these to have Flutter endpoints ALSO accept
+    # superapp-issued JWTs (dual-mode migration; see web/superapp_bridge.py).
+    superapp_jwt_issuer: str | None = Field(default=None, alias="SUPERAPP_JWT_ISSUER")
+    superapp_jwt_audience: str | None = Field(
+        default=None, alias="SUPERAPP_JWT_AUDIENCE"
+    )
+    superapp_jwt_algorithm: str = Field(
+        default="RS256", alias="SUPERAPP_JWT_ALGORITHM"
+    )
+    # RS256/ES256 public key (PEM) — preferred, asymmetric so we never hold the
+    # superapp's signing key. Or an HS256 shared secret if that is all they offer.
+    superapp_jwt_public_key: str | None = Field(
+        default=None, alias="SUPERAPP_JWT_PUBLIC_KEY"
+    )
+    superapp_jwt_secret: SecretStr | None = Field(
+        default=None, alias="SUPERAPP_JWT_SECRET"
+    )
+    # which claim carries the stable subject id, and (optionally) the role
+    superapp_user_id_claim: str = Field(
+        default="sub", alias="SUPERAPP_USER_ID_CLAIM"
+    )
+    superapp_role_claim: str | None = Field(default=None, alias="SUPERAPP_ROLE_CLAIM")
+    # the exact value of the role claim that should map to coordinator/admin
+    superapp_admin_role_value: str | None = Field(
+        default=None, alias="SUPERAPP_ADMIN_ROLE_VALUE"
+    )
+
+    @property
+    def superapp_bridge_enabled(self) -> bool:
+        # inert until an issuer and at least one verification key are configured
+        has_key = bool(self.superapp_jwt_public_key) or bool(self.superapp_jwt_secret)
+        return bool(self.superapp_jwt_issuer) and has_key
     # IPs of reverse proxies whose X-Forwarded-For header should be trusted
     # e.g. TRUSTED_PROXY_IPS=127.0.0.1,10.0.0.1
     trusted_proxy_ips: Annotated[list[str], NoDecode] = Field(
@@ -102,6 +138,21 @@ class Settings(BaseSettings):
     )
     media_cover_cache_ttl: int = Field(default=86400, alias="MEDIA_COVER_CACHE_TTL")
     media_avatar_cache_ttl: int = Field(default=21600, alias="MEDIA_AVATAR_CACHE_TTL")
+
+    # the dev toggles widen CORS to localhost and expose the OpenAPI docs; they
+    # must never be left on in production. Refuse to boot if either is enabled
+    # while LOG_LEVEL is not DEBUG, so a stray FLUTTER_DEV_* in the prod .env
+    # fails loudly at startup instead of silently exposing the API surface.
+    @model_validator(mode="after")
+    def _guard_dev_flags_in_production(self) -> "Settings":
+        if (self.flutter_dev_cors or self.flutter_dev_docs) and (
+            self.log_level.upper() != "DEBUG"
+        ):
+            raise ValueError(
+                "FLUTTER_DEV_CORS/FLUTTER_DEV_DOCS must not be enabled unless "
+                "LOG_LEVEL=DEBUG (development only)."
+            )
+        return self
 
     model_config = SettingsConfigDict(
         env_file=".env",

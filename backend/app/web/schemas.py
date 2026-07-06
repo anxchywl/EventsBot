@@ -4,7 +4,9 @@ from datetime import date, datetime, time
 from typing import Literal
 from zoneinfo import ZoneInfo
 
-from pydantic import BaseModel, Field, model_validator
+from urllib.parse import urlparse
+
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.config import get_settings
 
@@ -294,6 +296,22 @@ class FriendActionResponse(BaseModel):
 _TIME_PATTERN = r"^([01]\d|2[0-3]):[0-5]\d$"
 
 
+# registration_url is stored and rendered as a tappable link by every client;
+# reject anything that is not a plain http(s) URL so a javascript:/data:/file:
+# scheme can never reach a client that launches it. The bot enforces the same
+# rule on its own submission path — this closes the equivalent Flutter path.
+def _validate_registration_url(value: str | None) -> str | None:
+    if value is None:
+        return None
+    value = value.strip()
+    if not value:
+        return None
+    parsed = urlparse(value)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError("Registration link must be a full http(s):// URL.")
+    return value
+
+
 class FlutterRegisterRequest(BaseModel):
     email: str = Field(min_length=3, max_length=255, pattern=_EMAIL_PATTERN)
     password: str = Field(min_length=8, max_length=128)
@@ -350,6 +368,10 @@ class FlutterEventCreate(BaseModel):
     it_equipment: str | None = Field(default=None, max_length=500)
     materials: str | None = Field(default=None, max_length=500)
     registration_url: str | None = Field(default=None, max_length=1024)
+
+    _check_registration_url = field_validator("registration_url")(
+        _validate_registration_url
+    )
 
     @model_validator(mode="after")
     def validate_dates_and_times(self) -> FlutterEventCreate:
@@ -420,6 +442,10 @@ class FlutterEventResubmit(BaseModel):
     materials: str | None = Field(default=None, max_length=500)
     registration_url: str | None = Field(default=None, max_length=1024)
     note: str | None = Field(default=None, max_length=500)
+
+    _check_registration_url = field_validator("registration_url")(
+        _validate_registration_url
+    )
 
     @model_validator(mode="after")
     def validate_dates_and_times(self) -> FlutterEventResubmit:

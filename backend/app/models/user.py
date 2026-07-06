@@ -43,6 +43,9 @@ class User(TimestampMixin, Base):
     __table_args__ = (
         UniqueConstraint("telegram_id", name="uq_users_telegram_id"),
         Index("ix_users_telegram_id", "telegram_id"),
+        # NULLs are distinct in SQL, so many pre-bridge users coexist; once set,
+        # a superapp subject maps to exactly one local account.
+        Index("uq_users_superapp_user_id", "superapp_user_id", unique=True),
         Index(
             "uq_users_verified_email",
             "email",
@@ -75,6 +78,10 @@ class User(TimestampMixin, Base):
     # authentication & nu profile fields
     email: Mapped[str | None] = mapped_column(String(255), nullable=True)
     password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # stable subject id asserted by the university superapp (nullable until the
+    # superapp bridge is enabled). Maps a superapp identity to one local User so
+    # the same person's events/moderation stay unified across all surfaces.
+    superapp_user_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     is_verified: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default="false"
     )

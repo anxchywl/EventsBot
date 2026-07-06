@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.db.session import get_session
 from app.models.user import User
+from app.web.superapp_bridge import try_superapp_user
 
 FLUTTER_JWT_ALGORITHM = "HS256"
 FLUTTER_JWT_ISSUER = "nu-events-flutter"
@@ -52,11 +53,25 @@ def decode_flutter_token(token: str) -> dict:
     )
 
 
-# resolve the flutter user from a bearer token
+# resolve the flutter user from a bearer token.
+#
+# Identity resolution order:
+#   1. University superapp bridge — inert unless SUPERAPP_JWT_* is configured.
+#      When enabled, a valid superapp-issued JWT resolves here first, so the
+#      Flutter app can be embedded in the superapp with no per-endpoint changes.
+#   2. Native Flutter PyJWT token — the current mechanism, unchanged.
+# This dual-mode is the migration seam: run both during the move, then drop the
+# native path once every client sends superapp tokens.
 async def require_flutter_user(
     authorization: str | None = Header(default=None),
     session: AsyncSession = Depends(get_session),
 ) -> User:
+    bridged = await try_superapp_user(authorization, session)
+    if bridged is not None:
+        # persist first-sight provisioning and last_active before the endpoint runs
+        await session.commit()
+        return bridged
+
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Missing authentication")
 
