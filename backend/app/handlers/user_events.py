@@ -172,6 +172,12 @@ async def _delete_manage_temp_messages(state: FSMContext, bot: Bot, chat_id: int
 async def process_manage_edit(
     message: Message, state: FSMContext, session: AsyncSession
 ):
+    # DISABLED (client refactor): event editing moved out of the bot along with
+    # "My Events". This handler is no longer reachable from the keyboard; the
+    # guard also blocks it from being triggered by manually typing "Edit".
+    # Remove this early return to re-enable.
+    return
+
     await _delete_manage_temp_messages(state, message.bot, message.chat.id)
     data = await state.get_data()
     event_id = data.get("manage_event_id")
@@ -222,6 +228,12 @@ async def process_manage_delete(
 async def process_confirm_delete_text(
     message: Message, state: FSMContext, session: AsyncSession, bot: Bot
 ):
+    # DISABLED (client refactor): event deletion moved out of the bot along with
+    # "My Events". This handler is no longer reachable from the keyboard; the
+    # guard also blocks it from being triggered by manually typing "Yes, Delete".
+    # Remove this early return to re-enable.
+    return
+
     await _delete_manage_temp_messages(state, bot, message.chat.id)
     data = await state.get_data()
     event_id = data.get("confirm_delete_event_id")

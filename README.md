@@ -2,7 +2,7 @@
 
 **Student Events Bot** is a Telegram bot and Mini App for student communities to discover and share campus events — without flooding group chats.
 
-Clubs submit events through the bot, moderators approve them, and approved events appear in auto-updating dashboards pinned to connected Telegram groups. Students browse, favorite, set reminders, and coordinate attendance through the Mini App.
+Clubs submit events through the bot, admins approve them, and approved events appear in auto-updating dashboards pinned to connected Telegram groups. Students browse, favorite, set reminders, and coordinate attendance through the Mini App.
 
 Built with aiogram 3, FastAPI, PostgreSQL, and vanilla JS.
 
@@ -11,7 +11,7 @@ Built with aiogram 3, FastAPI, PostgreSQL, and vanilla JS.
 ## What it does
 
 - **Event submission** — clubs submit events through a guided bot flow in private chat
-- **Moderation queue** — moderators approve, reject, or request changes before events go live
+- **Moderation queue** — admins approve, reject, or request changes before events go live
 - **Group dashboards** — one auto-updating pinned message per connected Telegram group, filtered by category
 - **Mini App** — search, filter, favorite, set reminders, share events, leave reviews
 - **Friends** — add friends, see which friends are going to an event, share via invite links
@@ -25,14 +25,14 @@ Built with aiogram 3, FastAPI, PostgreSQL, and vanilla JS.
 
 1. A club submits an event through the bot in private chat.
 2. The event is saved as pending and sent to the moderation queue.
-3. A moderator approves, rejects, or requests changes.
+3. An admin approves, rejects, or requests changes.
 4. Approved events are published and appear in connected group dashboards.
 5. Students open the Mini App to browse, favorite, set reminders, and register.
 
 ```mermaid
 flowchart LR
     A["Club submits event"] --> B["Saved as pending"]
-    B --> C["Moderator reviews"]
+    B --> C["Admin reviews"]
     C --> D{"Decision"}
     D -->|Approved| E["Event published"]
     D -->|Rejected| F["Returned or removed"]
@@ -59,7 +59,7 @@ flowchart LR
 ```
 /start             open the bot and see the main menu
 /submit_event      start the event submission flow
-/moderate          open the moderation queue (moderators only)
+/moderate          open the moderation queue (admins only)
 /favorites         view favorited events
 /dashboard         recreate the dashboard in a connected group
 /categories        manage category filters for a connected group

@@ -9,13 +9,22 @@ from PIL.Image import DecompressionBombWarning, DecompressionBombError
 _ALLOWED_FORMATS = frozenset({"jpeg", "png", "webp", "gif"})
 
 
-def process_image(data: bytes, max_px: int, max_size_bytes: int = 5_000_000) -> bytes:
+def process_image(
+    data: bytes,
+    max_px: int,
+    max_size_bytes: int = 5_000_000,
+    output_format: str = "WEBP",
+) -> bytes:
     if len(data) > max_size_bytes:
         raise ValueError(f"Image exceeds {max_size_bytes} bytes")
 
     image_format = _detect_image_format(data)
     if image_format not in _ALLOWED_FORMATS:
         raise ValueError("Unsupported image type")
+
+    output_format = output_format.upper()
+    if output_format not in {"WEBP", "JPEG"}:
+        raise ValueError("Unsupported output format")
 
     # set before any Image.open() call — module-level so it applies globally
     Image.MAX_IMAGE_PIXELS = 50_000_000
@@ -46,7 +55,11 @@ def process_image(data: bytes, max_px: int, max_size_bytes: int = 5_000_000) -> 
                 img = img.resize((int(w * ratio), int(h * ratio)), Image.LANCZOS)
 
             out = io.BytesIO()
-            img.save(out, format="WEBP", quality=88, method=4)
+            if output_format == "WEBP":
+                img.save(out, format="WEBP", quality=88, method=4)
+            else:
+                # method is a webp-only encoder arg so it is omitted for jpeg
+                img.save(out, format="JPEG", quality=88, optimize=True)
             return out.getvalue()
 
     except (DecompressionBombWarning, DecompressionBombError):

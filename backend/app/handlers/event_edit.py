@@ -814,7 +814,7 @@ async def _perform_submit_edit(
         session.add(
             ModerationLog(
                 event_id=original_event.id,
-                moderator_user_id=user.id,
+                actor_user_id=user.id,
                 action=ModerationAction.EDITED.value,
                 comment="Admin edited event",
             )
@@ -935,7 +935,7 @@ async def submit_edit(
         session.add(
             ModerationLog(
                 event_id=original_event.id,
-                moderator_user_id=user.id,
+                actor_user_id=user.id,
                 action=ModerationAction.EDITED.value,
                 comment="Admin edited event",
             )

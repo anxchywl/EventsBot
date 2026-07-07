@@ -42,16 +42,13 @@ def get_moderation_keyboard(event_id: int):
     return builder.as_markup()
 
 
-# sends pending events to moderators
+# sends pending events to admins
 # cmd moderate
 @router.message(Command("moderate"))
 async def cmd_moderate(message: Message, session: AsyncSession):
     settings = get_settings()
-    # allow admins and the configured moderator chat
     if message.from_user.id not in settings.admin_ids:
-        # check if it's the moderator chat
-        if message.chat.id != settings.moderator_chat_id:
-            return
+        return
 
     pending_events = await get_pending_events(session)
     if not pending_events:
@@ -112,11 +109,8 @@ async def process_approve(callback: CallbackQuery, session: AsyncSession, bot: B
     from app.config import get_settings
 
     settings = get_settings()
-    moderator = await upsert_user_from_telegram(session, callback.from_user)
-    if callback.from_user.id not in settings.admin_ids and moderator.role not in (
-        "moderator",
-        "admin",
-    ):
+    admin = await upsert_user_from_telegram(session, callback.from_user)
+    if callback.from_user.id not in settings.admin_ids and admin.role != "admin":
         await callback.answer("Unauthorized.", show_alert=True)
         return
 
@@ -138,9 +132,7 @@ async def process_approve(callback: CallbackQuery, session: AsyncSession, bot: B
 
     snapshot = await capture_event_snapshot(session, target_event_id)
 
-    event = await update_event_status(
-        session, event_id, EventStatus.APPROVED, moderator
-    )
+    event = await update_event_status(session, event_id, EventStatus.APPROVED, admin)
     if not event:
         await callback.answer("Event not found.", show_alert=True)
         return
@@ -180,7 +172,7 @@ async def process_approve(callback: CallbackQuery, session: AsyncSession, bot: B
 
     session.add(
         AuditLog(
-            actor_user_id=moderator.id,
+            actor_user_id=admin.id,
             action="approve_event",
             target_type="event",
             target_id=str(target_event.id),
@@ -294,10 +286,7 @@ async def process_rejection_reason(
 
     settings = get_settings()
     actor = await upsert_user_from_telegram(session, message.from_user)
-    if message.from_user.id not in settings.admin_ids and actor.role not in (
-        "moderator",
-        "admin",
-    ):
+    if message.from_user.id not in settings.admin_ids and actor.role != "admin":
         return
 
     data = await state.get_data()
@@ -310,12 +299,11 @@ async def process_rejection_reason(
         )
         return
 
-    # mark the event as rejected with the moderator comment
-    moderator = await upsert_user_from_telegram(session, message.from_user)
+    admin = await upsert_user_from_telegram(session, message.from_user)
     await acquire_event_lock(session, event_id)
     snapshot = await capture_event_snapshot(session, event_id)
     event = await update_event_status(
-        session, event_id, EventStatus.REJECTED, moderator, comment=reason
+        session, event_id, EventStatus.REJECTED, admin, comment=reason
     )
 
     if not event:
@@ -362,7 +350,7 @@ async def process_rejection_reason(
 
         session.add(
             AuditLog(
-                actor_user_id=moderator.id,
+                actor_user_id=admin.id,
                 action="reject_event",
                 target_type="event",
                 target_id=str(event_id),
@@ -422,10 +410,7 @@ async def process_changes_reason(
 
     settings = get_settings()
     actor = await upsert_user_from_telegram(session, message.from_user)
-    if message.from_user.id not in settings.admin_ids and actor.role not in (
-        "moderator",
-        "admin",
-    ):
+    if message.from_user.id not in settings.admin_ids and actor.role != "admin":
         return
 
     data = await state.get_data()
@@ -438,12 +423,11 @@ async def process_changes_reason(
         )
         return
 
-    # mark the event as needing changes with the moderator comment
-    moderator = await upsert_user_from_telegram(session, message.from_user)
+    admin = await upsert_user_from_telegram(session, message.from_user)
     await acquire_event_lock(session, event_id)
     snapshot = await capture_event_snapshot(session, event_id)
     event = await update_event_status(
-        session, event_id, EventStatus.NEEDS_CHANGES, moderator, comment=reason
+        session, event_id, EventStatus.NEEDS_CHANGES, admin, comment=reason
     )
 
     if not event:
@@ -461,7 +445,7 @@ async def process_changes_reason(
 
     session.add(
         AuditLog(
-            actor_user_id=moderator.id,
+            actor_user_id=admin.id,
             action="needs_changes_event",
             target_type="event",
             target_id=str(event_id),
@@ -473,12 +457,34 @@ async def process_changes_reason(
         f"📝 Event #{event_id} marked as 'Needs Changes' with reason: {reason}"
     )
 
-    # notify creator
+    # notify creator, with a deep link back into the flutter app to edit
     try:
+        from app.services.telegram_links import (
+            build_event_deep_link,
+            build_telegram_miniapp_direct_link,
+        )
+
+        bot_user = await message.bot.get_me()
+        edit_link = build_telegram_miniapp_direct_link(
+            bot_username=bot_user.username,
+            miniapp_short_name=settings.telegram_miniapp_short_name,
+            public_token=event.public_token,
+        ) or build_event_deep_link(
+            bot_username=bot_user.username,
+            public_token=event.public_token,
+        )
+
+        reply_markup = None
+        if edit_link:
+            builder = InlineKeyboardBuilder()
+            builder.button(text="Edit event", url=edit_link)
+            reply_markup = builder.as_markup()
+
         await message.bot.send_message(
             event.creator.telegram_id,
-            f"📝 <b>Your event '{html.escape(event.title)}' requires changes.</b>\n\n<b>Moderator's note:</b> {html.escape(reason)}",
+            f"📝 <b>Your event '{html.escape(event.title)}' requires changes.</b>\n\n<b>Admin's note:</b> {html.escape(reason)}",
             parse_mode="HTML",
+            reply_markup=reply_markup,
         )
     except Exception:
         pass

@@ -1,0 +1,23 @@
+name: app_ui
+description: A shareable, reusable Flutter UI Kit with design tokens, widgets, and components.
+
+version: 1.0.0
+
+environment:
+  sdk: ^3.10.0-290.4.beta
+  flutter: ">=3.10.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_svg: ^2.0.0
+  google_fonts: ^6.3.2
+  lucide_flutter: ^1.16.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true

@@ -12,13 +12,13 @@ Internal product and business rules reference. Canonical source of truth for pro
 
 Student communities organize many events. Sharing them through group chats creates noise, and interested students miss things or lose track across conversations.
 
-This project keeps one auto-updating dashboard message per connected Telegram group. Students browse and interact with events through a Telegram Mini App. Clubs submit events through the bot. Moderators approve them from a dedicated chat.
+This project keeps one auto-updating dashboard message per connected Telegram group. Students browse and interact with events through a Telegram Mini App. Clubs submit events through the bot. Admins approve them from the moderation queue.
 
 Primary goals:
 
 - Let students authenticate with a university email.
 - Let clubs submit and manage events through the bot.
-- Let moderators approve, reject, or request changes to events.
+- Let admins approve, reject, or request changes to events.
 - Show approved events in Telegram group dashboards and the Mini App.
 - Support favorites, reminders, reviews, and sharing in the Mini App.
 - Let students connect with friends and see which friends are attending events.
@@ -47,7 +47,7 @@ Primary goals:
 ## 3. Business Rules
 
 - Only approved events are visible to regular users in dashboards and the Mini App.
-- A moderator can approve, reject, or request changes; a request for changes returns the event to the submitter.
+- An admin can approve, reject, or request changes; a request for changes returns the event to the submitter.
 - Each connected Telegram group has exactly one dashboard message, pinned and auto-updated on any event change.
 - Dashboard content is filtered by the category preferences set for each group.
 - A user cannot review an event they have not interacted with unless product policy changes.
@@ -64,11 +64,11 @@ Primary goals:
 
 ## 4. Edge Cases
 
-- A moderator approves an event after the event date has passed.
+- An admin approves an event after the event date has passed.
 - A club edits an event after it has been approved and published.
 - A connected group revokes the bot's admin permissions after a dashboard has been created.
 - The dashboard message is manually deleted from the group.
-- Two moderators act on the same pending event simultaneously.
+- Two admins act on the same pending event simultaneously.
 - A user sets a reminder for an event that is later rejected or deleted.
 - A notification points to a deleted or inaccessible event.
 - A registration link in an event card becomes invalid after publication.
@@ -84,7 +84,7 @@ Primary goals:
 2. The bot guides the user through providing: title, description, date, time, location, category, registration link, and optional poster image.
 3. The completed event is saved with status `pending`.
 4. The event appears in the moderation queue.
-5. A moderator reviews it in the designated moderation chat.
+5. An admin reviews it in the moderation queue.
 6. On approval, the event status becomes `approved` and is published.
 7. On rejection, the event is marked `rejected` and removed from the queue.
 8. On request for changes, the event is returned to the submitter with feedback.
@@ -95,7 +95,7 @@ Primary goals:
 
 ## 6. Moderation Flow
 
-1. A moderator runs `/moderate` or receives a notification about a pending event.
+1. An admin runs `/moderate` or receives a notification about a pending event.
 2. The bot presents the event card with approve, reject, and request-changes options.
 3. Approve: event status → `approved`; dashboards and Mini App update.
 4. Reject: event status → `rejected`; submitter may be notified.

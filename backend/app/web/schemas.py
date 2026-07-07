@@ -1,6 +1,14 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, Field, model_validator
+from datetime import date, datetime, time
+from typing import Literal
+from zoneinfo import ZoneInfo
+
+from urllib.parse import urlparse
+
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+from app.config import get_settings
 
 
 class AuthRequest(BaseModel):
@@ -151,9 +159,11 @@ class ActionResponse(BaseModel):
     url: str | None = Field(default=None, max_length=2048)
 
 
-# auth & profile request schemas
+_EMAIL_PATTERN = r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$"
+
+
 class UserRegisterRequest(BaseModel):
-    email: str = Field(min_length=3, max_length=255)
+    email: str = Field(min_length=3, max_length=255, pattern=_EMAIL_PATTERN)
     password: str = Field(min_length=1, max_length=128)
 
 
@@ -279,3 +289,332 @@ class FriendActionResponse(BaseModel):
     ok: bool = True
     message: str
     request_id: int | None = None
+
+
+# flutter app: separate auth and event schemas for the mobile client
+
+_TIME_PATTERN = r"^([01]\d|2[0-3]):[0-5]\d$"
+
+
+# registration_url is stored and rendered as a tappable link by every client;
+# reject anything that is not a plain http(s) URL so a javascript:/data:/file:
+# scheme can never reach a client that launches it. The bot enforces the same
+# rule on its own submission path — this closes the equivalent Flutter path.
+def _validate_registration_url(value: str | None) -> str | None:
+    if value is None:
+        return None
+    value = value.strip()
+    if not value:
+        return None
+    parsed = urlparse(value)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError("Registration link must be a full http(s):// URL.")
+    return value
+
+
+class FlutterRegisterRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=255, pattern=_EMAIL_PATTERN)
+    password: str = Field(min_length=8, max_length=128)
+    first_name: str = Field(min_length=1, max_length=64)
+
+
+class FlutterLoginRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=255)
+    password: str = Field(min_length=1, max_length=128)
+
+
+class FlutterAuthResponse(BaseModel):
+    token: str
+    user_id: int
+    role: Literal["user", "admin"]
+    first_name: str | None = None
+    is_verified: bool
+
+
+class FlutterCategoryItem(BaseModel):
+    id: int
+    name: str
+    slug: str
+
+
+class FlutterEventItem(BaseModel):
+    id: int
+    public_token: str
+    title: str
+    description: str
+    event_date: str
+    event_time: str
+    event_end_time: str | None = None
+    location: str
+    category: str
+    organizer_name: str
+    status: str
+    cover_url: str | None = None
+    it_equipment: str | None = None
+    materials: str | None = None
+    registration_url: str | None = None
+    moderation_note: str | None = None
+    submitted_at: str
+
+
+class FlutterEventCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=255)
+    description: str = Field(min_length=1, max_length=1000)
+    event_date: date
+    event_time: str = Field(pattern=_TIME_PATTERN)
+    event_end_time: str = Field(pattern=_TIME_PATTERN)
+    location: str = Field(min_length=1, max_length=255)
+    category_id: int
+    organizer_name: str = Field(min_length=1, max_length=255)
+    it_equipment: str | None = Field(default=None, max_length=500)
+    materials: str | None = Field(default=None, max_length=500)
+    registration_url: str | None = Field(default=None, max_length=1024)
+    # opaque token resolved server side
+    cover_ref: str | None = Field(default=None, max_length=256)
+
+    _check_registration_url = field_validator("registration_url")(
+        _validate_registration_url
+    )
+
+    @model_validator(mode="after")
+    def validate_dates_and_times(self) -> FlutterEventCreate:
+        settings = get_settings()
+        tz = ZoneInfo(settings.app_timezone)
+        now = datetime.now(tz)
+        today = now.date()
+
+        if self.event_date < today:
+            raise ValueError("Event date cannot be in the past.")
+
+        try:
+            start_t = datetime.strptime(self.event_time, "%H:%M").time()
+            end_t = datetime.strptime(self.event_end_time, "%H:%M").time()
+        except ValueError:
+            raise ValueError("Invalid time format. Use HH:MM.")
+
+        if self.event_date == today and start_t < now.time():
+            raise ValueError("Event start time has already passed today.")
+
+        if end_t <= start_t:
+            raise ValueError("End time must be strictly later than start time.")
+
+        return self
+
+
+class FlutterEventPatch(BaseModel):
+    event_time: str | None = Field(default=None, pattern=_TIME_PATTERN)
+    event_end_time: str | None = Field(default=None, pattern=_TIME_PATTERN)
+    # remove_cover wins over cover_ref
+    cover_ref: str | None = Field(default=None, max_length=256)
+    remove_cover: bool = False
+
+    @model_validator(mode="after")
+    def validate_patch_times(self) -> FlutterEventPatch:
+        if self.event_time and self.event_end_time:
+            try:
+                start_t = datetime.strptime(self.event_time, "%H:%M").time()
+                end_t = datetime.strptime(self.event_end_time, "%H:%M").time()
+                if end_t <= start_t:
+                    raise ValueError("End time must be strictly later than start time.")
+            except ValueError:
+                pass
+        return self
+
+
+class FlutterEventStatusUpdate(BaseModel):
+    status: Literal["approved", "rejected", "needs_changes", "resubmitted", "cancelled"]
+    comment: str | None = Field(default=None, max_length=500)
+
+
+class FlutterEventResubmit(BaseModel):
+    """Optional updated fields applied to an existing event on resubmission.
+
+    Every field is optional: a creator may resubmit unchanged, or supply an
+    updated payload (same shape as FlutterEventCreate). `note` is the creator's
+    optional message stored on the moderation log.
+    """
+
+    title: str | None = Field(default=None, min_length=1, max_length=255)
+    description: str | None = Field(default=None, min_length=1, max_length=1000)
+    event_date: date | None = None
+    event_time: str | None = Field(default=None, pattern=_TIME_PATTERN)
+    event_end_time: str | None = Field(default=None, pattern=_TIME_PATTERN)
+    location: str | None = Field(default=None, min_length=1, max_length=255)
+    category_id: int | None = None
+    organizer_name: str | None = Field(default=None, min_length=1, max_length=255)
+    it_equipment: str | None = Field(default=None, max_length=500)
+    materials: str | None = Field(default=None, max_length=500)
+    registration_url: str | None = Field(default=None, max_length=1024)
+    note: str | None = Field(default=None, max_length=500)
+    # remove_cover wins over cover_ref
+    cover_ref: str | None = Field(default=None, max_length=256)
+    remove_cover: bool = False
+
+    _check_registration_url = field_validator("registration_url")(
+        _validate_registration_url
+    )
+
+    @model_validator(mode="after")
+    def validate_dates_and_times(self) -> FlutterEventResubmit:
+        settings = get_settings()
+        tz = ZoneInfo(settings.app_timezone)
+        now = datetime.now(tz)
+        today = now.date()
+
+        if self.event_date is not None and self.event_date < today:
+            raise ValueError("Event date cannot be in the past.")
+
+        start_t = end_t = None
+        if self.event_time is not None:
+            start_t = datetime.strptime(self.event_time, "%H:%M").time()
+        if self.event_end_time is not None:
+            end_t = datetime.strptime(self.event_end_time, "%H:%M").time()
+
+        if (
+            self.event_date is not None
+            and self.event_date == today
+            and start_t is not None
+            and start_t < now.time()
+        ):
+            raise ValueError("Event start time has already passed today.")
+
+        if start_t is not None and end_t is not None and end_t <= start_t:
+            raise ValueError("End time must be strictly later than start time.")
+
+        return self
+
+
+# ── Coordinator analytics dashboard ──────────────────────────────────────────
+
+
+class FlutterAnalyticsSummary(BaseModel):
+    """Keyed summary-card metrics.
+
+    A map (not fixed fields) so a new card can be added later without a breaking
+    change to the response shape; unknown/absent keys degrade gracefully client
+    side. Values may be null when a metric has no data yet (e.g. no ratings).
+    """
+
+    metrics: dict[str, float | int | None]
+
+
+class FlutterAnalyticsRankedEvent(BaseModel):
+    event_id: int
+    title: str
+    value: float
+    count: int | None = None
+
+
+class FlutterLongestPending(BaseModel):
+    event_id: int
+    title: str
+    waiting_seconds: float
+
+
+class FlutterAnalyticsThresholdBucket(BaseModel):
+    threshold_hours: int
+    count: int
+
+
+class FlutterAnalyticsModeration(BaseModel):
+    approval_rate: float
+    rejection_rate: float
+    needs_changes_rate: float
+    avg_time_to_first_decision_seconds: float | None = None
+    avg_total_review_seconds: float | None = None
+    avg_review_iterations: float | None = None
+    queue_size: int
+    longest_pending: FlutterLongestPending | None = None
+    threshold_buckets: list[FlutterAnalyticsThresholdBucket]
+
+
+class FlutterEngagementTotals(BaseModel):
+    views: int
+    register_clicks: int
+    share_clicks: int
+    reminder_creates: int
+    favorites_added: int
+    favorites_removed: int
+
+
+class FlutterTrendPoint(BaseModel):
+    date: str
+    count: int
+
+
+class FlutterAnalyticsEngagement(BaseModel):
+    totals: FlutterEngagementTotals
+    views_over_time: list[FlutterTrendPoint]
+
+
+class FlutterAnalyticsCategory(BaseModel):
+    category_id: int
+    category: str
+    event_count: int
+    views: int
+    registration_clicks: int
+    average_rating: float | None = None
+    approval_rate: float
+
+
+class FlutterAnalyticsOrganizer(BaseModel):
+    organizer: str
+    events_created: int
+    approval_rate: float
+    rejection_rate: float
+    average_rating: float | None = None
+    views: int
+    registration_clicks: int
+    favorites: int
+
+
+class FlutterAnalyticsEventOption(BaseModel):
+    id: int
+    title: str
+    category: str
+    event_date: str
+    status: str
+
+
+class FlutterAnalyticsRatings(BaseModel):
+    average: float | None = None
+    distribution: dict[str, int]
+    total_reviews: int
+    events_with_zero_reviews: int
+    top_rated: list[FlutterAnalyticsRankedEvent]
+    lowest_rated: list[FlutterAnalyticsRankedEvent]
+
+
+class FlutterModerationLogEntry(BaseModel):
+    action: str
+    actor_name: str | None = None
+    comment: str | None = None
+    created_at: str
+
+
+class FlutterEventModerationDetail(BaseModel):
+    current_status: str
+    submitted_at: str | None = None
+    first_reviewed_at: str | None = None
+    approved_at: str | None = None
+    rejected_at: str | None = None
+    total_review_seconds: float | None = None
+    review_iterations: int
+    needs_changes_count: int
+    resubmission_count: int
+    latest_moderator: str | None = None
+    latest_comment: str | None = None
+    last_status_update: str | None = None
+    creator_resubmitted: bool
+    history: list[FlutterModerationLogEntry] = []
+
+
+class FlutterEventReview(BaseModel):
+    rating_id: int
+    user_id: int
+    display_name: str
+    username: str | None = None
+    photo_url: str | None = None
+    score: int
+    content: str | None = None
+    created_at: str

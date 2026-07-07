@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.db.redis import get_media_redis
 from app.db.session import get_session
-from app.services.events import get_available_event_by_public_token
+from app.services.events import get_event_by_public_token
 from app.services.image_processing import process_image
 from app.web.auth import MiniAppUser, get_real_ip, require_current_miniapp_user
 from app.web.limiter import check_rate_limit
@@ -46,7 +46,7 @@ async def event_cover(
         "Too many media requests. Try again later.",
     )
     public_token = validate_public_token(public_token)
-    event = await get_available_event_by_public_token(session, public_token)
+    event = await get_event_by_public_token(session, public_token)
     if not event or not event.poster_file_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Cover not found")
 

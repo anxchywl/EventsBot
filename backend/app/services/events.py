@@ -48,17 +48,21 @@ async def create_pending_event(
         description=event_data["description"],
         event_date=event_data["event_date"],
         event_time=event_data["event_time"],
+        event_end_time=event_data.get("event_end_time"),
         location=event_data["location"],
         category_id=event_data["category_id"],
         organizer_name=event_data["organizer"],
         poster_file_id=event_data.get("poster_file_id"),
         registration_url=event_data.get("registration_url"),
+        it_equipment=event_data.get("it_equipment"),
+        materials=event_data.get("materials"),
         status=EventStatus.PENDING.value,
     )
     session.add(event)
 
     log = ModerationLog(
         event=event,
+        actor_user_id=creator.id,
         action=ModerationAction.SUBMITTED.value,
     )
     session.add(log)
@@ -143,11 +147,34 @@ def normalize_public_token(public_token: str) -> str:
     return token
 
 
-# load pending events for moderation queues
-async def get_pending_events(session: AsyncSession) -> Sequence[Event]:
+# queue statuses still awaiting a moderator decision, ordered by how
+# urgently they need attention: resubmitted (creator already acted and is
+# waiting) first, then needs_changes, then untouched pending submissions.
+_QUEUE_STATUS_ORDER = {
+    EventStatus.RESUBMITTED.value: 0,
+    EventStatus.NEEDS_CHANGES.value: 1,
+    EventStatus.PENDING.value: 2,
+}
+
+
+# load events still in the moderation queue (pending / needs changes / resubmitted).
+# `include_rejected` is an opt-in used by the Flutter "rejected" filter chip so
+# admins can surface already-rejected events without disturbing the default
+# queue ordering or contents.
+async def get_pending_events(
+    session: AsyncSession, include_rejected: bool = False
+) -> Sequence[Event]:
+    statuses = [
+        EventStatus.PENDING.value,
+        EventStatus.NEEDS_CHANGES.value,
+        EventStatus.RESUBMITTED.value,
+    ]
+    if include_rejected:
+        statuses.append(EventStatus.REJECTED.value)
+
     result = await session.execute(
         select(Event)
-        .where(Event.status == EventStatus.PENDING.value)
+        .where(Event.status.in_(statuses))
         .order_by(Event.created_at, Event.id)
         .options(selectinload(Event.category), selectinload(Event.creator))
     )
@@ -165,7 +192,11 @@ async def get_pending_events(session: AsyncSession) -> Sequence[Event]:
 
     return sorted(
         latest_by_source.values(),
-        key=lambda event: (event.created_at, event.id),
+        key=lambda event: (
+            _QUEUE_STATUS_ORDER.get(event.status, len(_QUEUE_STATUS_ORDER)),
+            event.created_at,
+            event.id,
+        ),
     )
 
 
@@ -215,7 +246,7 @@ async def update_event_status(
     session: AsyncSession,
     event_id: int,
     status: EventStatus,
-    moderator: User,
+    admin: User,
     comment: str | None = None,
 ) -> Event | None:
     event = await get_event_by_id(session, event_id)
@@ -228,7 +259,7 @@ async def update_event_status(
     if status == EventStatus.APPROVED:
         from datetime import datetime, timezone
 
-        event.approved_by_user_id = moderator.id
+        event.approved_by_user_id = admin.id
         event.approved_at = datetime.now(timezone.utc)
         if previous_status == EventStatus.ARCHIVED.value:
             event.restored_at = event.approved_at
@@ -248,12 +279,13 @@ async def update_event_status(
         EventStatus.ARCHIVED: ModerationAction.ARCHIVED,
         EventStatus.REJECTED: ModerationAction.REJECTED,
         EventStatus.NEEDS_CHANGES: ModerationAction.NEEDS_CHANGES,
+        EventStatus.RESUBMITTED: ModerationAction.RESUBMITTED,
         EventStatus.CANCELLED: ModerationAction.CANCELLED,
     }
 
     log = ModerationLog(
         event_id=event.id,
-        moderator_user_id=moderator.id,
+        actor_user_id=admin.id,
         action=action_map.get(status, ModerationAction.EDITED).value,
         comment=comment,
     )

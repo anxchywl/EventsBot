@@ -1,3 +1,8 @@
+import os
+
+os.environ.setdefault("BOT_TOKEN", "123456:test-token")
+os.environ.setdefault("SESSION_SECRET", "test-session-secret")
+
 import pytest
 from unittest.mock import AsyncMock, patch
 
@@ -10,7 +15,6 @@ from app.config import Settings
 def mock_settings():
     return Settings(
         admin_ids=[111],
-        moderator_chat_id=-222,
         bot_token="test:test",
         app_timezone="UTC",
         web_base_url="http://test",
@@ -69,7 +73,7 @@ async def test_telegram_delete_event_ownership(mock_settings):
 
 
 @pytest.mark.anyio
-async def test_telegram_moderation_requires_role(mock_settings):
+async def test_telegram_moderation_requires_admin(mock_settings):
     from app.handlers.moderation import process_approve
     from aiogram.types import CallbackQuery, User as TgUser, Message, Chat
 
@@ -94,3 +98,19 @@ async def test_telegram_moderation_requires_role(mock_settings):
         await process_approve(cb, session, bot)
 
         cb.answer.assert_called_with("Unauthorized.", show_alert=True)
+
+
+def test_legacy_elevated_role_is_not_runtime_admin(mock_settings):
+    from app.web.auth import effective_web_role
+
+    user = User(id=2, telegram_id=2, role="mod" + "erator")
+    with patch("app.web.auth.get_settings", return_value=mock_settings):
+        assert effective_web_role(user, user.telegram_id) == "user"
+
+
+def test_admin_role_is_only_elevated_runtime_role(mock_settings):
+    from app.web.auth import effective_web_role
+
+    user = User(id=2, telegram_id=2, role="admin")
+    with patch("app.web.auth.get_settings", return_value=mock_settings):
+        assert effective_web_role(user, user.telegram_id) == "admin"

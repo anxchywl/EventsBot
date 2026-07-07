@@ -18,7 +18,7 @@ from app.services.chats import connected_group_status
 from app.services.events import get_event_by_public_token
 from app.services.reviews import invalidate_review_caches, permanently_delete_review
 from app.web.realtime import publish_review_deleted
-from app.web.auth import effective_web_role, require_admin_or_moderator, require_admin
+from app.web.auth import effective_web_role, require_admin
 from app.web.limiter import check_rate_limit
 from app.web.routers.events import validate_public_token
 from app.web.schemas import ActionResponse
@@ -105,7 +105,7 @@ async def admin_delete_review_by_token(
 
 
 from pydantic import BaseModel, Field, field_validator
-from typing import Any
+from typing import Any, Literal
 
 
 # shape aggregate admin dashboard stats
@@ -125,7 +125,7 @@ class AdminUserItem(BaseModel):
     last_name: str | None = None
     email: str | None
     nickname: str | None
-    role: str
+    role: Literal["user", "admin"]
     has_nu_account: bool
     is_verified: bool
     is_blocked: bool
@@ -203,7 +203,7 @@ class BlockUserRequest(BaseModel):
 # aggregate user and review counts for admins
 @router.get("/stats", response_model=AdminStatsResponse)
 async def get_admin_stats(
-    admin: User = Depends(require_admin_or_moderator),
+    admin: User = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ) -> AdminStatsResponse:
     bot_users = (

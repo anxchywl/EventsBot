@@ -58,7 +58,7 @@ class Event(TimestampMixin, Base):
     # enforce status values and common lookup indexes
     __table_args__ = (
         CheckConstraint(
-            "status IN ('pending', 'approved', 'archived', 'rejected', 'needs_changes', 'cancelled')",
+            "status IN ('pending', 'approved', 'archived', 'rejected', 'needs_changes', 'resubmitted', 'cancelled')",
             name="status",
         ),
         Index(
@@ -92,12 +92,15 @@ class Event(TimestampMixin, Base):
     description: Mapped[str] = mapped_column(Text)
     event_date: Mapped[date] = mapped_column(Date)
     event_time: Mapped[time] = mapped_column(Time)
+    event_end_time: Mapped[time | None] = mapped_column(Time, nullable=True)
     timezone: Mapped[str] = mapped_column(
         String(64), default="Asia/Almaty", server_default="Asia/Almaty"
     )
     location: Mapped[str] = mapped_column(String(255))
     organizer_name: Mapped[str] = mapped_column(String(255))
     registration_url: Mapped[str | None] = mapped_column(String(1024))
+    it_equipment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    materials: Mapped[str | None] = mapped_column(Text, nullable=True)
     poster_file_id: Mapped[str | None] = mapped_column(String(512))
     # moderation state and timestamps
     status: Mapped[str] = mapped_column(

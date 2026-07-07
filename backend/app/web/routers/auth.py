@@ -590,8 +590,8 @@ async def login(
         # 8. moderationlog: merge logs
         await session.execute(
             update(ModerationLog)
-            .where(ModerationLog.moderator_user_id == current_guest_user.id)
-            .values(moderator_user_id=verified_user.id)
+            .where(ModerationLog.actor_user_id == current_guest_user.id)
+            .values(actor_user_id=verified_user.id)
         )
 
         # 9. chats: merge created chats

@@ -379,8 +379,7 @@ async def show_admin_mod_queue(
     if not user_id:
         return
     is_admin = user_id in settings.admin_ids
-    is_mod_chat = chat_id == settings.moderator_chat_id
-    if not (is_admin or is_mod_chat):
+    if not is_admin:
         if is_callback and event_obj:
             await event_obj.answer("Unauthorized.", show_alert=True)
         return
@@ -513,9 +512,7 @@ async def process_admin_mod_action(
 
     settings = get_settings()
     if not message.from_user or message.from_user.id not in settings.admin_ids:
-        # allow if they are acting in the moderator chat
-        if message.chat.id != settings.moderator_chat_id:
-            return
+        return
 
     data = await state.get_data()
     event_id = data.get("admin_mod_current_event_id")
@@ -750,7 +747,7 @@ async def _admin_approve_event(
     state: FSMContext,
     event_id: int,
 ) -> None:
-    moderator = await upsert_user_from_telegram(session, message.from_user)
+    admin = await upsert_user_from_telegram(session, message.from_user)
     existing = await get_event_by_id(session, event_id)
     if not existing:
         await message.answer(
@@ -763,9 +760,7 @@ async def _admin_approve_event(
     await acquire_event_lock(session, target_event_id)
     snapshot = await capture_event_snapshot(session, target_event_id)
 
-    event = await update_event_status(
-        session, event_id, EventStatus.APPROVED, moderator
-    )
+    event = await update_event_status(session, event_id, EventStatus.APPROVED, admin)
     if not event:
         await message.answer(
             "Event not found.",
@@ -981,13 +976,13 @@ async def process_admin_archive_restore_event(
     if not event_id or not data.get("is_admin_edit"):
         return
 
-    moderator = await upsert_user_from_telegram(session, message.from_user)
+    admin = await upsert_user_from_telegram(session, message.from_user)
     status = EventStatus.ARCHIVED if message.text == "Archive" else EventStatus.APPROVED
     operation = "archived" if status == EventStatus.ARCHIVED else "restored"
 
     await acquire_event_lock(session, event_id)
     snapshot = await capture_event_snapshot(session, event_id)
-    event = await update_event_status(session, event_id, status, moderator)
+    event = await update_event_status(session, event_id, status, admin)
     if not event:
         await message.answer("Event not found.")
         return

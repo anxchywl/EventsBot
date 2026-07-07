@@ -25,7 +25,7 @@ async def upsert_user_from_telegram(
     settings = get_settings()
     if telegram_user.id in settings.admin_ids:
         user.role = "admin"
-    elif user.role == "admin":
+    elif user.role not in {"user", "admin"}:
         user.role = "user"
 
     user.username = telegram_user.username
