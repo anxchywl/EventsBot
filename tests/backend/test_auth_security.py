@@ -5,6 +5,7 @@ os.environ.setdefault("SESSION_SECRET", "test-session-secret")
 
 import pytest
 from unittest.mock import AsyncMock, patch
+from types import SimpleNamespace
 
 from app.models.user import User
 from app.models.event import Event
@@ -123,3 +124,16 @@ def test_blank_media_storage_chat_id_is_unset():
     )
 
     assert settings.media_storage_chat_id is None
+
+
+def test_get_real_ip_trusts_proxy_cidr(mock_settings):
+    from app.web.auth import get_real_ip
+
+    mock_settings.trusted_proxy_ips = ["172.0.0.0/8"]
+    request = SimpleNamespace(
+        client=SimpleNamespace(host="172.18.0.5"),
+        headers={"x-forwarded-for": "203.0.113.10, 172.18.0.5"},
+    )
+
+    with patch("app.web.auth.get_settings", return_value=mock_settings):
+        assert get_real_ip(request) == "203.0.113.10"

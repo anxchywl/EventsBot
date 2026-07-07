@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import json
 import time
+from ipaddress import ip_address, ip_network
 from binascii import Error as BinasciiError
 from dataclasses import dataclass
 from datetime import datetime, UTC
@@ -122,12 +123,27 @@ def verify_init_data(init_data: str) -> MiniAppUser:
 # return the real client IP, trusting X-Forwarded-For only from configured proxy IPs
 def get_real_ip(request: Request) -> str:
     direct_ip = request.client.host if request.client else "unknown"
-    trusted = set(get_settings().trusted_proxy_ips)
-    if direct_ip in trusted:
+    if _is_trusted_proxy(direct_ip, get_settings().trusted_proxy_ips):
         forwarded = request.headers.get("x-forwarded-for", "")
         if forwarded:
             return forwarded.split(",", 1)[0].strip() or direct_ip
     return direct_ip
+
+
+def _is_trusted_proxy(direct_ip: str, trusted_proxies: list[str]) -> bool:
+    try:
+        parsed_ip = ip_address(direct_ip)
+    except ValueError:
+        return direct_ip in trusted_proxies
+
+    for proxy in trusted_proxies:
+        try:
+            if parsed_ip in ip_network(proxy, strict=False):
+                return True
+        except ValueError:
+            if direct_ip == proxy:
+                return True
+    return False
 
 
 # sign mini app session data for authenticated api calls
