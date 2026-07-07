@@ -369,6 +369,8 @@ class FlutterEventCreate(BaseModel):
     it_equipment: str | None = Field(default=None, max_length=500)
     materials: str | None = Field(default=None, max_length=500)
     registration_url: str | None = Field(default=None, max_length=1024)
+    # opaque token resolved server side
+    cover_ref: str | None = Field(default=None, max_length=256)
 
     _check_registration_url = field_validator("registration_url")(
         _validate_registration_url
@@ -402,6 +404,9 @@ class FlutterEventCreate(BaseModel):
 class FlutterEventPatch(BaseModel):
     event_time: str | None = Field(default=None, pattern=_TIME_PATTERN)
     event_end_time: str | None = Field(default=None, pattern=_TIME_PATTERN)
+    # remove_cover wins over cover_ref
+    cover_ref: str | None = Field(default=None, max_length=256)
+    remove_cover: bool = False
 
     @model_validator(mode="after")
     def validate_patch_times(self) -> FlutterEventPatch:
@@ -412,14 +417,12 @@ class FlutterEventPatch(BaseModel):
                 if end_t <= start_t:
                     raise ValueError("End time must be strictly later than start time.")
             except ValueError:
-                pass # Pattern handles formatting
+                pass
         return self
 
 
 class FlutterEventStatusUpdate(BaseModel):
-    status: Literal[
-        "approved", "rejected", "needs_changes", "resubmitted", "cancelled"
-    ]
+    status: Literal["approved", "rejected", "needs_changes", "resubmitted", "cancelled"]
     comment: str | None = Field(default=None, max_length=500)
 
 
@@ -443,6 +446,9 @@ class FlutterEventResubmit(BaseModel):
     materials: str | None = Field(default=None, max_length=500)
     registration_url: str | None = Field(default=None, max_length=1024)
     note: str | None = Field(default=None, max_length=500)
+    # remove_cover wins over cover_ref
+    cover_ref: str | None = Field(default=None, max_length=256)
+    remove_cover: bool = False
 
     _check_registration_url = field_validator("registration_url")(
         _validate_registration_url

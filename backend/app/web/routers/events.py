@@ -28,10 +28,7 @@ from app.services.events import (
     get_event_by_public_token,
 )
 from app.services.event_sync import latest_completed_sync_version
-from app.services.telegram_links import (
-    build_telegram_miniapp_direct_link,
-    build_telegram_text_share_link,
-)
+from app.services.telegram_links import build_telegram_miniapp_direct_link
 from app.web.auth import (
     MiniAppUser,
     get_real_ip,
@@ -297,7 +294,7 @@ async def event_detail(
         session,
         event,
         user=user,
-        share_url=await _event_share_url(event),
+        share_url=await _event_share_target(event.public_token),
         related_events=await _related_events(session, event),
     )
     await session.commit()
@@ -531,12 +528,4 @@ async def _event_share_target(public_token: str) -> str:
             public_token=public_token,
         )
         or f"/events/{public_token}"
-    )
-
-
-# build public share urls from event tokens
-async def _event_share_url(event: Event) -> str:
-    return build_telegram_text_share_link(
-        text=event.title,
-        url=await _event_share_target(event.public_token),
     )

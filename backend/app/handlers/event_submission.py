@@ -38,7 +38,7 @@ _TIME_RE = re.compile(r"^(\d{2}) (\d{2})$")
 def sanitize_text(text: str) -> str:
     if not text:
         return ""
-    cleaned = re.sub(r'[\x00-\x09\x0B-\x1F]+', '', text)
+    cleaned = re.sub(r"[\x00-\x09\x0B-\x1F]+", "", text)
     return cleaned.strip()
 
 
@@ -450,15 +450,11 @@ async def process_title(
         await track_messages(state, message.message_id, msg.message_id, is_temp=True)
         return
 
-    await finalize_previous_step(
-        state, bot, message.chat.id, f"📝 **Title:** {text}"
-    )
+    await finalize_previous_step(state, bot, message.chat.id, f"📝 **Title:** {text}")
     await record_nav_answer(state, message.message_id)
 
     # store the title and ask for description
-    await state.update_data(
-        title=text, last_step_user_message_id=message.message_id
-    )
+    await state.update_data(title=text, last_step_user_message_id=message.message_id)
     await track_messages(state, message.message_id)
     await send_submission_prompt(message, state, "description")
 
@@ -638,9 +634,7 @@ async def process_location(
     )
     await record_nav_answer(state, message.message_id)
     # store location and show categories
-    await state.update_data(
-        location=text, last_step_user_message_id=message.message_id
-    )
+    await state.update_data(location=text, last_step_user_message_id=message.message_id)
     await track_messages(state, message.message_id)
     await send_submission_prompt(message, state, "category", session)
 
@@ -750,6 +744,9 @@ async def validate_poster_image(message: Message, bot: Bot, file_id: str) -> boo
 # process poster
 @router.message(EventSubmission.poster, F.photo)
 async def process_poster(message: Message, state: FSMContext, bot: Bot):
+    # keep legacy bot cover flow disabled for flutter covers
+    if not get_settings().bot_poster_upload_enabled:
+        return
     # use the highest resolution telegram photo
     file_id = message.photo[-1].file_id
     if not await validate_poster_image(message, bot, file_id):
@@ -769,6 +766,9 @@ async def process_poster(message: Message, state: FSMContext, bot: Bot):
 async def skip_poster(
     message: Message, state: FSMContext, bot: Bot, session: AsyncSession
 ):
+    # keep legacy bot cover flow disabled for flutter covers
+    if not get_settings().bot_poster_upload_enabled:
+        return
     await state.update_data(
         poster_file_id=None, last_step_user_message_id=message.message_id
     )
@@ -782,6 +782,12 @@ async def skip_poster(
 
 # asks for a poster or image
 async def prompt_poster(message_obj: Message, state: FSMContext, bot: Bot):
+    # auto-skip while covers stay flutter-only
+    if not get_settings().bot_poster_upload_enabled:
+        await state.update_data(poster_file_id=None)
+        await prompt_registration_link(message_obj, state, bot)
+        return
+
     builder = get_step_navigation_kb("Skip poster")
     msg = await message_obj.answer(
         "Please send a **poster or image** for the event. If you don't have one, click Skip.",

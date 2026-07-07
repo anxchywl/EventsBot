@@ -760,9 +760,7 @@ async def _admin_approve_event(
     await acquire_event_lock(session, target_event_id)
     snapshot = await capture_event_snapshot(session, target_event_id)
 
-    event = await update_event_status(
-        session, event_id, EventStatus.APPROVED, admin
-    )
+    event = await update_event_status(session, event_id, EventStatus.APPROVED, admin)
     if not event:
         await message.answer(
             "Event not found.",

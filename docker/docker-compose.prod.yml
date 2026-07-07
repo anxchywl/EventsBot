@@ -71,6 +71,12 @@ services:
       MEDIA_MAX_UPLOAD_BYTES: ${MEDIA_MAX_UPLOAD_BYTES:-5000000}
       MEDIA_COVER_CACHE_TTL: ${MEDIA_COVER_CACHE_TTL:-86400}
       MEDIA_AVATAR_CACHE_TTL: ${MEDIA_AVATAR_CACHE_TTL:-21600}
+      # private telegram channel for cover storage
+      # unset disables flutter cover uploads
+      MEDIA_STORAGE_CHAT_ID: ${MEDIA_STORAGE_CHAT_ID:-}
+      MEDIA_COVER_STAGING_TTL: ${MEDIA_COVER_STAGING_TTL:-3600}
+      # legacy telegram bot cover step
+      BOT_POSTER_UPLOAD_ENABLED: ${BOT_POSTER_UPLOAD_ENABLED:-false}
     depends_on:
       postgres:
         condition: service_healthy
@@ -123,6 +129,12 @@ services:
       MEDIA_MAX_UPLOAD_BYTES: ${MEDIA_MAX_UPLOAD_BYTES:-5000000}
       MEDIA_COVER_CACHE_TTL: ${MEDIA_COVER_CACHE_TTL:-86400}
       MEDIA_AVATAR_CACHE_TTL: ${MEDIA_AVATAR_CACHE_TTL:-21600}
+      # private telegram channel for cover storage
+      # unset disables flutter cover uploads
+      MEDIA_STORAGE_CHAT_ID: ${MEDIA_STORAGE_CHAT_ID:-}
+      MEDIA_COVER_STAGING_TTL: ${MEDIA_COVER_STAGING_TTL:-3600}
+      # legacy telegram bot cover step
+      BOT_POSTER_UPLOAD_ENABLED: ${BOT_POSTER_UPLOAD_ENABLED:-false}
     depends_on:
       postgres:
         condition: service_healthy

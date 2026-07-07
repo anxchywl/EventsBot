@@ -1,8 +1,12 @@
+import 'dart:typed_data';
+
 import 'package:app_ui/app_ui.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 
+import '../../core/api_client.dart';
 import '../../core/auth_store.dart';
 import '../../core/cache_store.dart';
 import '../../core/exceptions.dart';
@@ -83,6 +87,16 @@ class _SubmitScreenState extends State<SubmitScreen> {
   List<EventModel> _existingEvents = [];
 
   bool _submitting = false;
+
+  Uint8List? _coverBytes;
+  String? _coverFilename;
+  String? _coverMime;
+  String? _coverRef;
+  bool _coverUploading = false;
+  bool _coverRemoved = false;
+  String? _coverError;
+
+  final _picker = ImagePicker();
 
   @override
   void initState() {
@@ -384,6 +398,8 @@ class _SubmitScreenState extends State<SubmitScreen> {
       if (_categoryId == null) return false;
       return true;
     }
+    // wait for cover upload before submit
+    if (step == 2) return !_coverUploading;
     return true;
   }
 
@@ -454,6 +470,10 @@ class _SubmitScreenState extends State<SubmitScreen> {
   }
 
   Future<void> _submit() async {
+    if (_coverUploading) {
+      _showMessage(AppLocalizations.get('coverStillUploading'));
+      return;
+    }
     setState(() => _submitting = true);
     try {
       final fields = {
@@ -469,6 +489,12 @@ class _SubmitScreenState extends State<SubmitScreen> {
         'materials': _nullIfEmpty(_materialsController.text),
         'registration_url': _nullIfEmpty(_registrationController.text),
       };
+      if (_coverRef != null) {
+        fields['cover_ref'] = _coverRef;
+      }
+      if (_isResubmit && _coverRemoved) {
+        fields['remove_cover'] = true;
+      }
       if (_isResubmit) {
         await EventCache.instance.resubmit(widget.initialEvent!.id, fields);
       } else {
@@ -705,11 +731,11 @@ class _SubmitScreenState extends State<SubmitScreen> {
             Theme(
               data: Theme.of(context).copyWith(
                 colorScheme: Theme.of(context).colorScheme.copyWith(
-                      primary: AppColors.primary,
-                      onPrimary: Colors.white,
-                      onSurface: textPrimary,
-                      onSurfaceVariant: textSub,
-                    ),
+                  primary: AppColors.primary,
+                  onPrimary: Colors.white,
+                  onSurface: textPrimary,
+                  onSurfaceVariant: textSub,
+                ),
               ),
               child: CalendarDatePicker(
                 initialDate: _date ?? now,
@@ -1076,16 +1102,315 @@ class _SubmitScreenState extends State<SubmitScreen> {
             ),
             !_isEditing,
           ),
+          _buildFocusAnim(const SizedBox(height: AppSpacing.df), !_isEditing),
+          _buildFocusAnim(_buildCoverSection(), !_isEditing),
         ],
       ),
     );
   }
 
+  bool get _hasExistingCover =>
+      _isResubmit &&
+      widget.initialEvent!.coverUrl != null &&
+      !_coverRemoved &&
+      _coverBytes == null;
+
+  bool get _hasCover => _coverBytes != null || _hasExistingCover;
+
+  Widget _buildCoverSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        AnimatedSize(
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.fastOutSlowIn,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(AppSpacing.md),
+            child: AspectRatio(
+              aspectRatio: 16 / 9,
+              child: _hasCover
+                  ? _buildCoverPreview()
+                  : _buildCoverPlaceholder(),
+            ),
+          ),
+        ),
+        if (_coverError != null) ...[
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            _coverError!,
+            style: const TextStyle(color: AppColors.error, fontSize: 13),
+          ),
+        ],
+        const SizedBox(height: AppSpacing.sm),
+        _buildCoverActions(),
+      ],
+    );
+  }
+
+  Widget _buildCoverPreview() {
+    final Widget image = _coverBytes != null
+        ? Image.memory(_coverBytes!, fit: BoxFit.cover)
+        : Image.network(
+            widget.initialEvent!.coverUrl!,
+            fit: BoxFit.cover,
+            errorBuilder: (_, _, _) => _buildCoverPlaceholder(),
+          );
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        GestureDetector(
+          onTap: _coverUploading ? null : _showCoverFullscreen,
+          child: image,
+        ),
+        if (_coverUploading)
+          Container(
+            color: Colors.black.withValues(alpha: 0.45),
+            alignment: Alignment.center,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const AppLoader(),
+                const SizedBox(height: AppSpacing.sm),
+                Text(
+                  AppLocalizations.get('uploading'),
+                  style: const TextStyle(color: Colors.white, fontSize: 13),
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildCoverPlaceholder() {
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    return GestureDetector(
+      onTap: _coverUploading ? null : _startPickCover,
+      child: Container(
+        color: isLight ? AppColors.fieldBackground : AppColors.surfaceDark,
+        alignment: Alignment.center,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const AppIcon(AppIcons.image, color: AppColors.grey, size: 40),
+            const SizedBox(height: AppSpacing.sm),
+            Text(
+              AppLocalizations.get('addCover'),
+              style: const TextStyle(color: AppColors.grey, fontSize: 13),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCoverActions() {
+    if (!_hasCover) {
+      if (_coverError != null) {
+        return Row(
+          children: [
+            Expanded(
+              child: AppSecondaryButton(
+                size: AppButtonSize.small,
+                text: AppLocalizations.get('addCover'),
+                onPressed: _coverUploading ? null : _startPickCover,
+              ),
+            ),
+          ],
+        );
+      }
+      return const SizedBox.shrink();
+    }
+    return Row(
+      children: [
+        Expanded(
+          child: AppSecondaryButton(
+            size: AppButtonSize.small,
+            text: _coverError != null
+                ? AppLocalizations.get('retry')
+                : AppLocalizations.get('replace'),
+            onPressed: _coverUploading
+                ? null
+                : (_coverError != null
+                      ? _uploadCurrentCover
+                      : _confirmReplaceCover),
+          ),
+        ),
+        const SizedBox(width: AppSpacing.md),
+        Expanded(
+          child: AppSecondaryButton(
+            size: AppButtonSize.small,
+            text: AppLocalizations.get('remove'),
+            onPressed: _coverUploading ? null : _confirmRemoveCover,
+          ),
+        ),
+      ],
+    );
+  }
+
+  ({String filename, String mime})? _sniffImage(Uint8List b) {
+    if (b.length >= 3 && b[0] == 0xFF && b[1] == 0xD8 && b[2] == 0xFF) {
+      return (filename: 'cover.jpg', mime: 'image/jpeg');
+    }
+    if (b.length >= 8 &&
+        b[0] == 0x89 &&
+        b[1] == 0x50 &&
+        b[2] == 0x4E &&
+        b[3] == 0x47) {
+      return (filename: 'cover.png', mime: 'image/png');
+    }
+    if (b.length >= 12 &&
+        b[0] == 0x52 &&
+        b[1] == 0x49 &&
+        b[2] == 0x46 &&
+        b[3] == 0x46 &&
+        b[8] == 0x57 &&
+        b[9] == 0x45 &&
+        b[10] == 0x42 &&
+        b[11] == 0x50) {
+      return (filename: 'cover.webp', mime: 'image/webp');
+    }
+    if (b.length >= 6 && b[0] == 0x47 && b[1] == 0x49 && b[2] == 0x46) {
+      return (filename: 'cover.gif', mime: 'image/gif');
+    }
+    return null;
+  }
+
+  Future<void> _startPickCover() async {
+    final source = await _chooseImageSource();
+    if (source == null) return;
+    XFile? picked;
+    try {
+      picked = await _picker.pickImage(
+        source: source,
+        maxWidth: 2560,
+        maxHeight: 2560,
+        imageQuality: 90,
+      );
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _coverError = AppLocalizations.get('coverPickFailed'));
+      return;
+    }
+    if (picked == null) return;
+    final bytes = await picked.readAsBytes();
+    final sniff = _sniffImage(bytes);
+    if (sniff == null) {
+      if (!mounted) return;
+      setState(() {
+        _coverError = AppLocalizations.get('coverUnsupported');
+      });
+      return;
+    }
+    if (!mounted) return;
+    setState(() {
+      _coverBytes = bytes;
+      _coverFilename = sniff.filename;
+      _coverMime = sniff.mime;
+      _coverRef = null;
+      _coverRemoved = false;
+      _coverError = null;
+    });
+    await _uploadCurrentCover();
+  }
+
+  Future<void> _uploadCurrentCover() async {
+    final bytes = _coverBytes;
+    if (bytes == null) return;
+    setState(() {
+      _coverUploading = true;
+      _coverError = null;
+    });
+    try {
+      final ref = await uploadCover(
+        bytes: bytes,
+        filename: _coverFilename ?? 'cover.jpg',
+        contentType: _coverMime,
+      );
+      if (!mounted) return;
+      setState(() {
+        _coverRef = ref;
+        _coverUploading = false;
+      });
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _coverUploading = false;
+        _coverRef = null;
+        _coverError = e.message;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _coverUploading = false;
+        _coverRef = null;
+        _coverError = AppLocalizations.get('coverUploadFailed');
+      });
+    }
+  }
+
+  Future<ImageSource?> _chooseImageSource() {
+    return showModalBottomSheet<ImageSource>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const AppIcon(AppIcons.image),
+              title: Text(AppLocalizations.get('gallery')),
+              onTap: () => Navigator.pop(ctx, ImageSource.gallery),
+            ),
+            ListTile(
+              leading: const AppIcon(AppIcons.camera),
+              title: Text(AppLocalizations.get('camera')),
+              onTap: () => Navigator.pop(ctx, ImageSource.camera),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _confirmReplaceCover() async {
+    await _startPickCover();
+  }
+
+  Future<void> _confirmRemoveCover() async {
+    if (!mounted) return;
+    setState(() {
+      _coverBytes = null;
+      _coverFilename = null;
+      _coverMime = null;
+      _coverRef = null;
+      _coverError = null;
+      _coverRemoved = true;
+    });
+  }
+
+  void _showCoverFullscreen() {
+    final Widget image = _coverBytes != null
+        ? Image.memory(_coverBytes!, fit: BoxFit.contain)
+        : Image.network(widget.initialEvent!.coverUrl!, fit: BoxFit.contain);
+    showDialog<void>(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: 0.9),
+      builder: (ctx) => GestureDetector(
+        onTap: () => Navigator.pop(ctx),
+        child: Center(
+          child: InteractiveViewer(
+            child: Padding(
+              padding: const EdgeInsets.all(AppSpacing.md),
+              child: image,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildFocusAnim(Widget child, bool isVisible, {FocusNode? focusNode}) {
-    final showDone =
-        _isEditing &&
-        focusNode != null &&
-        focusNode.hasFocus;
+    final showDone = _isEditing && focusNode != null && focusNode.hasFocus;
 
     final content = focusNode != null
         ? Row(

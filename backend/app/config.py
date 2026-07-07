@@ -40,9 +40,7 @@ class Settings(BaseSettings):
     superapp_jwt_audience: str | None = Field(
         default=None, alias="SUPERAPP_JWT_AUDIENCE"
     )
-    superapp_jwt_algorithm: str = Field(
-        default="RS256", alias="SUPERAPP_JWT_ALGORITHM"
-    )
+    superapp_jwt_algorithm: str = Field(default="RS256", alias="SUPERAPP_JWT_ALGORITHM")
     # RS256/ES256 public key (PEM) — preferred, asymmetric so we never hold the
     # superapp's signing key. Or an HS256 shared secret if that is all they offer.
     superapp_jwt_public_key: str | None = Field(
@@ -52,9 +50,7 @@ class Settings(BaseSettings):
         default=None, alias="SUPERAPP_JWT_SECRET"
     )
     # which claim carries the stable subject id, and (optionally) the role
-    superapp_user_id_claim: str = Field(
-        default="sub", alias="SUPERAPP_USER_ID_CLAIM"
-    )
+    superapp_user_id_claim: str = Field(default="sub", alias="SUPERAPP_USER_ID_CLAIM")
     superapp_role_claim: str | None = Field(default=None, alias="SUPERAPP_ROLE_CLAIM")
     # the exact value of the role claim that should map to coordinator/admin
     superapp_admin_role_value: str | None = Field(
@@ -66,6 +62,7 @@ class Settings(BaseSettings):
         # inert until an issuer and at least one verification key are configured
         has_key = bool(self.superapp_jwt_public_key) or bool(self.superapp_jwt_secret)
         return bool(self.superapp_jwt_issuer) and has_key
+
     # IPs of reverse proxies whose X-Forwarded-For header should be trusted
     # e.g. TRUSTED_PROXY_IPS=127.0.0.1,10.0.0.1
     trusted_proxy_ips: Annotated[list[str], NoDecode] = Field(
@@ -138,6 +135,16 @@ class Settings(BaseSettings):
     )
     media_cover_cache_ttl: int = Field(default=86400, alias="MEDIA_COVER_CACHE_TTL")
     media_avatar_cache_ttl: int = Field(default=21600, alias="MEDIA_AVATAR_CACHE_TTL")
+
+    # private telegram channel for cover storage
+    media_storage_chat_id: int | None = Field(
+        default=None, alias="MEDIA_STORAGE_CHAT_ID"
+    )
+    media_cover_staging_ttl: int = Field(default=3600, alias="MEDIA_COVER_STAGING_TTL")
+    # legacy bot cover step stays off for flutter covers
+    bot_poster_upload_enabled: bool = Field(
+        default=False, alias="BOT_POSTER_UPLOAD_ENABLED"
+    )
 
     # the dev toggles widen CORS to localhost and expose the OpenAPI docs; they
     # must never be left on in production. Refuse to boot if either is enabled

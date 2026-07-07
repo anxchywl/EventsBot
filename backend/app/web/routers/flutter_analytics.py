@@ -133,9 +133,9 @@ async def moderation(
 ) -> FlutterAnalyticsModeration:
     await _limit(request, user.id, "moderation")
     # clamp thresholds: bounded count, positive, within a sane ceiling, deduped
-    cleaned = sorted(
-        {h for h in thresholds if 0 < h <= _MAX_THRESHOLD_HOURS}
-    )[:_MAX_THRESHOLDS]
+    cleaned = sorted({h for h in thresholds if 0 < h <= _MAX_THRESHOLD_HOURS})[
+        :_MAX_THRESHOLDS
+    ]
     if not cleaned:
         cleaned = [24, 48]
     data = await svc.compute_moderation(session, filters, cleaned)
@@ -175,7 +175,9 @@ async def engagement_top(
     cached = _agg_cache.get(key)
     if cached is None:
         try:
-            cached = await svc.compute_top_events(session, filters, metric, limit, offset)
+            cached = await svc.compute_top_events(
+                session, filters, metric, limit, offset
+            )
         except ValueError:
             raise HTTPException(
                 status.HTTP_422_UNPROCESSABLE_ENTITY, f"unknown metric {metric!r}"

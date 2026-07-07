@@ -132,9 +132,7 @@ async def process_approve(callback: CallbackQuery, session: AsyncSession, bot: B
 
     snapshot = await capture_event_snapshot(session, target_event_id)
 
-    event = await update_event_status(
-        session, event_id, EventStatus.APPROVED, admin
-    )
+    event = await update_event_status(session, event_id, EventStatus.APPROVED, admin)
     if not event:
         await callback.answer("Event not found.", show_alert=True)
         return

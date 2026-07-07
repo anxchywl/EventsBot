@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart' show MediaType;
 
 import '../models/analytics_model.dart';
 import '../models/category_model.dart';
@@ -60,13 +61,17 @@ const _kTimeout = Duration(seconds: 10);
 Future<http.Response> _get(Uri uri, {Map<String, String>? headers}) =>
     _client.get(uri, headers: headers).timeout(_kTimeout);
 
-Future<http.Response> _post(Uri uri,
-        {Map<String, String>? headers, Object? body}) =>
-    _client.post(uri, headers: headers, body: body).timeout(_kTimeout);
+Future<http.Response> _post(
+  Uri uri, {
+  Map<String, String>? headers,
+  Object? body,
+}) => _client.post(uri, headers: headers, body: body).timeout(_kTimeout);
 
-Future<http.Response> _patch(Uri uri,
-        {Map<String, String>? headers, Object? body}) =>
-    _client.patch(uri, headers: headers, body: body).timeout(_kTimeout);
+Future<http.Response> _patch(
+  Uri uri, {
+  Map<String, String>? headers,
+  Object? body,
+}) => _client.patch(uri, headers: headers, body: body).timeout(_kTimeout);
 
 bool _isOk(int code) => code >= 200 && code < 300;
 
@@ -159,7 +164,9 @@ Future<List<EventModel>> fetchMyEvents() async {
   return _decodeEventList(response.body);
 }
 
-Future<List<EventModel>> fetchPendingEvents({bool includeRejected = false}) async {
+Future<List<EventModel>> fetchPendingEvents({
+  bool includeRejected = false,
+}) async {
   final response = await _get(
     _uri(
       '/api/flutter/events/pending',
@@ -190,6 +197,41 @@ Future<EventModel> fetchEvent(int id) async {
   );
   if (!_isOk(response.statusCode)) _throwFor(response);
   return EventModel.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+}
+
+Future<String> uploadCover({
+  required List<int> bytes,
+  required String filename,
+  String? contentType,
+}) async {
+  final request = http.MultipartRequest(
+    'POST',
+    _uri('/api/flutter/events/cover'),
+  );
+  final token = AuthStore.token;
+  if (token != null) request.headers['Authorization'] = 'Bearer $token';
+  request.files.add(
+    http.MultipartFile.fromBytes(
+      'file',
+      bytes,
+      filename: filename,
+      contentType: contentType != null ? MediaType.parse(contentType) : null,
+    ),
+  );
+  final streamed = await _client
+      .send(request)
+      .timeout(const Duration(seconds: 60));
+  final response = await http.Response.fromStream(streamed);
+  if (!_isOk(response.statusCode)) _throwFor(response);
+  final body = jsonDecode(response.body) as Map<String, dynamic>;
+  final ref = body['cover_ref'];
+  if (ref is! String || ref.isEmpty) {
+    throw ApiException(
+      response.statusCode,
+      AppLocalizations.get('somethingWentWrong'),
+    );
+  }
+  return ref;
 }
 
 Future<EventModel> submitEvent(Map<String, dynamic> body) async {
@@ -290,7 +332,10 @@ Future<Map<String, dynamic>> _getJson(
 }
 
 Future<AnalyticsSummary> fetchAnalyticsSummary(AnalyticsFilters filters) async {
-  final json = await _getJson('/api/flutter/analytics/summary', filters.toQuery());
+  final json = await _getJson(
+    '/api/flutter/analytics/summary',
+    filters.toQuery(),
+  );
   return AnalyticsSummary.fromJson(json);
 }
 
@@ -393,10 +438,9 @@ Future<List<AnalyticsOrganizer>> fetchAnalyticsOrganizers(
 }
 
 Future<EventModerationDetail> fetchEventModerationDetail(int eventId) async {
-  final json = await _getJson(
-    '/api/flutter/analytics/moderation/event',
-    {'event_id': '$eventId'},
-  );
+  final json = await _getJson('/api/flutter/analytics/moderation/event', {
+    'event_id': '$eventId',
+  });
   return EventModerationDetail.fromJson(json);
 }
 

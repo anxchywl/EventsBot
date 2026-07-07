@@ -5,7 +5,15 @@ import json
 import logging
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    HTTPException,
+    Query,
+    UploadFile,
+    status,
+)
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,7 +37,16 @@ from app.services.events import (
     get_pending_events,
     update_event_status,
 )
+from app.config import get_settings
+from app.services.cover_storage import (
+    CoverUploadError,
+    bust_cover_cache,
+    consume_and_store_cover,
+    stage_cover_bytes,
+    validate_cover_bytes,
+)
 from app.web.flutter_auth import require_flutter_admin, require_flutter_user
+from app.web.limiter import check_rate_limit
 from app.web.schemas import (
     FlutterCategoryItem,
     FlutterEventCreate,
@@ -44,6 +61,7 @@ from app.web.telegram import get_web_bot
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/flutter/events", tags=["flutter-events"])
+
 
 def _cover_url(event: Event) -> str | None:
     if not event.poster_file_id:
@@ -60,7 +78,9 @@ def _serialize_event(event: Event) -> FlutterEventItem:
         description=event.description,
         event_date=event.event_date.isoformat(),
         event_time=event.event_time.strftime("%H:%M"),
-        event_end_time=event.event_end_time.strftime("%H:%M") if event.event_end_time else None,
+        event_end_time=event.event_end_time.strftime("%H:%M")
+        if event.event_end_time
+        else None,
         location=event.location,
         category=event.category.name,
         organizer_name=event.organizer_name,
@@ -74,15 +94,81 @@ def _serialize_event(event: Event) -> FlutterEventItem:
     )
 
 
+# sole trust boundary for flutter cover uploads
+@router.post("/cover")
+async def upload_cover(
+    file: UploadFile = File(...),
+    user: User = Depends(require_flutter_user),
+) -> dict:
+    await check_rate_limit(
+        f"rate:flutter:{user.id}:cover_upload",
+        30,
+        3600,
+        "Too many cover uploads. Please try again later.",
+    )
+
+    settings = get_settings()
+    if settings.media_storage_chat_id is None:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "Cover uploads are not configured."
+        )
+
+    # read past the limit to reject oversized uploads
+    raw = await file.read(settings.media_max_upload_bytes + 1)
+
+    try:
+        # pillow work belongs off the event loop
+        clean = await asyncio.to_thread(
+            validate_cover_bytes, raw, file.filename, file.content_type
+        )
+    except CoverUploadError as exc:
+        raise HTTPException(exc.status_code, exc.detail) from exc
+
+    # store in telegram only after event submission
+    token = await stage_cover_bytes(clean, user.id)
+    return {"cover_ref": token}
+
+
+# redeem a staging token without trusting client file ids
+async def _redeem_cover_ref(cover_ref: str, user_id: int) -> str:
+    try:
+        file_id = await consume_and_store_cover(cover_ref, user_id)
+    except CoverUploadError as exc:
+        raise HTTPException(exc.status_code, exc.detail) from exc
+    if file_id is None:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "Cover reference is invalid or expired."
+        )
+    return file_id
+
+
+async def _apply_cover_change(
+    event: Event,
+    *,
+    cover_ref: str | None,
+    remove_cover: bool,
+    user_id: int,
+) -> None:
+    if remove_cover:
+        if event.poster_file_id:
+            await bust_cover_cache(event.poster_file_id)
+        event.poster_file_id = None
+        return
+    if not cover_ref:
+        return
+    file_id = await _redeem_cover_ref(cover_ref, user_id)
+    if event.poster_file_id and event.poster_file_id != file_id:
+        await bust_cover_cache(event.poster_file_id)
+    event.poster_file_id = file_id
+
+
 @router.get("/categories", response_model=list[FlutterCategoryItem])
 async def list_categories(
     user: User = Depends(require_flutter_user),
     session: AsyncSession = Depends(get_session),
 ) -> list[FlutterCategoryItem]:
     categories = await get_active_categories(session)
-    return [
-        FlutterCategoryItem(id=c.id, name=c.name, slug=c.slug) for c in categories
-    ]
+    return [FlutterCategoryItem(id=c.id, name=c.name, slug=c.slug) for c in categories]
 
 
 @router.get("", response_model=list[FlutterEventItem])
@@ -217,6 +303,11 @@ async def submit_event(
             "This location is already booked on that date",
         )
 
+    # fail forged tokens before creating the event
+    poster_file_id: str | None = None
+    if payload.cover_ref:
+        poster_file_id = await _redeem_cover_ref(payload.cover_ref, user.id)
+
     event_time = datetime.strptime(payload.event_time, "%H:%M").time()
     event_end_time = datetime.strptime(payload.event_end_time, "%H:%M").time()
     event = await create_pending_event(
@@ -234,6 +325,7 @@ async def submit_event(
             "it_equipment": payload.it_equipment,
             "materials": payload.materials,
             "registration_url": payload.registration_url,
+            "poster_file_id": poster_file_id,
         },
     )
     await session.commit()
@@ -287,9 +379,7 @@ async def resubmit_event(
     if payload.event_time is not None:
         event.event_time = datetime.strptime(payload.event_time, "%H:%M").time()
     if payload.event_end_time is not None:
-        event.event_end_time = datetime.strptime(
-            payload.event_end_time, "%H:%M"
-        ).time()
+        event.event_end_time = datetime.strptime(payload.event_end_time, "%H:%M").time()
     if payload.location is not None:
         event.location = payload.location
     if payload.organizer_name is not None:
@@ -300,6 +390,13 @@ async def resubmit_event(
         event.materials = payload.materials
     if payload.registration_url is not None:
         event.registration_url = payload.registration_url
+
+    await _apply_cover_change(
+        event,
+        cover_ref=payload.cover_ref,
+        remove_cover=payload.remove_cover,
+        user_id=user.id,
+    )
 
     event.status = EventStatus.RESUBMITTED.value
 
@@ -321,9 +418,7 @@ async def resubmit_event(
 
 
 # notify the admin who last requested changes that the creator resubmitted
-async def _notify_reviewer_of_resubmission(
-    session: AsyncSession, event: Event
-) -> None:
+async def _notify_reviewer_of_resubmission(session: AsyncSession, event: Event) -> None:
     last_changes_log = await session.scalar(
         select(ModerationLog)
         .where(
@@ -365,6 +460,13 @@ async def patch_event(
 
     if payload.event_end_time is not None:
         event.event_end_time = datetime.strptime(payload.event_end_time, "%H:%M").time()
+
+    await _apply_cover_change(
+        event,
+        cover_ref=payload.cover_ref,
+        remove_cover=payload.remove_cover,
+        user_id=user.id,
+    )
 
     await session.commit()
     updated = await get_event_by_id(session, event_id)
@@ -486,17 +588,13 @@ def _creator_status_message(title: str, event_status: str) -> str:
         EventStatus.APPROVED.value: (
             f"Your event {title} has been approved and published."
         ),
-        EventStatus.REJECTED.value: (
-            f"Your event {title} was not approved."
-        ),
+        EventStatus.REJECTED.value: (f"Your event {title} was not approved."),
         EventStatus.NEEDS_CHANGES.value: (
             f"Your event {title} needs a few edits before it can be approved."
         ),
         EventStatus.RESUBMITTED.value: (
             f"Your event {title} has been sent back for review."
         ),
-        EventStatus.CANCELLED.value: (
-            f"Your event {title} has been cancelled."
-        ),
+        EventStatus.CANCELLED.value: (f"Your event {title} has been cancelled."),
     }
     return messages.get(event_status, f"Your event {title} has been updated.")

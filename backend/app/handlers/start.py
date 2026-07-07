@@ -2,7 +2,13 @@ from aiogram import Bot, F, Router
 from aiogram.filters import CommandObject, CommandStart, StateFilter
 from aiogram.filters import Filter
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message, MenuButtonWebApp, ReplyKeyboardRemove, WebAppInfo
+from aiogram.types import (
+    CallbackQuery,
+    Message,
+    MenuButtonWebApp,
+    ReplyKeyboardRemove,
+    WebAppInfo,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings

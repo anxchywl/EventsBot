@@ -105,18 +105,15 @@ class EventCardsTest(unittest.TestCase):
 
         buttons = [button for row in markup.inline_keyboard for button in row]
         self.assertEqual(1, len(buttons))
-        self.assertEqual("Open Event", buttons[0].text)
+        self.assertEqual("Open in App", buttons[0].text)
         self.assertIsNone(buttons[0].web_app)
         self.assertEqual(
             "https://t.me/events_bot/events?startapp=event_abc123&mode=compact",
             buttons[0].url,
         )
 
-    def test_regular_event_keyboard_keeps_registration_link(self):
-        event = SimpleNamespace(
-            public_token="abc123",
-            registration_url="https://registration.example.com",
-        )
+    def test_event_keyboard_falls_back_to_public_miniapp_url(self):
+        event = SimpleNamespace(public_token="abc123")
 
         with patch(
             "app.services.event_cards.get_settings",
@@ -128,11 +125,9 @@ class EventCardsTest(unittest.TestCase):
             markup = build_event_page_keyboard(event)
 
         buttons = [button for row in markup.inline_keyboard for button in row]
-        self.assertEqual(
-            ["Open Event", "Open Link"], [button.text for button in buttons]
-        )
+        self.assertEqual(1, len(buttons))
+        self.assertEqual("Open in App", buttons[0].text)
         self.assertEqual("https://events.example.com/events/abc123", buttons[0].url)
-        self.assertEqual("https://registration.example.com", buttons[1].url)
 
     def test_admin_moderation_caption_keeps_poster_with_long_description(self):
         event = SimpleNamespace(

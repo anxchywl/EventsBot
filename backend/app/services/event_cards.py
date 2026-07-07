@@ -3,7 +3,7 @@ from __future__ import annotations
 import html
 from datetime import datetime
 
-from aiogram.types import InlineKeyboardMarkup
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from app.config import get_settings
 from app.models.event import Event, EventCategory
@@ -68,7 +68,7 @@ def format_event_card_text(event: Event, *, caption_safe: bool = False) -> str:
     return render_text(description)
 
 
-# build deep-link and registration actions for event cards
+# single button that opens the event in the telegram mini app
 def build_event_page_keyboard(
     event: Event,
     *,
@@ -76,8 +76,29 @@ def build_event_page_keyboard(
     use_web_app: bool = False,
     open_event_only: bool = False,
 ) -> InlineKeyboardMarkup | None:
-    # event actions moved to the flutter and mini apps
-    return None
+    settings = get_settings()
+    # a url button (not web_app) so it also opens from group/channel posts, where
+    # web_app buttons are not allowed
+    url = (
+        build_telegram_miniapp_direct_link(
+            bot_username=bot_username,
+            miniapp_short_name=settings.telegram_miniapp_short_name,
+            public_token=event.public_token,
+        )
+        or build_public_miniapp_event_url(
+            miniapp_base_url=settings.miniapp_base_url,
+            public_token=event.public_token,
+        )
+        or build_event_deep_link(
+            bot_username=bot_username,
+            public_token=event.public_token,
+        )
+    )
+    if not url:
+        return None
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text="Open in App", url=url)]]
+    )
 
 
 # prefer mini app links when they are configured

@@ -108,7 +108,9 @@ class AnalyticsFilters:
             conditions.append(Event.created_at >= start)
         if self.date_to is not None:
             # inclusive end-of-day: strictly before the following midnight
-            end = datetime.combine(self.date_to + timedelta(days=1), time.min, tzinfo=tz)
+            end = datetime.combine(
+                self.date_to + timedelta(days=1), time.min, tzinfo=tz
+            )
             conditions.append(Event.created_at < end)
         if self.category_id is not None:
             conditions.append(Event.category_id == self.category_id)
@@ -141,7 +143,9 @@ class _LogEntry:
     created_at: datetime
 
 
-def _submission_start(logs: list[_LogEntry], fallback: datetime | None) -> datetime | None:
+def _submission_start(
+    logs: list[_LogEntry], fallback: datetime | None
+) -> datetime | None:
     """Timestamp the review clock starts from: the first 'submitted' log, else
     the provided fallback (the event's created_at)."""
     for entry in logs:
@@ -256,7 +260,9 @@ async def compute_summary(
 
     total_favorites = (
         await session.scalar(
-            select(func.count()).select_from(Favorite).where(Favorite.event_id.in_(event_ids))
+            select(func.count())
+            .select_from(Favorite)
+            .where(Favorite.event_id.in_(event_ids))
         )
     ) or 0
 
@@ -284,7 +290,9 @@ async def compute_summary(
         "archived": by_status.get(EventStatus.ARCHIVED.value, 0),
         "published_this_week": published_this_week,
         "upcoming_events": upcoming,
-        "average_event_rating": round(float(avg_rating), 2) if avg_rating is not None else None,
+        "average_event_rating": round(float(avg_rating), 2)
+        if avg_rating is not None
+        else None,
         "total_favorites": total_favorites,
         "total_registration_clicks": total_registration_clicks,
         "total_event_views": total_views,
@@ -330,7 +338,9 @@ async def compute_moderation(
                 ModerationLog.created_at,
             )
             .where(ModerationLog.event_id.in_(_filtered_event_ids(filters)))
-            .order_by(ModerationLog.event_id, ModerationLog.created_at, ModerationLog.id)
+            .order_by(
+                ModerationLog.event_id, ModerationLog.created_at, ModerationLog.id
+            )
         )
     ).all()
 
@@ -343,7 +353,9 @@ async def compute_moderation(
 
     per_event: dict[int, list[_LogEntry]] = {}
     for event_id, action, created in log_rows:
-        per_event.setdefault(event_id, []).append(_LogEntry(action=action, created_at=created))
+        per_event.setdefault(event_id, []).append(
+            _LogEntry(action=action, created_at=created)
+        )
 
     first_decisions: list[float] = []
     total_reviews: list[float] = []
@@ -443,7 +455,9 @@ async def _views_over_time(session, event_ids, trend_days: int) -> list[dict]:
     start_utc = start_local.astimezone(timezone.utc)
 
     # bucket by calendar day in the app timezone
-    day_bucket = func.date(func.timezone(get_settings().app_timezone, EventAnalytics.created_at))
+    day_bucket = func.date(
+        func.timezone(get_settings().app_timezone, EventAnalytics.created_at)
+    )
     rows = (
         await session.execute(
             select(day_bucket.label("day"), func.count())
@@ -456,7 +470,10 @@ async def _views_over_time(session, event_ids, trend_days: int) -> list[dict]:
             .order_by(day_bucket)
         )
     ).all()
-    by_day = {row.day.isoformat() if hasattr(row.day, "isoformat") else str(row.day): row[1] for row in rows}
+    by_day = {
+        row.day.isoformat() if hasattr(row.day, "isoformat") else str(row.day): row[1]
+        for row in rows
+    }
 
     # dense series: fill zero-view days so the client never has to infer gaps
     series = []
@@ -522,7 +539,9 @@ async def compute_top_events(
         .offset(offset)
     )
     rows = (await session.execute(stmt)).all()
-    return [{"event_id": eid, "title": title, "value": value} for eid, title, value in rows]
+    return [
+        {"event_id": eid, "title": title, "value": value} for eid, title, value in rows
+    ]
 
 
 # ── Ratings ──────────────────────────────────────────────────────────────────
@@ -536,7 +555,9 @@ async def compute_ratings(
     event_ids = _filtered_event_ids(filters)
     active = and_(Rating.event_id.in_(event_ids), Rating.deleted_at.is_(None))
 
-    avg = await session.scalar(select(func.avg(cast(Rating.score, Float))).where(active))
+    avg = await session.scalar(
+        select(func.avg(cast(Rating.score, Float))).where(active)
+    )
     total_reviews = (await session.scalar(select(func.count()).where(active))) or 0
 
     dist_rows = (
@@ -551,7 +572,9 @@ async def compute_ratings(
     # events (within the filter set) that have no active rating
     total_events = (
         await session.scalar(
-            select(func.count()).select_from(Event).where(and_(*filters.event_conditions()))
+            select(func.count())
+            .select_from(Event)
+            .where(and_(*filters.event_conditions()))
             if filters.event_conditions()
             else select(func.count()).select_from(Event)
         )
@@ -816,7 +839,11 @@ async def compute_event_moderation_detail(
     for r in log_rows:
         if r.action in _DECISION_ACTIONS and first_reviewed_at is None:
             first_reviewed_at = r.created_at
-        if r.action in (ModerationAction.APPROVED.value, ModerationAction.RESTORED.value) and approved_at is None:
+        if (
+            r.action
+            in (ModerationAction.APPROVED.value, ModerationAction.RESTORED.value)
+            and approved_at is None
+        ):
             approved_at = r.created_at
         if r.action == ModerationAction.REJECTED.value and rejected_at is None:
             rejected_at = r.created_at
@@ -845,7 +872,9 @@ async def compute_event_moderation_detail(
     def _fmt(dt: datetime | None) -> str | None:
         return dt.isoformat() if dt is not None else None
 
-    _CREATOR_ACTIONS = frozenset((ModerationAction.SUBMITTED.value, ModerationAction.RESUBMITTED.value))
+    _CREATOR_ACTIONS = frozenset(
+        (ModerationAction.SUBMITTED.value, ModerationAction.RESUBMITTED.value)
+    )
     history = [
         {
             "action": r.action,
@@ -950,9 +979,7 @@ def _resolve_avatar_url(
     if photo_url:
         return photo_url
     if telegram_id and telegram_id > 0:
-        version = (
-            photo_updated_at.isoformat() if photo_updated_at else str(telegram_id)
-        )
+        version = photo_updated_at.isoformat() if photo_updated_at else str(telegram_id)
         return f"/api/events/avatar/{telegram_id}?{urlencode({'v': version})}"
     return None
 
@@ -974,16 +1001,13 @@ async def search_events(
     never per-user identifying data. Title search is a case-insensitive prefix/
     substring match, driven server-side so the client never downloads all events.
     """
-    stmt = (
-        select(
-            Event.id,
-            Event.title,
-            EventCategory.name.label("category"),
-            Event.event_date,
-            Event.status,
-        )
-        .join(EventCategory, EventCategory.id == Event.category_id)
-    )
+    stmt = select(
+        Event.id,
+        Event.title,
+        EventCategory.name.label("category"),
+        Event.event_date,
+        Event.status,
+    ).join(EventCategory, EventCategory.id == Event.category_id)
     if search:
         term = f"%{search.strip()}%"
         stmt = stmt.where(func.lower(Event.title).like(func.lower(term)))

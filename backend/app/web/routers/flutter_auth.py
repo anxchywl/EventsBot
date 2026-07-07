@@ -42,9 +42,7 @@ async def register(
 ) -> FlutterAuthResponse:
     email = _normalize_email(payload.email)
 
-    existing = await session.scalar(
-        select(User).where(func.lower(User.email) == email)
-    )
+    existing = await session.scalar(select(User).where(func.lower(User.email) == email))
     if existing is not None:
         raise HTTPException(status.HTTP_409_CONFLICT, "Email already registered")
 

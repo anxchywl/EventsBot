@@ -97,9 +97,7 @@ async def resolve_or_create_superapp_user(
     if subject is None:
         return None
 
-    user = await session.scalar(
-        select(User).where(User.superapp_user_id == subject)
-    )
+    user = await session.scalar(select(User).where(User.superapp_user_id == subject))
     if user is None:
         # telegram_id is a required unique column; seed 0 then flip to the
         # negative primary key, exactly as the legacy Flutter register did, so
