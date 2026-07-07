@@ -133,7 +133,10 @@ async def rate_limit(request: Request, call_next):
     # enforce body size limit on actual bytes, not client-supplied Content-Length
     if request.method in {"POST", "PUT", "PATCH"}:
         body = await request.body()
-        if len(body) > 150_000:
+        body_limit = 150_000
+        if request.url.path == "/api/flutter/events/cover":
+            body_limit = _settings.media_max_upload_bytes + 16_384
+        if len(body) > body_limit:
             return JSONResponse(
                 status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
                 content={"detail": "Request body too large"},

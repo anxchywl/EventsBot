@@ -17,6 +17,7 @@ async def _asgi_request(
     *,
     headers: dict[str, str] | None = None,
     body: bytes = b"",
+    content_type: str = "application/json",
 ) -> tuple[int, bytes]:
     sent: list[dict] = []
     parsed = urlsplit(target)
@@ -25,7 +26,7 @@ async def _asgi_request(
     ]
     if body:
         raw_headers.append((b"content-length", str(len(body)).encode()))
-        raw_headers.append((b"content-type", b"application/json"))
+        raw_headers.append((b"content-type", content_type.encode()))
     scope = {
         "type": "http",
         "asgi": {"version": "3.0"},
@@ -98,6 +99,30 @@ class FastAPIEndpointSecurityTest(unittest.TestCase):
                 body=json.dumps({"score": 5, "content": "Good"}).encode(),
             )
         )
+        self.assertEqual(status_code, 401)
+
+    def test_cover_upload_uses_media_body_limit(self):
+        boundary = "----testboundary"
+        body = (
+            (
+                f"--{boundary}\r\n"
+                'Content-Disposition: form-data; name="file"; filename="cover.jpg"\r\n'
+                "Content-Type: image/jpeg\r\n\r\n"
+            ).encode()
+            + b"\xff\xd8\xff"
+            + b"x" * 200_000
+            + f"\r\n--{boundary}--\r\n".encode()
+        )
+
+        status_code, _body = asyncio.run(
+            _asgi_request(
+                "POST",
+                "/api/flutter/events/cover",
+                body=body,
+                content_type=f"multipart/form-data; boundary={boundary}",
+            )
+        )
+
         self.assertEqual(status_code, 401)
 
     def test_admin_endpoints_reject_missing_session(self):
