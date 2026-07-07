@@ -114,3 +114,12 @@ def test_admin_role_is_only_elevated_runtime_role(mock_settings):
     user = User(id=2, telegram_id=2, role="admin")
     with patch("app.web.auth.get_settings", return_value=mock_settings):
         assert effective_web_role(user, user.telegram_id) == "admin"
+
+
+def test_blank_media_storage_chat_id_is_unset():
+    settings = Settings(
+        bot_token="test:test",
+        media_storage_chat_id="",
+    )
+
+    assert settings.media_storage_chat_id is None

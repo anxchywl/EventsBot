@@ -146,6 +146,15 @@ class Settings(BaseSettings):
         default=False, alias="BOT_POSTER_UPLOAD_ENABLED"
     )
 
+    @field_validator("media_storage_chat_id", mode="before")
+    @classmethod
+    def parse_media_storage_chat_id(cls, v: Any) -> int | None:
+        if v is None:
+            return None
+        if isinstance(v, str) and not v.strip():
+            return None
+        return v
+
     # the dev toggles widen CORS to localhost and expose the OpenAPI docs; they
     # must never be left on in production. Refuse to boot if either is enabled
     # while LOG_LEVEL is not DEBUG, so a stray FLUTTER_DEV_* in the prod .env
