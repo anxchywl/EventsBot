@@ -354,6 +354,7 @@ class FlutterEventItem(BaseModel):
     materials: str | None = None
     registration_url: str | None = None
     moderation_note: str | None = None
+    submitted_at: str
 
 
 class FlutterEventCreate(BaseModel):

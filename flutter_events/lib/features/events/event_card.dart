@@ -14,6 +14,7 @@ class EventCard extends StatelessWidget {
     this.isFavorite = false,
     this.onToggleFavorite,
     this.statusLabelOverride,
+    this.statusColorOverride,
     this.showCategory = true,
   });
 
@@ -29,6 +30,9 @@ class EventCard extends StatelessWidget {
   /// Overrides the status footer text, e.g. queue-specific badges shown to
   /// moderators ("Waiting for creator" / "Ready for review").
   final String? statusLabelOverride;
+
+  /// Overrides the status footer color, e.g. for warning or error states.
+  final Color? statusColorOverride;
 
   String? _timeUntilLabel() {
     try {
@@ -172,7 +176,7 @@ class EventCard extends StatelessWidget {
               ),
               color: isMutedPending
                   ? AppColors.fieldBackground
-                  : event.statusColor.withValues(alpha: 0.12),
+                  : (statusColorOverride ?? event.statusColor).withValues(alpha: 0.12),
               child: Row(
                 children: [
                   Expanded(
@@ -181,7 +185,7 @@ class EventCard extends StatelessWidget {
                       style: AppTextStyles.bodySmall.copyWith(
                         color: isMutedPending
                             ? AppColors.grey
-                            : event.statusColor,
+                            : (statusColorOverride ?? event.statusColor),
                         fontWeight: FontWeight.w600,
                         fontSize: 12,
                       ),
@@ -277,16 +281,8 @@ class _MutedThumb extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            AppColors.fieldBackground,
-            AppColors.grey.withValues(alpha: 0.28),
-            AppColors.fieldBackground,
-          ],
-        ),
+      decoration: const BoxDecoration(
+        color: AppColors.fieldBackground,
       ),
     );
   }

@@ -1,7 +1,7 @@
 name: events_feature
 description: Events tab for university super-app.
 publish_to: none
-version: 1.0.0+1
+version: 1.0.0+5
 
 environment:
   sdk: ^3.10.0

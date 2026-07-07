@@ -198,23 +198,22 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.all(AppSpacing.md),
+            padding: const EdgeInsets.all(AppSpacing.lg),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   _event.title,
-                  style: theme.textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.w700,
+                  style: theme.textTheme.headlineMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
                     height: 1.2,
                   ),
                 ),
                 const SizedBox(height: AppSpacing.sm),
                 Text(
                   _event.organizerName,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: AppColors.textSecondary,
-                    fontWeight: FontWeight.w500,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
               ],
@@ -224,8 +223,8 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
               (_event.status != 'approved' && _event.status != 'rejected'))
             Container(
               padding: const EdgeInsets.symmetric(
-                vertical: AppSpacing.sm,
-                horizontal: AppSpacing.md,
+                vertical: AppSpacing.md,
+                horizontal: AppSpacing.lg,
               ),
               color: _event.statusColor.withValues(alpha: 0.12),
               child: Column(
@@ -236,10 +235,9 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
                       Expanded(
                         child: Text(
                           _event.statusLabel,
-                          style: AppTextStyles.bodySmall.copyWith(
+                          style: AppTextStyles.bodyMedium.copyWith(
                             color: _event.statusColor,
-                            fontWeight: FontWeight.w600,
-                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
                           ),
                         ),
                       ),
@@ -250,12 +248,12 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
                   // event submitter.
                   if (_event.moderationNote != null &&
                       _event.moderationNote!.trim().isNotEmpty) ...[
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 6),
                     Text(
                       '${AppLocalizations.get('coordinatorComment')}: ${_event.moderationNote!}',
                       style: AppTextStyles.bodySmall.copyWith(
                         color: _event.statusColor,
-                        fontSize: 12,
+                        fontSize: 13,
                       ),
                     ),
                   ],
@@ -271,7 +269,7 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
     return AppCard(
       padding: const EdgeInsets.symmetric(
         horizontal: AppSpacing.df,
-        vertical: AppSpacing.xs,
+        vertical: AppSpacing.sm,
       ),
       child: Column(
         children: [
@@ -280,8 +278,6 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
           _fact(AppIcons.time, _timeRange()),
           _factDivider(),
           _fact(AppIcons.location, _event.location),
-          _factDivider(),
-          _fact(AppIcons.hub, _event.category),
         ],
       ),
     );
@@ -300,23 +296,23 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
   Widget _fact(AppIconData icon, String value) {
     final theme = Theme.of(context);
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
+      padding: const EdgeInsets.symmetric(vertical: AppSpacing.md, horizontal: AppSpacing.xs),
       child: Row(
         children: [
           Container(
-            padding: const EdgeInsets.all(8),
+            padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: AppColors.primary.withValues(alpha: 0.1),
-              borderRadius: AppSpacing.borderRadiusMd,
+              color: AppColors.primary.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(12),
             ),
-            child: AppIcon(icon, size: 20, color: AppColors.primary),
+            child: AppIcon(icon, size: 22, color: AppColors.primary),
           ),
           const SizedBox(width: AppSpacing.md),
           Expanded(
             child: Text(
               value,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                fontWeight: FontWeight.w500,
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w600,
               ),
             ),
           ),
@@ -333,29 +329,39 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
     return Padding(
       padding: const EdgeInsets.only(top: AppSpacing.lg),
       child: AppCard(
-        padding: const EdgeInsets.all(AppSpacing.md),
+        padding: const EdgeInsets.all(AppSpacing.lg),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
                 if (icon != null) ...[
-                  AppIcon(icon, size: 20, color: AppColors.primary),
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: AppColors.fieldBackground,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: AppIcon(icon, size: 18, color: AppColors.textSecondary),
+                  ),
                   const SizedBox(width: AppSpacing.sm),
                 ],
                 Text(
                   title,
                   style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.primary,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.textPrimary,
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: AppSpacing.sm),
+            const SizedBox(height: AppSpacing.md),
             Text(
               body,
-              style: theme.textTheme.bodyMedium?.copyWith(height: 1.55),
+              style: theme.textTheme.bodyLarge?.copyWith(
+                height: 1.6,
+                color: AppColors.textPrimary.withValues(alpha: 0.85),
+              ),
             ),
           ],
         ),
@@ -788,7 +794,7 @@ class _ModerationCommentSheetState extends State<_ModerationCommentSheet>
           ),
         ),
         const SizedBox(height: 10),
-        AppTextField(controller: _controller, maxLines: 3),
+        AppTextField(controller: _controller, maxLines: 3, maxLength: 500),
         const SizedBox(height: 12),
         _SheetActionRow(
           cancelColor: textSub,

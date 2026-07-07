@@ -21,6 +21,7 @@ class GlobalSearchBar extends StatelessWidget {
     this.showFilterButton = false,
     this.onFilterPressed,
     this.inputFormatters,
+    this.maxLength,
   });
 
   final TextEditingController? controller;
@@ -35,6 +36,7 @@ class GlobalSearchBar extends StatelessWidget {
   final bool showFilterButton;
   final VoidCallback? onFilterPressed;
   final List<TextInputFormatter>? inputFormatters;
+  final int? maxLength;
 
   @override
   Widget build(BuildContext context) {
@@ -57,13 +59,16 @@ class GlobalSearchBar extends StatelessWidget {
               controller: controller,
               focusNode: focusNode,
               inputFormatters: inputFormatters,
-              decoration: const InputDecoration(
+              maxLength: maxLength,
+              decoration: InputDecoration(
                 border: InputBorder.none,
                 enabledBorder: InputBorder.none,
                 focusedBorder: InputBorder.none,
                 filled: false,
                 contentPadding: EdgeInsets.zero,
                 isDense: true,
+                hintText: hint,
+                counterText: '',
               ),
               style: theme.textTheme.bodyMedium,
               onChanged: onChanged,

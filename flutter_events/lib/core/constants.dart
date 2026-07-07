@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:flutter/foundation.dart';
 
 /// Base URL for the FastAPI backend. This is the single source of truth —
@@ -27,8 +25,8 @@ String _resolveBaseUrl() {
       '--dart-define=API_BASE_URL=https://your-production-host',
     );
   }
-  // Development fallback only (never reached in release builds).
-  return Platform.isAndroid
-      ? 'http://192.168.0.154:8000'
-      : 'http://127.0.0.1:8000';
+  // Development fallback (debug / simulator): point at the deployed server so
+  // the app works without a local backend running. Override for local work
+  // with --dart-define=API_BASE_URL=http://127.0.0.1:8000
+  return 'https://events.anxchywl.dev';
 }

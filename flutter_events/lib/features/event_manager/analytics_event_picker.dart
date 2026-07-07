@@ -273,6 +273,7 @@ class _EventPickerSheetState extends State<_EventPickerSheet> {
                 child: GlobalSearchBar(
                   controller: _searchCtrl,
                   focusNode: _focusNode,
+                  maxLength: 100,
                   hint: AppLocalizations.get('searchEvents'),
                   autofocus: false,
                   inputFormatters: [SanitizingFormatter()],

@@ -230,7 +230,7 @@ async def compute_summary(
         await session.scalar(
             select(func.count())
             .select_from(Event)
-            .where(base, Event.approved_at.is_not(None), Event.approved_at >= week_start_utc)
+            .where(base, Event.status == EventStatus.APPROVED.value)
         )
     ) or 0
 
@@ -273,7 +273,9 @@ async def compute_summary(
 
     return {
         "total_events": total,
-        "pending_review": by_status.get(EventStatus.PENDING.value, 0),
+        # everything still awaiting a coordinator decision counts as pending:
+        # freshly submitted, resubmitted after edits, and sent-back needs_changes
+        "pending_review": sum(by_status.get(s, 0) for s in QUEUE_STATUSES),
         "approved": by_status.get(EventStatus.APPROVED.value, 0),
         "needs_changes": by_status.get(EventStatus.NEEDS_CHANGES.value, 0),
         "resubmitted": by_status.get(EventStatus.RESUBMITTED.value, 0),

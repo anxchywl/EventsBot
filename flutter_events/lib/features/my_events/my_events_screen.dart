@@ -112,9 +112,14 @@ class _MyEventsScreenState extends State<MyEventsScreen> {
   Widget build(BuildContext context) {
     final title = AppLocalizations.get('myRequests');
     return Scaffold(
-      body: NestedScrollView(
-        headerSliverBuilder: (ctx, _) => [AppSliverAppBar(title: title)],
-        body: _buildBody(context),
+      body: ScrollConfiguration(
+        behavior: ScrollConfiguration.of(
+          context,
+        ).copyWith(physics: const ClampingScrollPhysics()),
+        child: NestedScrollView(
+          headerSliverBuilder: (ctx, _) => [AppSliverAppBar(title: title)],
+          body: _buildBody(context),
+        ),
       ),
     );
   }
@@ -179,7 +184,9 @@ class _MyEventsScreenState extends State<MyEventsScreen> {
         slivers: [
           if (_stale) const SliverToBoxAdapter(child: StaleBanner()),
           SliverPadding(
-            padding: AppSpacing.screenPadding,
+            padding: AppSpacing.screenPadding.copyWith(
+              bottom: 108.0,
+            ),
             sliver: SliverList(
               delegate: SliverChildBuilderDelegate(
                 (context, index) {

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
@@ -90,6 +91,10 @@ Never _throwFor(http.Response response) {
 
   switch (response.statusCode) {
     case 401:
+      // Stale/expired/foreign token (e.g. issued by a different backend):
+      // drop the session so the app re-authenticates on next launch instead
+      // of getting permanently stuck showing "offline" with cached data.
+      unawaited(AuthStore.clear());
       throw UnauthorizedException(message);
     case 403:
       throw ForbiddenException(message);

@@ -148,7 +148,9 @@ services:
 
 volumes:
   postgres-data:
+    name: events_bot_postgres_data
   redis-data:
+    name: events_bot_redis_data
 
 networks:
   events-app:

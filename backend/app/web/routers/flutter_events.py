@@ -70,6 +70,7 @@ def _serialize_event(event: Event) -> FlutterEventItem:
         materials=event.materials,
         registration_url=event.registration_url,
         moderation_note=event.moderation_note,
+        submitted_at=event.created_at.isoformat() if event.created_at else "",
     )
 
 

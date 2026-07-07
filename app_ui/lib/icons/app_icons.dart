@@ -208,6 +208,9 @@ abstract class AppIcons {
   /// Transfer / swap (SF: arrow.left.arrow.right).
   static const AppIconData transfer = MaterialIcon(LucideIcons.arrowLeftRight);
 
+  /// Sort (vertical up/down arrows — SF: arrow.up.arrow.down).
+  static const AppIconData sort = MaterialIcon(LucideIcons.arrowUpDown);
+
   /// Statistics chart (SF: chart.bar.xaxis).
   static const AppIconData statistics = MaterialIcon(LucideIcons.barChart2);
 

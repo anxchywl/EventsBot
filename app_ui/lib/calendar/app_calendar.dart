@@ -132,7 +132,7 @@ class AppCalendar extends StatefulWidget {
 
 class _AppCalendarState extends State<AppCalendar> {
   static const _monthRange = 12;
-  static const _monthSectionExtent = 380.0;
+  static const _monthSectionExtent = 400.0;
 
   late DateTime _month;
   late DateTime _selected;

@@ -567,6 +567,7 @@ class _EventsScreenState extends State<EventsScreen> {
               ),
               actions: [
                 IconButton(
+                  tooltip: 'Submit event',
                   icon: const AppIcon(AppIcons.add),
                   onPressed: _openSubmit,
                 ),
@@ -664,7 +665,7 @@ class _EventsScreenState extends State<EventsScreen> {
             ? CrossFadeState.showSecond
             : CrossFadeState.showFirst,
         firstChild: SizedBox(
-          height: 44,
+          height: 36,
           child: ListView(
             scrollDirection: Axis.horizontal,
             padding: EdgeInsets.zero,
@@ -676,7 +677,7 @@ class _EventsScreenState extends State<EventsScreen> {
               const SizedBox(width: AppSpacing.sm),
               if (!_calendarMode) ...[
                 _EventFilterPill(
-                  icon: AppIcons.transfer,
+                  icon: AppIcons.sort,
                   highlighted: _sortActive,
                   onTap: _pickSort,
                 ),
@@ -762,7 +763,7 @@ class _EventsListModeView extends StatelessWidget {
             padding: const EdgeInsets.only(
               left: AppSpacing.df,
               right: AppSpacing.df,
-              bottom: AppSpacing.df,
+              bottom: 108.0,
             ),
             sliver: SliverList(
               delegate: SliverChildBuilderDelegate(
@@ -902,13 +903,13 @@ class _EventFilterPill extends StatelessWidget {
         onTap: onTap,
         borderRadius: radius,
         child: Container(
-          height: 42,
+          height: 36,
           padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               if (icon != null) ...[
-                AppIcon(icon!, size: 16, color: fg),
+                AppIcon(icon!, size: 14, color: fg),
                 if (label != null) const SizedBox(width: AppSpacing.sm),
               ],
               if (label != null)
@@ -1053,6 +1054,7 @@ class _SearchBarState extends State<_SearchBar>
                         child: TextField(
                           controller: widget.controller,
                           focusNode: _focus,
+                          maxLength: 100,
                           scrollPadding: EdgeInsets.zero,
                           inputFormatters: [SanitizingFormatter()],
                           onChanged: widget.onChanged,
@@ -1076,6 +1078,7 @@ class _SearchBarState extends State<_SearchBar>
                             border: InputBorder.none,
                             isDense: true,
                             contentPadding: EdgeInsets.zero,
+                            counterText: '',
                           ),
                           textInputAction: TextInputAction.search,
                         ),
@@ -1376,6 +1379,7 @@ class _MultiSelectSheetState extends State<_MultiSelectSheet> {
                           ),
                           child: TextField(
                             focusNode: _focusNode,
+                            maxLength: 50,
                             inputFormatters: [SanitizingFormatter()],
                             onChanged: (v) => setState(
                               () => _query = _sanitizeSearchInput(
@@ -1384,6 +1388,7 @@ class _MultiSelectSheetState extends State<_MultiSelectSheet> {
                             ),
                             decoration: InputDecoration(
                               hintText: 'Search',
+                              counterText: '',
                               prefixIcon: AppIcon(
                                 AppIcons.search,
                                 size: 18,

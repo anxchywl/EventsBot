@@ -691,6 +691,9 @@ class _SubmitScreenState extends State<SubmitScreen> {
 
   Widget _buildDatePickerView({Key? key}) {
     final now = DateTime.now();
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    final textPrimary = isLight ? const Color(0xFF0A0A1A) : Colors.white;
+    final textSub = isLight ? const Color(0xFF6B6B80) : const Color(0xFF8E8EA3);
     return KeyedSubtree(
       key: key,
       child: Padding(
@@ -699,28 +702,28 @@ class _SubmitScreenState extends State<SubmitScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            ClipRect(
-              child: Align(
-                alignment: Alignment.topCenter,
-                heightFactor: 0.85,
-                child: Transform.scale(
-                  scale: 0.85,
-                  alignment: Alignment.topCenter,
-                  child: CalendarDatePicker(
-                    initialDate: _date ?? now,
-                    firstDate: now,
-                    lastDate: now.add(const Duration(days: 365)),
-                    onDateChanged: (date) {
-                      setState(() {
-                        _date = date;
-                        _dateController.text = DateFormat(
-                          'dd.MM.yyyy',
-                        ).format(date);
-                        _viewMode = _SubmitViewMode.form;
-                      });
-                    },
-                  ),
-                ),
+            Theme(
+              data: Theme.of(context).copyWith(
+                colorScheme: Theme.of(context).colorScheme.copyWith(
+                      primary: AppColors.primary,
+                      onPrimary: Colors.white,
+                      onSurface: textPrimary,
+                      onSurfaceVariant: textSub,
+                    ),
+              ),
+              child: CalendarDatePicker(
+                initialDate: _date ?? now,
+                firstDate: now,
+                lastDate: now.add(const Duration(days: 365)),
+                onDateChanged: (date) {
+                  setState(() {
+                    _date = date;
+                    _dateController.text = DateFormat(
+                      'dd.MM.yyyy',
+                    ).format(date);
+                    _viewMode = _SubmitViewMode.form;
+                  });
+                },
               ),
             ),
             const SizedBox(height: AppSpacing.df),
@@ -1029,6 +1032,7 @@ class _SubmitScreenState extends State<SubmitScreen> {
               controller: _titleController,
               focusNode: _titleFocus,
               label: AppLocalizations.get('title'),
+              maxLength: 100,
               validator: _required,
             ),
             !_isEditing || _titleFocus.hasFocus,
@@ -1041,6 +1045,7 @@ class _SubmitScreenState extends State<SubmitScreen> {
               focusNode: _descriptionFocus,
               label: AppLocalizations.get('description'),
               maxLines: 4,
+              maxLength: 1000,
               validator: _required,
             ),
             !_isEditing || _descriptionFocus.hasFocus,
@@ -1052,6 +1057,7 @@ class _SubmitScreenState extends State<SubmitScreen> {
               controller: _organizerController,
               focusNode: _organizerFocus,
               label: AppLocalizations.get('organizer'),
+              maxLength: 100,
               validator: _required,
             ),
             !_isEditing || _organizerFocus.hasFocus,
@@ -1077,22 +1083,29 @@ class _SubmitScreenState extends State<SubmitScreen> {
 
   Widget _buildFocusAnim(Widget child, bool isVisible, {FocusNode? focusNode}) {
     final showDone =
-        !widget.asSheet &&
         _isEditing &&
         focusNode != null &&
         focusNode.hasFocus;
 
-    final content = showDone
+    final content = focusNode != null
         ? Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               Expanded(child: child),
-              const SizedBox(width: AppSpacing.sm),
-              AppTextButton(
-                text: 'Done',
-                onPressed: () {
-                  focusNode.unfocus();
-                },
+              AnimatedSize(
+                duration: const Duration(milliseconds: 250),
+                curve: Curves.fastOutSlowIn,
+                child: showDone
+                    ? Padding(
+                        padding: const EdgeInsets.only(left: AppSpacing.sm),
+                        child: AppTextButton(
+                          text: AppLocalizations.get('done'),
+                          onPressed: () {
+                            focusNode.unfocus();
+                          },
+                        ),
+                      )
+                    : const SizedBox(width: 0),
               ),
             ],
           )
@@ -1170,6 +1183,7 @@ class _SubmitScreenState extends State<SubmitScreen> {
               controller: _locationController,
               focusNode: _locationFocus,
               label: AppLocalizations.get('place'),
+              maxLength: 200,
               validator: _required,
             ),
             !_isEditing || _locationFocus.hasFocus,
@@ -1182,6 +1196,7 @@ class _SubmitScreenState extends State<SubmitScreen> {
               focusNode: _registrationFocus,
               label: AppLocalizations.get('registrationUrl'),
               keyboardType: TextInputType.url,
+              maxLength: 500,
               errorText: _validateRegistrationUrl(_registrationController.text),
               onChanged: (_) => setState(() {}),
               validator: _validateRegistrationUrl,
@@ -1207,6 +1222,7 @@ class _SubmitScreenState extends State<SubmitScreen> {
               label: AppLocalizations.get('itEquipment'),
               hint: AppLocalizations.get('itEquipmentHint'),
               maxLines: 3,
+              maxLength: 500,
             ),
             !_isEditing || _itEquipmentFocus.hasFocus,
             focusNode: _itEquipmentFocus,
@@ -1219,6 +1235,7 @@ class _SubmitScreenState extends State<SubmitScreen> {
               label: AppLocalizations.get('materials'),
               hint: AppLocalizations.get('materialsHint'),
               maxLines: 3,
+              maxLength: 500,
             ),
             !_isEditing || _materialsFocus.hasFocus,
             focusNode: _materialsFocus,

@@ -10,6 +10,8 @@ from app.config import get_settings
 from app.db import async_session_maker
 from app.handlers import (
     admin_chat_router,
+    categories_router,
+    event_pages_router,
     start_router,
 )
 from app.middlewares import DatabaseSessionMiddleware
@@ -101,8 +103,12 @@ async def main() -> None:
     # attach middleware and feature routers
     dispatcher.update.middleware(DatabaseSessionMiddleware(async_session_maker))
     dispatcher.include_router(admin_chat_router)
-    # event management and moderation bot flows live in the flutter app
+    # event management and moderation bot flows live in the flutter app;
+    # the bot keeps the broadcast/dashboard flows: group setup + category
+    # chooser (categories) and dashboard event pages (event_pages).
     dispatcher.include_router(start_router)
+    dispatcher.include_router(event_pages_router)
+    dispatcher.include_router(categories_router)
 
     reminder_task = None
     sweep_task = None

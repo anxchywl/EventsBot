@@ -195,27 +195,32 @@ class _CoordinatorDashboardScreenState
   Widget build(BuildContext context) {
     final title = AppLocalizations.get('requests');
     return Scaffold(
-      body: NestedScrollView(
-        headerSliverBuilder: (ctx, _) => [
-          AppSliverAppBar(
-            title: title,
-            actions: [
-              IconButton(
-                tooltip: _showRejected
-                    ? AppLocalizations.get('showPending')
-                    : AppLocalizations.get('showRejected'),
-                icon: Icon(
-                  Icons.block_rounded,
-                  color: _showRejected
-                      ? AppColors.primary
-                      : AppColors.textSecondary,
+      body: ScrollConfiguration(
+        behavior: ScrollConfiguration.of(
+          context,
+        ).copyWith(physics: const ClampingScrollPhysics()),
+        child: NestedScrollView(
+          headerSliverBuilder: (ctx, _) => [
+            AppSliverAppBar(
+              title: title,
+              actions: [
+                IconButton(
+                  tooltip: _showRejected
+                      ? AppLocalizations.get('showPending')
+                      : AppLocalizations.get('showRejected'),
+                  icon: Icon(
+                    Icons.block_rounded,
+                    color: _showRejected
+                        ? AppColors.primary
+                        : AppColors.textSecondary,
+                  ),
+                  onPressed: _toggleRejected,
                 ),
-                onPressed: _toggleRejected,
-              ),
-            ],
-          ),
-        ],
-        body: _buildBody(context),
+              ],
+            ),
+          ],
+          body: _buildBody(context),
+        ),
       ),
     );
   }
@@ -305,7 +310,7 @@ class _CoordinatorDashboardScreenState
       padding: const EdgeInsets.only(
         left: AppSpacing.df,
         right: AppSpacing.df,
-        bottom: AppSpacing.df,
+        bottom: 108.0,
       ),
       sliver: SliverList(
         delegate: SliverChildListDelegate(items),

@@ -22,6 +22,7 @@ class EventModel {
   final String? materials;
   final String? registrationUrl;
   final String? moderationNote;
+  final String? submittedAt;
 
   const EventModel({
     required this.id,
@@ -40,6 +41,7 @@ class EventModel {
     this.materials,
     this.registrationUrl,
     this.moderationNote,
+    this.submittedAt,
   });
 
   factory EventModel.fromJson(Map<String, dynamic> json) {
@@ -60,6 +62,7 @@ class EventModel {
       materials: json['materials'] as String?,
       registrationUrl: json['registration_url'] as String?,
       moderationNote: json['moderation_note'] as String?,
+      submittedAt: json['submitted_at'] as String?,
     );
   }
 
@@ -84,6 +87,7 @@ class EventModel {
         'materials': materials,
         'registration_url': registrationUrl,
         'moderation_note': moderationNote,
+        'submitted_at': submittedAt,
       };
 
   bool get isApproved => status == 'approved';
