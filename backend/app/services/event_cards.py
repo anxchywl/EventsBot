@@ -101,17 +101,17 @@ def build_event_page_keyboard(
     )
 
 
-# prefer mini app links when they are configured
+# prefer public links for shares so desktop clients avoid telegram's handoff page
 def build_event_share_url(event: Event, *, bot_username: str | None) -> str | None:
     settings = get_settings()
     deep_link = (
-        build_telegram_miniapp_direct_link(
-            bot_username=bot_username,
-            miniapp_short_name=settings.telegram_miniapp_short_name,
+        build_public_miniapp_event_url(
+            miniapp_base_url=settings.miniapp_base_url,
             public_token=event.public_token,
         )
-        or build_public_miniapp_event_url(
-            miniapp_base_url=settings.miniapp_base_url,
+        or build_telegram_miniapp_direct_link(
+            bot_username=bot_username,
+            miniapp_short_name=settings.telegram_miniapp_short_name,
             public_token=event.public_token,
         )
         or build_event_deep_link(

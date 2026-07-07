@@ -4,6 +4,7 @@ import unittest
 from unittest.mock import patch
 
 from app.services.event_cards import (
+    build_event_share_url,
     build_event_page_keyboard,
     format_event_card_text,
     render_dashboard_event_line,
@@ -128,6 +129,23 @@ class EventCardsTest(unittest.TestCase):
         self.assertEqual(1, len(buttons))
         self.assertEqual("Open in App", buttons[0].text)
         self.assertEqual("https://events.example.com/events/abc123", buttons[0].url)
+
+    def test_event_share_uses_public_miniapp_url_before_direct_link(self):
+        event = SimpleNamespace(public_token="abc123", title="Hackathon")
+
+        with patch(
+            "app.services.event_cards.get_settings",
+            return_value=SimpleNamespace(
+                miniapp_base_url="https://events.example.com",
+                telegram_miniapp_short_name="events",
+            ),
+        ):
+            url = build_event_share_url(event, bot_username="events_bot")
+
+        self.assertIsNotNone(url)
+        self.assertIn("Hackathon", url)
+        self.assertIn("https%3A%2F%2Fevents.example.com%2Fevents%2Fabc123", url)
+        self.assertNotIn("startapp", url)
 
     def test_admin_moderation_caption_keeps_poster_with_long_description(self):
         event = SimpleNamespace(

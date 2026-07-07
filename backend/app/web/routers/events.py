@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi import Request
 from fastapi.responses import StreamingResponse
-from sqlalchemy import exists, func, select, String, Interval, TIMESTAMP
+from sqlalchemy import exists, func, select, String, TIMESTAMP
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -28,7 +28,10 @@ from app.services.events import (
     get_event_by_public_token,
 )
 from app.services.event_sync import latest_completed_sync_version
-from app.services.telegram_links import build_telegram_miniapp_direct_link
+from app.services.telegram_links import (
+    build_public_miniapp_event_url,
+    build_telegram_miniapp_direct_link,
+)
 from app.web.auth import (
     MiniAppUser,
     get_real_ip,
@@ -398,7 +401,6 @@ async def _filtered_events(
     limit: int,
     offset: int,
 ) -> list[Event]:
-    today = _today()
     reminder_counts = (
         select(Reminder.event_id, func.count(Reminder.id).label("reminder_total"))
         .group_by(Reminder.event_id)
@@ -522,7 +524,11 @@ def _today():
 async def _event_share_target(public_token: str) -> str:
     settings = get_settings()
     return (
-        build_telegram_miniapp_direct_link(
+        build_public_miniapp_event_url(
+            miniapp_base_url=settings.miniapp_base_url,
+            public_token=public_token,
+        )
+        or build_telegram_miniapp_direct_link(
             bot_username=await get_bot_username(),
             miniapp_short_name=settings.telegram_miniapp_short_name,
             public_token=public_token,

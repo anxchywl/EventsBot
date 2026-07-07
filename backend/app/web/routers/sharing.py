@@ -8,6 +8,7 @@ from app.db.session import get_session
 from app.services.analytics import record_event_action_by_ids
 from app.services.events import get_available_event_by_public_token
 from app.services.telegram_links import (
+    build_public_miniapp_event_url,
     build_telegram_miniapp_direct_link,
     build_telegram_share_link,
 )
@@ -37,10 +38,15 @@ async def share_event(
     if not event:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Event no longer available")
 
+    settings = get_settings()
     target = (
-        build_telegram_miniapp_direct_link(
+        build_public_miniapp_event_url(
+            miniapp_base_url=settings.miniapp_base_url,
+            public_token=event.public_token,
+        )
+        or build_telegram_miniapp_direct_link(
             bot_username=await get_bot_username(),
-            miniapp_short_name=get_settings().telegram_miniapp_short_name,
+            miniapp_short_name=settings.telegram_miniapp_short_name,
             public_token=event.public_token,
         )
         or f"/events/{event.public_token}"
