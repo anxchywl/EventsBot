@@ -89,7 +89,7 @@ def validate_cover_bytes(
         raise CoverUploadError(422, "The image is corrupt or unreadable.") from exc
 
 
-async def store_cover(webp_or_jpeg: bytes) -> str:
+async def store_cover(webp_or_jpeg: bytes) -> tuple[str, int]:
     from aiogram.types import BufferedInputFile
 
     settings = get_settings()
@@ -106,8 +106,31 @@ async def store_cover(webp_or_jpeg: bytes) -> str:
         raise CoverUploadError(502, "Could not store the cover. Please retry.") from exc
 
     if not message.photo:
+        # a photoless message is unusable; drop it so it does not orphan
+        await delete_stored_cover_message(message.message_id)
         raise CoverUploadError(502, "Cover storage returned no photo.")
-    return message.photo[-1].file_id
+    # the message id lets callers delete this image if the cover is never
+    # persisted (revalidation fails, or the owning DB transaction rolls back)
+    return message.photo[-1].file_id, message.message_id
+
+
+async def delete_stored_cover_message(message_id: int | None) -> None:
+    # best-effort removal of a storage-channel message whose cover was sent but
+    # never persisted, so orphaned images do not accumulate in the channel.
+    if not message_id:
+        return
+    settings = get_settings()
+    if settings.media_storage_chat_id is None:
+        return
+    try:
+        await get_web_bot().delete_message(
+            chat_id=settings.media_storage_chat_id,
+            message_id=message_id,
+        )
+    except Exception as exc:
+        logger.warning(
+            "failed to delete orphaned cover message %s: %s", message_id, exc
+        )
 
 
 async def revalidate_stored_cover(file_id: str) -> bool:
@@ -143,7 +166,9 @@ async def stage_cover_bytes(clean: bytes, user_id: int) -> str:
     return token
 
 
-async def consume_and_store_cover(token: str, user_id: int) -> str | None:
+async def consume_and_store_cover(
+    token: str, user_id: int, *, sent_messages: list[int] | None = None
+) -> str | None:
     # foreign tokens must not bind images to another user's event
     if not token:
         return None
@@ -167,9 +192,16 @@ async def consume_and_store_cover(token: str, user_id: int) -> str | None:
         pass
     if not data:
         return None
-    file_id = await store_cover(data)
+    file_id, message_id = await store_cover(data)
     if not await revalidate_stored_cover(file_id):
+        # the image is in the channel but will never be persisted — remove it
+        # before surfacing the error so it does not orphan
+        await delete_stored_cover_message(message_id)
         raise CoverUploadError(502, "Cover could not be verified. Please retry.")
+    # hand the caller the storage message id so it can clean up if the DB
+    # transaction that references this file_id later fails to commit
+    if sent_messages is not None:
+        sent_messages.append(message_id)
     return file_id
 
 

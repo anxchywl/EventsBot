@@ -42,6 +42,7 @@ from app.services.cover_storage import (
     CoverUploadError,
     bust_cover_cache,
     consume_and_store_cover,
+    delete_stored_cover_message,
     stage_cover_bytes,
     validate_cover_bytes,
 )
@@ -129,10 +130,17 @@ async def upload_cover(
     return {"cover_ref": token}
 
 
-# redeem a staging token without trusting client file ids
-async def _redeem_cover_ref(cover_ref: str, user_id: int) -> str:
+# redeem a staging token without trusting client file ids. When a mutable
+# `sent_messages` list is supplied, the storage-channel message id of a freshly
+# sent cover is appended to it so the caller can delete the image if the
+# surrounding DB transaction fails to commit.
+async def _redeem_cover_ref(
+    cover_ref: str, user_id: int, sent_messages: list[int] | None = None
+) -> str:
     try:
-        file_id = await consume_and_store_cover(cover_ref, user_id)
+        file_id = await consume_and_store_cover(
+            cover_ref, user_id, sent_messages=sent_messages
+        )
     except CoverUploadError as exc:
         raise HTTPException(exc.status_code, exc.detail) from exc
     if file_id is None:
@@ -148,6 +156,7 @@ async def _apply_cover_change(
     cover_ref: str | None,
     remove_cover: bool,
     user_id: int,
+    sent_messages: list[int] | None = None,
 ) -> None:
     if remove_cover:
         if event.poster_file_id:
@@ -156,10 +165,24 @@ async def _apply_cover_change(
         return
     if not cover_ref:
         return
-    file_id = await _redeem_cover_ref(cover_ref, user_id)
+    file_id = await _redeem_cover_ref(cover_ref, user_id, sent_messages)
     if event.poster_file_id and event.poster_file_id != file_id:
         await bust_cover_cache(event.poster_file_id)
     event.poster_file_id = file_id
+
+
+# commit the transaction, deleting any freshly-uploaded cover images from the
+# storage channel if the commit fails — otherwise the images are sent to
+# Telegram but never referenced by a persisted row (orphans).
+async def _commit_with_cover_cleanup(
+    session: AsyncSession, sent_messages: list[int]
+) -> None:
+    try:
+        await session.commit()
+    except Exception:
+        for message_id in sent_messages:
+            await delete_stored_cover_message(message_id)
+        raise
 
 
 @router.get("/categories", response_model=list[FlutterCategoryItem])
@@ -304,9 +327,12 @@ async def submit_event(
         )
 
     # fail forged tokens before creating the event
+    sent_covers: list[int] = []
     poster_file_id: str | None = None
     if payload.cover_ref:
-        poster_file_id = await _redeem_cover_ref(payload.cover_ref, user.id)
+        poster_file_id = await _redeem_cover_ref(
+            payload.cover_ref, user.id, sent_covers
+        )
 
     event_time = datetime.strptime(payload.event_time, "%H:%M").time()
     event_end_time = datetime.strptime(payload.event_end_time, "%H:%M").time()
@@ -328,7 +354,7 @@ async def submit_event(
             "poster_file_id": poster_file_id,
         },
     )
-    await session.commit()
+    await _commit_with_cover_cleanup(session, sent_covers)
 
     created = await get_event_by_id(session, event.id)
     return _serialize_event(created)
@@ -391,11 +417,13 @@ async def resubmit_event(
     if payload.registration_url is not None:
         event.registration_url = payload.registration_url
 
+    sent_covers: list[int] = []
     await _apply_cover_change(
         event,
         cover_ref=payload.cover_ref,
         remove_cover=payload.remove_cover,
         user_id=user.id,
+        sent_messages=sent_covers,
     )
 
     event.status = EventStatus.RESUBMITTED.value
@@ -409,7 +437,7 @@ async def resubmit_event(
         )
     )
 
-    await session.commit()
+    await _commit_with_cover_cleanup(session, sent_covers)
 
     updated = await get_event_by_id(session, event_id)
     if was_needs_changes:
@@ -461,14 +489,16 @@ async def patch_event(
     if payload.event_end_time is not None:
         event.event_end_time = datetime.strptime(payload.event_end_time, "%H:%M").time()
 
+    sent_covers: list[int] = []
     await _apply_cover_change(
         event,
         cover_ref=payload.cover_ref,
         remove_cover=payload.remove_cover,
         user_id=user.id,
+        sent_messages=sent_covers,
     )
 
-    await session.commit()
+    await _commit_with_cover_cleanup(session, sent_covers)
     updated = await get_event_by_id(session, event_id)
     return _serialize_event(updated)
 

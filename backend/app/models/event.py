@@ -66,6 +66,9 @@ class Event(TimestampMixin, Base):
         ),
         Index("ix_events_status_date_time", "status", "event_date", "event_time"),
         Index("ix_events_public_token", "public_token", unique=True),
+        # creator_user_id has no implicit index (Postgres does not index FKs);
+        # list_my_events / get_user_events filter on it, ordered by created_at.
+        Index("ix_events_creator_created", "creator_user_id", "created_at"),
     )
 
     # event identity and ownership

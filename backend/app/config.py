@@ -63,6 +63,29 @@ class Settings(BaseSettings):
         has_key = bool(self.superapp_jwt_public_key) or bool(self.superapp_jwt_secret)
         return bool(self.superapp_jwt_issuer) and has_key
 
+    # PyJWT does not enforce a minimum key length for HMAC algorithms, so a short
+    # SUPERAPP_JWT_SECRET would be brute-forceable. Only guard when the bridge is
+    # actually enabled with a symmetric (HS*) algorithm — the RS256/ES256 default
+    # and the inert (disabled) state are unaffected, so this cannot regress the
+    # current production posture.
+    @model_validator(mode="after")
+    def _guard_superapp_hmac_secret_strength(self) -> "Settings":
+        if not self.superapp_bridge_enabled:
+            return self
+        if not self.superapp_jwt_algorithm.upper().startswith("HS"):
+            return self
+        secret = (
+            self.superapp_jwt_secret.get_secret_value()
+            if self.superapp_jwt_secret is not None
+            else ""
+        )
+        if len(secret.encode()) < 32:
+            raise ValueError(
+                "SUPERAPP_JWT_SECRET must be at least 32 bytes when "
+                "SUPERAPP_JWT_ALGORITHM is HS256/HS384/HS512."
+            )
+        return self
+
     # IPs of reverse proxies whose X-Forwarded-For header should be trusted
     # e.g. TRUSTED_PROXY_IPS=127.0.0.1,10.0.0.1
     trusted_proxy_ips: Annotated[list[str], NoDecode] = Field(

@@ -109,8 +109,10 @@ class ValidateCoverBytesTest(unittest.TestCase):
 
 
 class StagingTokenTest(unittest.TestCase):
-    # telegram is only hit when a staged cover is consumed
-    def _patches(self, meta, blobs, *, store="FID", revalidate=True):
+    # telegram is only hit when a staged cover is consumed. store_cover returns
+    # (file_id, storage_message_id); the message id lets orphaned images be
+    # cleaned up on revalidation / commit failure.
+    def _patches(self, meta, blobs, *, store=("FID", 111), revalidate=True):
         return (
             patch.object(cover_storage, "get_redis", return_value=meta),
             patch.object(cover_storage, "get_media_redis", return_value=blobs),
@@ -120,12 +122,13 @@ class StagingTokenTest(unittest.TestCase):
                 "revalidate_stored_cover",
                 AsyncMock(return_value=revalidate),
             ),
+            patch.object(cover_storage, "delete_stored_cover_message", AsyncMock()),
         )
 
     def test_stage_then_consume_sends_to_telegram_once(self):
         meta, blobs = FakeRedis(), FakeRedis()
         p = self._patches(meta, blobs)
-        with p[0], p[1], p[2] as store, p[3]:
+        with p[0], p[1], p[2] as store, p[3], p[4]:
             token = _run(cover_storage.stage_cover_bytes(b"cleanbytes", user_id=7))
             first = _run(cover_storage.consume_and_store_cover(token, user_id=7))
             second = _run(cover_storage.consume_and_store_cover(token, user_id=7))
@@ -133,10 +136,24 @@ class StagingTokenTest(unittest.TestCase):
         self.assertIsNone(second)
         store.assert_awaited_once_with(b"cleanbytes")
 
+    def test_consume_appends_storage_message_id_for_cleanup(self):
+        meta, blobs = FakeRedis(), FakeRedis()
+        p = self._patches(meta, blobs)
+        sent: list[int] = []
+        with p[0], p[1], p[2], p[3], p[4]:
+            token = _run(cover_storage.stage_cover_bytes(b"clean", user_id=7))
+            file_id = _run(
+                cover_storage.consume_and_store_cover(
+                    token, user_id=7, sent_messages=sent
+                )
+            )
+        self.assertEqual(file_id, "FID")
+        self.assertEqual(sent, [111])
+
     def test_foreign_user_cannot_consume_and_nothing_sent(self):
         meta, blobs = FakeRedis(), FakeRedis()
         p = self._patches(meta, blobs)
-        with p[0], p[1], p[2] as store, p[3]:
+        with p[0], p[1], p[2] as store, p[3], p[4]:
             token = _run(cover_storage.stage_cover_bytes(b"x", user_id=7))
             stolen = _run(cover_storage.consume_and_store_cover(token, user_id=99))
         self.assertIsNone(stolen)
@@ -145,7 +162,7 @@ class StagingTokenTest(unittest.TestCase):
     def test_forged_or_missing_token_returns_none(self):
         meta, blobs = FakeRedis(), FakeRedis()
         p = self._patches(meta, blobs)
-        with p[0], p[1], p[2], p[3]:
+        with p[0], p[1], p[2], p[3], p[4]:
             self.assertIsNone(
                 _run(cover_storage.consume_and_store_cover("nope", user_id=7))
             )
@@ -153,14 +170,16 @@ class StagingTokenTest(unittest.TestCase):
                 _run(cover_storage.consume_and_store_cover("", user_id=7))
             )
 
-    def test_unverifiable_upload_raises_502(self):
+    def test_unverifiable_upload_raises_502_and_deletes_orphan(self):
         meta, blobs = FakeRedis(), FakeRedis()
         p = self._patches(meta, blobs, revalidate=False)
-        with p[0], p[1], p[2], p[3]:
+        with p[0], p[1], p[2], p[3], p[4] as delete_orphan:
             token = _run(cover_storage.stage_cover_bytes(b"x", user_id=7))
             with self.assertRaises(CoverUploadError) as ctx:
                 _run(cover_storage.consume_and_store_cover(token, user_id=7))
         self.assertEqual(ctx.exception.status_code, 502)
+        # the already-sent image must be removed so it does not orphan
+        delete_orphan.assert_awaited_once_with(111)
 
 
 class UploadEndpointTest(unittest.TestCase):
@@ -337,6 +356,40 @@ class SubmitEventCoverTest(unittest.TestCase):
         self.assertEqual(result, "SERIALIZED")
         # only telegram file ids are persisted
         self.assertEqual(captured["poster_file_id"], "MINTED_FILE_ID")
+
+    def test_commit_failure_deletes_orphaned_cover(self):
+        # if the DB commit fails after the cover was sent to Telegram, the image
+        # must be deleted from the storage channel rather than left orphaned.
+        user = SimpleNamespace(id=7)
+        session = self._session()
+        session.commit = AsyncMock(side_effect=RuntimeError("db down"))
+
+        async def _fake_consume(cover_ref, user_id, *, sent_messages=None):
+            if sent_messages is not None:
+                sent_messages.append(999)
+            return "FID"
+
+        with (
+            patch.object(
+                flutter_events,
+                "get_category_by_id",
+                AsyncMock(return_value=SimpleNamespace(id=1)),
+            ),
+            patch.object(
+                flutter_events, "consume_and_store_cover", side_effect=_fake_consume
+            ),
+            patch.object(
+                flutter_events,
+                "create_pending_event",
+                AsyncMock(return_value=SimpleNamespace(id=55)),
+            ),
+            patch.object(
+                flutter_events, "delete_stored_cover_message", AsyncMock()
+            ) as delete_orphan,
+        ):
+            with self.assertRaises(RuntimeError):
+                _run(flutter_events.submit_event(self._payload("tok"), user, session))
+        delete_orphan.assert_awaited_once_with(999)
 
     def test_forged_cover_ref_fails_create_400(self):
         user = SimpleNamespace(id=7)

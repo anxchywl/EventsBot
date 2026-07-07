@@ -23,6 +23,13 @@ class RealtimeUpdates {
   bool _connecting = false;
   bool _closed = false;
 
+  // Capped exponential backoff so a persistent failure (server down, or a 401
+  // from a stale token) does not reconnect in a tight 3 s loop. Reset to 0 once
+  // a connection is established.
+  int _reconnectAttempts = 0;
+  static const Duration _baseBackoff = Duration(seconds: 3);
+  static const Duration _maxBackoff = Duration(seconds: 60);
+
   Stream<RealtimeUpdate> get stream {
     if (!_connecting && _linesSub == null) {
       unawaited(_connect());
@@ -45,6 +52,9 @@ class RealtimeUpdates {
         _scheduleReconnect();
         return;
       }
+
+      // Connected: clear the backoff so the next drop retries promptly.
+      _reconnectAttempts = 0;
 
       String? eventType;
       _linesSub = response
@@ -83,7 +93,12 @@ class RealtimeUpdates {
     _client = null;
     if (_closed) return;
 
-    Timer(const Duration(seconds: 3), () {
+    final backoffMs =
+        (_baseBackoff.inMilliseconds * (1 << _reconnectAttempts))
+            .clamp(_baseBackoff.inMilliseconds, _maxBackoff.inMilliseconds);
+    if (_reconnectAttempts < 8) _reconnectAttempts++;
+
+    Timer(Duration(milliseconds: backoffMs), () {
       if (_closed || _linesSub != null || _connecting) return;
       unawaited(_connect());
     });

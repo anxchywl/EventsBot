@@ -11,6 +11,7 @@ same active filter set.
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import date
 
@@ -84,17 +85,21 @@ def analytics_filters(
 
 
 def _cache_key(name: str, filters: svc.AnalyticsFilters, *extra: object) -> str:
-    return "|".join(
+    # JSON-encode the parts so a free-text field (e.g. organizer) that contains
+    # the old "|" separator can never be reinterpreted as a field boundary and
+    # collide with a different filter set.
+    return json.dumps(
         [
             name,
             str(filters.date_from),
             str(filters.date_to),
-            str(filters.category_id),
+            filters.category_id,
             filters.organizer or "",
             filters.status or "",
-            str(filters.event_id),
+            filters.event_id,
             *[str(e) for e in extra],
-        ]
+        ],
+        separators=(",", ":"),
     )
 
 
@@ -279,7 +284,9 @@ async def event_options(
     """Paginated, searchable event list feeding the analytics event-picker."""
     await _limit(request, user.id, "events")
     term = (search or "").strip()
-    key = f"events|{term.lower()}|{limit}|{offset}"
+    # JSON-encode so a search term containing "|" cannot collide with a
+    # different (term, limit, offset) triple.
+    key = json.dumps(["events", term.lower(), limit, offset], separators=(",", ":"))
     cached = _agg_cache.get(key)
     if cached is None:
         cached = await svc.search_events(

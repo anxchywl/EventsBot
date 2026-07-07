@@ -276,10 +276,41 @@ async def _rl(
         )
 
 
-# expose a minimal health probe
+# expose a minimal liveness probe. Deliberately dependency-free: liveness must
+# not flap when Postgres/Redis briefly hiccup (that is what readiness is for).
 @web_app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+# readiness probe: verifies the process can actually serve traffic by reaching
+# Postgres and Redis. Returns 503 (not 500) when a dependency is down so a load
+# balancer / monitor can drain this instance without tripping error alerting.
+@web_app.get("/health/ready")
+async def health_ready(
+    session: AsyncSession = Depends(get_session),
+) -> JSONResponse:
+    from sqlalchemy import text
+
+    checks: dict[str, str] = {}
+    ok = True
+    try:
+        await session.execute(text("SELECT 1"))
+        checks["database"] = "ok"
+    except Exception:
+        checks["database"] = "error"
+        ok = False
+    try:
+        await get_redis().ping()
+        checks["redis"] = "ok"
+    except Exception:
+        checks["redis"] = "error"
+        ok = False
+
+    return JSONResponse(
+        status_code=status.HTTP_200_OK if ok else status.HTTP_503_SERVICE_UNAVAILABLE,
+        content={"status": "ready" if ok else "degraded", "checks": checks},
+    )
 
 
 # avoid noisy favicon 404s

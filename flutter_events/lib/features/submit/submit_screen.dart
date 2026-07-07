@@ -470,6 +470,11 @@ class _SubmitScreenState extends State<SubmitScreen> {
   }
 
   Future<void> _submit() async {
+    // Guard against a double-tap racing a submit already in flight: a second tap
+    // must never fire a second create/resubmit (which would produce a duplicate
+    // pending event). The step-validity check does not cover _submitting, so
+    // this is the authoritative guard.
+    if (_submitting) return;
     if (_coverUploading) {
       _showMessage(AppLocalizations.get('coverStillUploading'));
       return;
