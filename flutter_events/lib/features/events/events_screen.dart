@@ -665,21 +665,27 @@ class _EventsScreenState extends State<EventsScreen> {
             ? CrossFadeState.showSecond
             : CrossFadeState.showFirst,
         firstChild: SizedBox(
-          height: 36,
+          height: 48,
           child: ListView(
             scrollDirection: Axis.horizontal,
             padding: EdgeInsets.zero,
             children: [
-              _EventFilterPill(
-                icon: AppIcons.search,
-                onTap: () => setState(() => _searchOpen = true),
+              Tooltip(
+                message: AppLocalizations.get('search'),
+                child: _EventFilterPill(
+                  icon: AppIcons.search,
+                  onTap: () => setState(() => _searchOpen = true),
+                ),
               ),
               const SizedBox(width: AppSpacing.sm),
               if (!_calendarMode) ...[
-                _EventFilterPill(
-                  icon: AppIcons.sort,
-                  highlighted: _sortActive,
-                  onTap: _pickSort,
+                Tooltip(
+                  message: AppLocalizations.get('sorting'),
+                  child: _EventFilterPill(
+                    icon: AppIcons.sort,
+                    highlighted: _sortActive,
+                    onTap: _pickSort,
+                  ),
                 ),
                 const SizedBox(width: AppSpacing.sm),
               ],
@@ -903,7 +909,7 @@ class _EventFilterPill extends StatelessWidget {
         onTap: onTap,
         borderRadius: radius,
         child: Container(
-          height: 36,
+          constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
           padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
           child: Row(
             mainAxisSize: MainAxisSize.min,

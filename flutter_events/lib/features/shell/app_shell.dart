@@ -69,9 +69,18 @@ class _AppShellState extends State<AppShell> {
   Widget _buildBody() {
     final destinations = _destinations;
     final index = _currentIndex.clamp(0, destinations.length - 1);
-    return IndexedStack(
-      index: index,
-      children: destinations.map((destination) => destination.body).toList(),
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 840),
+        child: SizedBox.expand(
+          child: IndexedStack(
+            index: index,
+            children: destinations
+                .map((destination) => destination.body)
+                .toList(),
+          ),
+        ),
+      ),
     );
   }
 

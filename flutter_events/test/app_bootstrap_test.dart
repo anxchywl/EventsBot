@@ -8,6 +8,7 @@ import 'package:events_feature/core/auth_store.dart';
 import 'package:events_feature/core/cache_store.dart';
 import 'package:events_feature/core/dev_session.dart';
 import 'package:events_feature/core/exceptions.dart';
+import 'package:events_feature/features/shell/app_shell.dart';
 import 'package:events_feature/models/event_model.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -104,6 +105,73 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('Retry development sign-in'), findsOneWidget);
+  });
+
+  testWidgets('shell navigation remains focusable with accessible labels', (
+    tester,
+  ) async {
+    await _pumpShell(tester, size: const Size(360, 640));
+
+    for (final label in ['Events', 'Requests', 'Analytics']) {
+      final tooltip = find.byTooltip(label);
+      expect(tooltip, findsOneWidget, reason: label);
+      final control = find.descendant(
+        of: tooltip,
+        matching: find.byType(InkWell),
+      );
+      expect(control, findsOneWidget, reason: label);
+      expect(tester.widget<InkWell>(control).canRequestFocus, isTrue);
+    }
+    final search = find.byWidgetPredicate(
+      (widget) => widget is Tooltip && widget.message == 'Search',
+      skipOffstage: false,
+    );
+    expect(search, findsOneWidget);
+    expect(
+      find.byWidgetPredicate(
+        (widget) => widget is Tooltip && widget.message == 'Sorting',
+        skipOffstage: false,
+      ),
+      findsOneWidget,
+    );
+    final searchControl = find.descendant(
+      of: search,
+      matching: find.byType(InkWell, skipOffstage: false),
+      skipOffstage: false,
+    );
+    expect(searchControl, findsOneWidget);
+    expect(tester.getSize(searchControl).width, greaterThanOrEqualTo(48));
+    expect(tester.getSize(searchControl).height, greaterThanOrEqualTo(48));
+    await _disposeShell(tester);
+  });
+
+  testWidgets(
+    'compact shell supports two-times text scaling without overflow',
+    (tester) async {
+      await _pumpShell(
+        tester,
+        size: const Size(320, 568),
+        textScaler: const TextScaler.linear(2),
+      );
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('Events'), findsWidgets);
+      expect(
+        tester.getSize(find.byType(IndexedStack)).height,
+        greaterThan(400),
+      );
+      await _disposeShell(tester);
+    },
+  );
+
+  testWidgets('wide hosts keep feature content at a readable width', (
+    tester,
+  ) async {
+    await _pumpShell(tester, size: const Size(1200, 800));
+
+    expect(tester.getSize(find.byType(IndexedStack)).width, 840);
+    expect(tester.takeException(), isNull);
+    await _disposeShell(tester);
   });
 
   testWidgets('host session resolves its authoritative role before mounting', (
@@ -378,4 +446,48 @@ void main() {
     expect(AuthStore.token, 'offline-token');
     expect(AuthStore.isLoggedIn, isTrue);
   });
+}
+
+Future<void> _pumpShell(
+  WidgetTester tester, {
+  required Size size,
+  TextScaler textScaler = TextScaler.noScaling,
+}) async {
+  setApiClientForTesting(
+    MockClient((request) async {
+      if (request.url.path == '/api/flutter/events/categories' ||
+          request.url.path == '/api/flutter/events' ||
+          request.url.path == '/api/flutter/events/my' ||
+          request.url.path == '/api/flutter/events/pending') {
+        return http.Response('[]', 200);
+      }
+      return http.Response(
+        jsonEncode({'detail': 'Unavailable in widget test'}),
+        503,
+      );
+    }),
+  );
+  await AuthStore.save(token: 'admin-token', role: 'admin', userId: 7);
+  await tester.binding.setSurfaceSize(size);
+  addTearDown(() async {
+    await tester.binding.setSurfaceSize(null);
+    await AuthStore.clear();
+  });
+
+  await tester.pumpWidget(
+    MaterialApp(
+      home: MediaQuery(
+        data: MediaQueryData(size: size, textScaler: textScaler),
+        child: const AppShell(),
+      ),
+    ),
+  );
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 500));
+}
+
+Future<void> _disposeShell(WidgetTester tester) async {
+  await tester.pumpWidget(const SizedBox.shrink());
+  await AuthStore.clear();
+  await tester.pump();
 }
