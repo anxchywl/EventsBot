@@ -9,7 +9,15 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await AuthStore.init();
   await CacheStore.init();
-  // No login screen: sign into the shared test account if there is no session.
-  await ensureDevSession();
-  runApp(const EventsApp());
+  if (DevSessionConfig.isEnabled) {
+    await ensureDevSession();
+  } else {
+    await AuthStore.clear();
+  }
+  runApp(
+    EventsApp(
+      onStandaloneSignIn: DevSessionConfig.isEnabled ? ensureDevSession : null,
+      onDevelopmentRoleSwitch: DevSessionConfig.isEnabled ? cycleDevRole : null,
+    ),
+  );
 }

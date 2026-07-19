@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 
 import '../../core/auth_store.dart';
 import '../../core/cache_store.dart';
-import '../../core/dev_session.dart';
 import '../../core/localization.dart';
 import '../coordinator/coordinator_dashboard_screen.dart';
 import '../event_manager/event_manager_screen.dart';
@@ -11,7 +10,9 @@ import '../events/events_screen.dart';
 import '../my_events/my_events_screen.dart';
 
 class AppShell extends StatefulWidget {
-  const AppShell({super.key});
+  const AppShell({super.key, this.onDevelopmentRoleSwitch});
+
+  final Future<void> Function()? onDevelopmentRoleSwitch;
 
   @override
   State<AppShell> createState() => _AppShellState();
@@ -88,13 +89,19 @@ class _AppShellState extends State<AppShell> {
       return;
     }
 
+    final switchRole = widget.onDevelopmentRoleSwitch;
+    if (switchRole == null) {
+      _setCurrentIndex(index);
+      return;
+    }
+
     // Role switcher: 5 taps on the Events tab swaps between the user and admin
     // test accounts so both shells can be exercised without a login screen.
     _eventsTapCount += 1;
     if (_eventsTapCount >= 5) {
       _eventsTapCount = 0;
       try {
-        await cycleDevRole();
+        await switchRole();
       } catch (_) {
         // ignore network errors; keep the current role
       }

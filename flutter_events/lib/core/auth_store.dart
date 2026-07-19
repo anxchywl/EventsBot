@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'cache_store.dart';
@@ -13,6 +14,9 @@ class AuthStore {
   static const String _kUserId = 'auth_user_id';
 
   static late SharedPreferences _prefs;
+  static final ValueNotifier<int> _sessionRevision = ValueNotifier<int>(0);
+
+  static ValueListenable<int> get sessionChanges => _sessionRevision;
 
   static Future<void> init() async {
     _prefs = await SharedPreferences.getInstance();
@@ -49,6 +53,7 @@ class AuthStore {
     } else {
       await _prefs.setString(_kFirstName, firstName);
     }
+    _sessionRevision.value++;
   }
 
   static Future<void> setRole(String role) async {
@@ -59,6 +64,7 @@ class AuthStore {
       await CacheStore.clearAll();
     }
     await _prefs.setString(_kRole, normalized);
+    _sessionRevision.value++;
   }
 
   static Future<String> cycleTestRole() async {
@@ -76,5 +82,6 @@ class AuthStore {
     await _prefs.remove(_kRole);
     await _prefs.remove(_kFirstName);
     await _prefs.remove(_kUserId);
+    _sessionRevision.value++;
   }
 }

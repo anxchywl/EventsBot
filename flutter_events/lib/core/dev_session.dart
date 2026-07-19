@@ -1,9 +1,30 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'api_client.dart';
 import 'auth_store.dart';
+
+const bool _standaloneDevAccessRequested = bool.fromEnvironment(
+  'ENABLE_STANDALONE_DEV_ACCESS',
+  defaultValue: true,
+);
+
+class DevSessionConfig {
+  const DevSessionConfig._();
+
+  static bool get isEnabled => developmentAccessAllowed(
+    isDebugMode: kDebugMode,
+    requested: _standaloneDevAccessRequested,
+  );
+}
+
+@visibleForTesting
+bool developmentAccessAllowed({
+  required bool isDebugMode,
+  required bool requested,
+}) => isDebugMode && requested;
 
 /// No-login test flow. The app ships without a login/registration screen; it
 /// silently signs into a shared test account on first launch, and the 5-tap
@@ -16,14 +37,18 @@ import 'auth_store.dart';
 ///
 /// Credentials can be overridden at build time, e.g.
 ///   flutter build apk --dart-define=TEST_USER_EMAIL=... --dart-define=...
-const String _userEmail =
-    String.fromEnvironment('TEST_USER_EMAIL', defaultValue: 'user@events.dev');
+const String _userEmail = String.fromEnvironment(
+  'TEST_USER_EMAIL',
+  defaultValue: 'user@events.dev',
+);
 const String _userPassword = String.fromEnvironment(
   'TEST_USER_PASSWORD',
   defaultValue: 'UserPass123',
 );
-const String _adminEmail =
-    String.fromEnvironment('TEST_ADMIN_EMAIL', defaultValue: 'admin@events.dev');
+const String _adminEmail = String.fromEnvironment(
+  'TEST_ADMIN_EMAIL',
+  defaultValue: 'admin@events.dev',
+);
 const String _adminPassword = String.fromEnvironment(
   'TEST_ADMIN_PASSWORD',
   defaultValue: 'AdminPass123',
@@ -35,6 +60,7 @@ String _cacheKey(String role) => 'dev_session_$role';
 /// user test account once. Best-effort: failures (offline / server down) are
 /// swallowed so the app still opens; screens surface their own load errors.
 Future<void> ensureDevSession() async {
+  if (!DevSessionConfig.isEnabled) return;
   if (AuthStore.isLoggedIn) return;
   try {
     await _activate(await _obtainSession('user'));
@@ -47,6 +73,9 @@ Future<void> ensureDevSession() async {
 /// cached token for the target role when available, so it does not re-login on
 /// every switch.
 Future<void> cycleDevRole() async {
+  if (!DevSessionConfig.isEnabled) {
+    throw StateError('Development role switching is disabled');
+  }
   final targetRole = AuthStore.isAdmin ? 'user' : 'admin';
   await _activate(await _obtainSession(targetRole));
 }
@@ -70,8 +99,9 @@ Future<AuthResult> _obtainSession(String role) async {
     }
   }
 
-  final (email, password) =
-      role == 'admin' ? (_adminEmail, _adminPassword) : (_userEmail, _userPassword);
+  final (email, password) = role == 'admin'
+      ? (_adminEmail, _adminPassword)
+      : (_userEmail, _userPassword);
   final result = await login(email, password);
   await prefs.setString(
     _cacheKey(result.role),
