@@ -490,8 +490,26 @@ class FlutterEventPatch(BaseModel):
 
 
 class FlutterEventStatusUpdate(BaseModel):
-    status: Literal["approved", "rejected", "needs_changes", "resubmitted", "cancelled"]
+    status: Literal["approved", "rejected", "needs_changes"]
     comment: str | None = Field(default=None, max_length=500)
+
+    _normalize_comment = field_validator("comment", mode="before")(
+        _normalize_optional_multiline
+    )
+
+    @model_validator(mode="after")
+    def validate_decision_comment(self) -> FlutterEventStatusUpdate:
+        if self.status in {"rejected", "needs_changes"} and self.comment is None:
+            raise ValueError("A comment is required for this decision.")
+        return self
+
+
+class FlutterEventCancel(BaseModel):
+    comment: str | None = Field(default=None, max_length=500)
+
+    _normalize_comment = field_validator("comment", mode="before")(
+        _normalize_optional_multiline
+    )
 
 
 class FlutterEventResubmit(BaseModel):
@@ -514,6 +532,12 @@ class FlutterEventResubmit(BaseModel):
     materials: str | None = Field(default=None, max_length=500)
     registration_url: str | None = Field(default=None, max_length=500)
     note: str | None = Field(default=None, max_length=500)
+    client_request_id: str | None = Field(
+        default=None,
+        min_length=16,
+        max_length=64,
+        pattern=_CLIENT_REQUEST_ID_PATTERN,
+    )
     # remove_cover wins over cover_ref
     cover_ref: str | None = Field(default=None, max_length=256)
     remove_cover: bool = False

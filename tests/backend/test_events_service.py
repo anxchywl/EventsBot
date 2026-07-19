@@ -10,7 +10,10 @@ from app.models.enums import EventStatus, ModerationAction  # noqa: E402
 from app.models.event import Event  # noqa: E402
 from app.models.moderation import ModerationLog  # noqa: E402
 from app.services.events import (  # noqa: E402
+    can_moderate_event_status,
     ensure_event_public_token,
+    event_belongs_to_telegram_user,
+    event_has_ended,
     find_event_schedule_conflict,
     get_pending_events,
     normalize_public_token,
@@ -36,6 +39,14 @@ class TokenHelpersTest(unittest.TestCase):
         minted = ensure_event_public_token(fresh)
         self.assertTrue(minted)
         self.assertEqual(fresh.public_token, minted)
+
+    def test_telegram_ownership_uses_telegram_id_not_internal_user_id(self):
+        event = SimpleNamespace(
+            creator_user_id=2,
+            creator=SimpleNamespace(telegram_id=999),
+        )
+        self.assertFalse(event_belongs_to_telegram_user(event, 2))
+        self.assertTrue(event_belongs_to_telegram_user(event, 999))
 
 
 class FakeScalars:
@@ -172,6 +183,51 @@ class EventScheduleConflictTest(unittest.TestCase):
         self.assertIn("ix_events_client_request_id", indexes)
         self.assertTrue(indexes["ix_events_client_request_id"].unique)
         self.assertEqual(Event.client_request_fingerprint.type.length, 64)
+
+    def test_multiple_event_ids_can_be_excluded_for_draft_approval(self):
+        parent = _scheduled_event(1, time(18, 0), time(20, 0))
+        draft = _scheduled_event(2, time(19, 0), time(21, 0))
+        session = PendingSession([parent, draft])
+        result = _run(
+            find_event_schedule_conflict(
+                session,
+                event_date=date(2099, 5, 1),
+                event_time=time(19, 0),
+                event_end_time=time(21, 0),
+                location="Block C",
+                exclude_event_ids={1, 2},
+            )
+        )
+        self.assertIsNone(result)
+
+
+class LifecyclePolicyTest(unittest.TestCase):
+    def test_terminal_states_cannot_be_moderated(self):
+        for current in (EventStatus.CANCELLED.value, EventStatus.ARCHIVED.value):
+            with self.subTest(current=current):
+                self.assertFalse(
+                    can_moderate_event_status(current, EventStatus.APPROVED)
+                )
+
+    def test_rejected_event_can_be_reconsidered(self):
+        self.assertTrue(
+            can_moderate_event_status(
+                EventStatus.REJECTED.value,
+                EventStatus.APPROVED,
+            )
+        )
+
+    def test_event_end_uses_its_declared_timezone(self):
+        event = SimpleNamespace(
+            event_date=date(2026, 7, 19),
+            event_time=time(10, 0),
+            event_end_time=time(12, 0),
+            timezone="Asia/Almaty",
+        )
+        before_end = datetime(2026, 7, 19, 6, 59, tzinfo=timezone.utc)
+        after_end = datetime(2026, 7, 19, 7, 1, tzinfo=timezone.utc)
+        self.assertFalse(event_has_ended(event, now=before_end))
+        self.assertTrue(event_has_ended(event, now=after_end))
 
 
 class FakeScalarOne:

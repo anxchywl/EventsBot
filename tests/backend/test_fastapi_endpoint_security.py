@@ -8,7 +8,11 @@ os.environ.setdefault("BOT_TOKEN", "123456:test-token")
 os.environ.setdefault("MINIAPP_SESSION_TTL_SECONDS", "86400")
 
 from app.web.main import web_app  # noqa: E402
-from app.web.realtime import publish_review_deleted, subscribe_miniapp_events  # noqa: E402
+from app.web.realtime import (  # noqa: E402
+    publish_miniapp_event,
+    publish_review_deleted,
+    subscribe_miniapp_events,
+)
 
 
 async def _asgi_request(
@@ -189,6 +193,32 @@ class FastAPIEndpointSecurityTest(unittest.TestCase):
         self.assertNotIn("target_user_id", message)
         self.assertNotIn("rating_ids", message)
         self.assertNotIn("comment_ids", message)
+
+    def test_realtime_target_ids_route_without_entering_the_payload(self):
+        async def run_check():
+            targeted_stream = subscribe_miniapp_events(7)
+            other_stream = subscribe_miniapp_events(8)
+            targeted = asyncio.create_task(anext(targeted_stream))
+            other = asyncio.create_task(anext(other_stream))
+            await asyncio.sleep(0)
+            await publish_miniapp_event(
+                "event_status_changed",
+                {
+                    "event_id": 42,
+                    "status": "needs_changes",
+                    "target_user_ids": [7],
+                },
+            )
+            message = await asyncio.wait_for(targeted, timeout=1)
+            with self.assertRaises(asyncio.TimeoutError):
+                await asyncio.wait_for(other, timeout=0.01)
+            await targeted_stream.aclose()
+            await other_stream.aclose()
+            return message
+
+        message = asyncio.run(run_check())
+        self.assertEqual(message["event_id"], 42)
+        self.assertNotIn("target_user_ids", message)
 
 
 if __name__ == "__main__":

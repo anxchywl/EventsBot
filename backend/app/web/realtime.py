@@ -11,11 +11,11 @@ _subscribers: set[tuple[int | None, asyncio.Queue[dict[str, Any]]]] = set()
 
 # fan out mini app events to local subscribers
 async def publish_miniapp_event(event_type: str, payload: dict[str, Any]) -> None:
-    message = {"type": event_type, **payload}
+    public_payload = dict(payload)
+    raw_target_user_ids = public_payload.pop("target_user_ids", []) or []
+    message = {"type": event_type, **public_payload}
     target_user_ids = {
-        int(user_id)
-        for user_id in payload.get("target_user_ids", []) or []
-        if user_id is not None
+        int(user_id) for user_id in raw_target_user_ids if user_id is not None
     }
     stale: list[tuple[int | None, asyncio.Queue[dict[str, Any]]]] = []
     for user_id, queue in tuple(_subscribers):

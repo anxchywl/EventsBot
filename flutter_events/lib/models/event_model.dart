@@ -71,24 +71,24 @@ class EventModel {
   /// resolved to an absolute URL; [_resolveUrl] leaves `http…` values untouched
   /// on the way back in, so the round-trip is stable.
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'public_token': publicToken,
-        'title': title,
-        'description': description,
-        'event_date': eventDate,
-        'event_time': eventTime,
-        'event_end_time': eventEndTime,
-        'location': location,
-        'category': category,
-        'organizer_name': organizerName,
-        'status': status,
-        'cover_url': coverUrl,
-        'it_equipment': itEquipment,
-        'materials': materials,
-        'registration_url': registrationUrl,
-        'moderation_note': moderationNote,
-        'submitted_at': submittedAt,
-      };
+    'id': id,
+    'public_token': publicToken,
+    'title': title,
+    'description': description,
+    'event_date': eventDate,
+    'event_time': eventTime,
+    'event_end_time': eventEndTime,
+    'location': location,
+    'category': category,
+    'organizer_name': organizerName,
+    'status': status,
+    'cover_url': coverUrl,
+    'it_equipment': itEquipment,
+    'materials': materials,
+    'registration_url': registrationUrl,
+    'moderation_note': moderationNote,
+    'submitted_at': submittedAt,
+  };
 
   bool get isApproved => status == 'approved';
 
@@ -97,6 +97,14 @@ class EventModel {
   bool get isNeedsChanges => status == 'needs_changes';
 
   bool get isResubmitted => status == 'resubmitted';
+
+  bool get canCreatorCancel =>
+      status == 'pending' ||
+      status == 'approved' ||
+      status == 'needs_changes' ||
+      status == 'resubmitted';
+
+  bool get canCreatorDelete => status == 'cancelled' || status == 'rejected';
 
   String get statusLabel {
     switch (status) {

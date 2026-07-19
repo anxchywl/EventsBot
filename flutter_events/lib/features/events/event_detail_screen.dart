@@ -28,6 +28,7 @@ class EventDetailScreen extends StatefulWidget {
 class _EventDetailScreenState extends State<EventDetailScreen> {
   late EventModel _event = widget.event;
   bool _moderating = false;
+  bool _lifecycleMutating = false;
 
   // Only coordinators (admins) moderate. The backend
   // (PATCH /api/flutter/events/{id}/status via require_flutter_admin) is the
@@ -45,8 +46,17 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
           _event.status == 'approved' ||
           _event.status == 'rejected');
 
-  // creators may edit & resubmit their own event once it needs changes
-  bool get _canResubmit => !AuthStore.isAdmin && _event.isNeedsChanges;
+  // creator edits to published events are reviewed as drafts by the backend
+  bool get _canResubmit =>
+      !AuthStore.isAdmin &&
+      widget.showStatus &&
+      (_event.isNeedsChanges || _event.status == 'approved');
+
+  bool get _canCancel =>
+      !AuthStore.isAdmin && widget.showStatus && _event.canCreatorCancel;
+
+  bool get _canDelete =>
+      !AuthStore.isAdmin && widget.showStatus && _event.canCreatorDelete;
 
   @override
   void initState() {
@@ -157,7 +167,7 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
         ),
       );
     }
-    if (_canResubmit) {
+    if (_canResubmit || _canCancel || _canDelete) {
       return SafeArea(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(
@@ -166,10 +176,39 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
             AppSpacing.df,
             AppSpacing.md,
           ),
-          child: AppPrimaryButton(
-            size: AppButtonSize.medium,
-            text: AppLocalizations.get('editAndResubmit'),
-            onPressed: _openResubmit,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (_canResubmit)
+                AppPrimaryButton(
+                  size: AppButtonSize.medium,
+                  text: _event.status == 'approved'
+                      ? 'Edit event'
+                      : AppLocalizations.get('editAndResubmit'),
+                  isLoading: _lifecycleMutating,
+                  onPressed: _lifecycleMutating ? null : _openResubmit,
+                ),
+              if (_canResubmit && _canCancel)
+                const SizedBox(height: AppSpacing.sm),
+              if (_canCancel)
+                AppSecondaryButton(
+                  size: AppButtonSize.medium,
+                  text: 'Cancel event',
+                  isLoading: _lifecycleMutating,
+                  borderColor: AppColors.error,
+                  textColor: AppColors.error,
+                  onPressed: _lifecycleMutating ? null : _confirmCancel,
+                ),
+              if (_canDelete)
+                AppSecondaryButton(
+                  size: AppButtonSize.medium,
+                  text: 'Delete event',
+                  isLoading: _lifecycleMutating,
+                  borderColor: AppColors.error,
+                  textColor: AppColors.error,
+                  onPressed: _lifecycleMutating ? null : _confirmDelete,
+                ),
+            ],
           ),
         ),
       );
@@ -187,6 +226,75 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
     );
     if (result == true && mounted) {
       Navigator.pop(context, true);
+    }
+  }
+
+  Future<void> _confirmCancel() async {
+    final comment = await _promptComment(
+      icon: AppIcons.close,
+      iconColor: AppColors.error,
+      title: 'Cancel event?',
+      description:
+          'The event will be unpublished and can only be deleted afterward.',
+      actionText: 'Cancel event',
+      isDestructive: true,
+      commentRequired: false,
+    );
+    if (comment == null || _lifecycleMutating) return;
+
+    setState(() => _lifecycleMutating = true);
+    try {
+      final updated = await EventCache.instance.cancel(
+        _event.id,
+        comment: comment.trim().isEmpty ? null : comment.trim(),
+      );
+      if (!mounted) return;
+      setState(() => _event = updated);
+      _showMessage('Event cancelled');
+    } on ApiException catch (error) {
+      _showMessage(error.message);
+    } catch (_) {
+      _showMessage(AppLocalizations.get('somethingWentWrong'));
+    } finally {
+      if (mounted) setState(() => _lifecycleMutating = false);
+    }
+  }
+
+  Future<void> _confirmDelete() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Delete event permanently?'),
+        content: const Text(
+          'This removes the event, its reminders, reviews, and moderation history. This cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: Text(AppLocalizations.get('cancel')),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text(
+              'Delete',
+              style: TextStyle(color: AppColors.error),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || _lifecycleMutating) return;
+
+    setState(() => _lifecycleMutating = true);
+    try {
+      await EventCache.instance.delete(_event.id);
+      if (mounted) Navigator.pop(context, true);
+    } on ApiException catch (error) {
+      _showMessage(error.message);
+    } catch (_) {
+      _showMessage(AppLocalizations.get('somethingWentWrong'));
+    } finally {
+      if (mounted) setState(() => _lifecycleMutating = false);
     }
   }
 
@@ -509,6 +617,7 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
       title: 'Approve event?',
       description: 'The event will be published and the organiser notified.',
       actionText: 'Approve',
+      commentRequired: false,
     );
   }
 
@@ -522,6 +631,7 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
           'The organiser will be notified that the request was declined.',
       actionText: 'Reject',
       isDestructive: true,
+      commentRequired: true,
     );
   }
 
@@ -533,6 +643,7 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
       title: 'Request changes?',
       description: 'Add a comment explaining what needs to be fixed.',
       actionText: 'Request changes',
+      commentRequired: true,
     );
   }
 
@@ -543,6 +654,7 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
     required String title,
     required String description,
     required String actionText,
+    required bool commentRequired,
     bool isDestructive = false,
   }) async {
     final comment = await _promptComment(
@@ -552,9 +664,14 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
       description: description,
       actionText: actionText,
       isDestructive: isDestructive,
+      commentRequired: commentRequired,
     );
     if (comment == null) return;
-    await _moderate(status, comment.isEmpty ? null : comment);
+    final normalizedComment = comment.trim();
+    await _moderate(
+      status,
+      normalizedComment.isEmpty ? null : normalizedComment,
+    );
   }
 
   Future<String?> _promptComment({
@@ -564,6 +681,7 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
     required String description,
     required String actionText,
     required bool isDestructive,
+    required bool commentRequired,
   }) {
     return showModalBottomSheet<String>(
       context: context,
@@ -578,6 +696,7 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
         description: description,
         actionText: actionText,
         isDestructive: isDestructive,
+        commentRequired: commentRequired,
       ),
     );
   }
@@ -585,21 +704,27 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
   Future<void> _moderate(String status, String? comment) async {
     setState(() => _moderating = true);
     try {
-      final updated =
-          await EventCache.instance.updateStatus(_event.id, status, comment);
+      final updated = await EventCache.instance.updateStatus(
+        _event.id,
+        status,
+        comment,
+      );
       if (!mounted) return;
       setState(() => _event = updated);
     } on ApiException catch (e) {
       _showMessage(e.message);
+    } catch (_) {
+      _showMessage(AppLocalizations.get('somethingWentWrong'));
     } finally {
       if (mounted) setState(() => _moderating = false);
     }
   }
 
   void _showMessage(String message) {
-    ScaffoldMessenger.of(
+    if (!mounted) return;
+    ScaffoldMessenger.maybeOf(
       context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+    )?.showSnackBar(SnackBar(content: Text(message)));
   }
 }
 
@@ -611,6 +736,7 @@ class _ModerationCommentSheet extends StatefulWidget {
     required this.description,
     required this.actionText,
     required this.isDestructive,
+    required this.commentRequired,
   });
 
   final AppIconData icon;
@@ -619,6 +745,7 @@ class _ModerationCommentSheet extends StatefulWidget {
   final String description;
   final String actionText;
   final bool isDestructive;
+  final bool commentRequired;
 
   @override
   State<_ModerationCommentSheet> createState() =>
@@ -794,7 +921,12 @@ class _ModerationCommentSheetState extends State<_ModerationCommentSheet>
           ),
         ),
         const SizedBox(height: 10),
-        AppTextField(controller: _controller, maxLines: 3, maxLength: 500),
+        AppTextField(
+          controller: _controller,
+          maxLines: 3,
+          maxLength: 500,
+          onChanged: (_) => setState(() {}),
+        ),
         const SizedBox(height: 12),
         _SheetActionRow(
           cancelColor: textSub,
@@ -804,7 +936,9 @@ class _ModerationCommentSheetState extends State<_ModerationCommentSheet>
           actionColor: actionColor,
           actionText: widget.actionText,
           onCancel: () => Navigator.pop(context),
-          onAction: () => Navigator.pop(context, _controller.text),
+          onAction: widget.commentRequired && _controller.text.trim().isEmpty
+              ? null
+              : () => Navigator.pop(context, _controller.text),
         ),
       ],
     );
@@ -826,7 +960,7 @@ class _SheetActionRow extends StatelessWidget {
   final Color actionColor;
   final String actionText;
   final VoidCallback onCancel;
-  final VoidCallback onAction;
+  final VoidCallback? onAction;
 
   @override
   Widget build(BuildContext context) {

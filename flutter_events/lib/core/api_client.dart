@@ -73,6 +73,9 @@ Future<http.Response> _patch(
   Object? body,
 }) => _client.patch(uri, headers: headers, body: body).timeout(_kTimeout);
 
+Future<http.Response> _delete(Uri uri, {Map<String, String>? headers}) =>
+    _client.delete(uri, headers: headers).timeout(_kTimeout);
+
 bool _isOk(int code) => code >= 200 && code < 300;
 
 Never _throwFor(http.Response response) {
@@ -267,6 +270,24 @@ Future<EventModel> updateEventStatus(
   );
   if (!_isOk(response.statusCode)) _throwFor(response);
   return EventModel.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+}
+
+Future<EventModel> cancelEvent(int id, {String? comment}) async {
+  final response = await _post(
+    _uri('/api/flutter/events/$id/cancel'),
+    headers: _headers(auth: true),
+    body: jsonEncode({'comment': comment}),
+  );
+  if (!_isOk(response.statusCode)) _throwFor(response);
+  return EventModel.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+}
+
+Future<void> deleteEvent(int id) async {
+  final response = await _delete(
+    _uri('/api/flutter/events/$id'),
+    headers: _headers(auth: true),
+  );
+  if (!_isOk(response.statusCode)) _throwFor(response);
 }
 
 Future<EventModel> patchEvent(int id, {String? endTime}) async {

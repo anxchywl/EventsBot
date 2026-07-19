@@ -543,9 +543,7 @@ class _SubmitScreenState extends State<SubmitScreen> {
         'materials': _nullIfEmpty(_materialsController.text),
         'registration_url': _nullIfEmpty(_registrationController.text),
       };
-      if (!_isResubmit) {
-        fields['client_request_id'] = _clientRequestId;
-      }
+      fields['client_request_id'] = _clientRequestId;
       if (_coverRef != null) {
         fields['cover_ref'] = _coverRef;
       }

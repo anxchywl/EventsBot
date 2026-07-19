@@ -43,6 +43,7 @@ class AuthStore {
     // A different user signing in must never inherit the previous user's cached
     // events (e.g. if the last session was never explicitly logged out).
     if (_prefs.getInt(_kUserId) != userId) {
+      await _prefs.remove(_kToken);
       await CacheStore.clearAll();
     }
     await _prefs.setString(_kToken, token);
@@ -53,6 +54,7 @@ class AuthStore {
     } else {
       await _prefs.setString(_kFirstName, firstName);
     }
+    CacheStore.reconnectRealtime();
     _sessionRevision.value++;
   }
 
@@ -77,8 +79,8 @@ class AuthStore {
   }
 
   static Future<void> clear() async {
-    await CacheStore.clearAll();
     await _prefs.remove(_kToken);
+    await CacheStore.clearAll();
     await _prefs.remove(_kRole);
     await _prefs.remove(_kFirstName);
     await _prefs.remove(_kUserId);

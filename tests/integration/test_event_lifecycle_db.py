@@ -11,6 +11,9 @@ from app.models.event import Event  # noqa: E402
 from app.models.event_sync import EventSyncJob  # noqa: E402
 from app.models.moderation import ModerationLog  # noqa: E402
 from app.services.events import (  # noqa: E402
+    DELETABLE_EVENT_STATUSES,
+    apply_moderation_transition,
+    create_event_update_draft,
     delete_event_completely,
     find_event_schedule_conflict,
     get_category_by_id,
@@ -18,6 +21,53 @@ from app.services.events import (  # noqa: E402
     get_pending_events,
     update_event_status,
 )
+
+
+@pytest.mark.anyio
+async def test_published_edit_creates_one_pending_draft_and_keeps_parent_live(
+    db_session, make_user, make_category, make_event
+):
+    async with db_session() as session:
+        creator = await make_user(session)
+        category = await make_category(session)
+        parent = await make_event(
+            session,
+            creator,
+            category,
+            status=EventStatus.APPROVED.value,
+            title="Published title",
+        )
+        stale = await make_event(
+            session,
+            creator,
+            category,
+            parent_event_id=parent.id,
+            title="Stale draft",
+        )
+
+        draft = await create_event_update_draft(
+            session,
+            parent=parent,
+            creator=creator,
+            event_data={
+                "title": "Updated title",
+                "description": parent.description,
+                "event_date": parent.event_date,
+                "event_time": parent.event_time,
+                "event_end_time": parent.event_end_time,
+                "location": parent.location,
+                "category_id": parent.category_id,
+                "organizer": parent.organizer_name,
+                "poster_file_id": parent.poster_file_id,
+            },
+        )
+
+        assert parent.status == EventStatus.APPROVED.value
+        assert parent.title == "Published title"
+        assert draft.parent_event_id == parent.id
+        assert draft.status == EventStatus.PENDING.value
+        assert draft.title == "Updated title"
+        assert await session.get(Event, stale.id) is None
 
 
 @pytest.mark.anyio
@@ -68,6 +118,63 @@ async def test_approve_persists_status_and_metadata(
 
         fresh = await session.get(Event, event.id)
         assert fresh.status == EventStatus.APPROVED.value
+
+
+@pytest.mark.anyio
+async def test_approving_update_draft_replaces_parent_content_without_new_event(
+    db_session, make_user, make_category, make_event
+):
+    async with db_session() as session:
+        creator = await make_user(session, telegram_id=11)
+        admin = await make_user(session, telegram_id=12, role="admin")
+        category = await make_category(session)
+        parent = await make_event(
+            session,
+            creator,
+            category,
+            status=EventStatus.APPROVED.value,
+            title="Published title",
+        )
+        draft = await make_event(
+            session,
+            creator,
+            category,
+            title="Updated title",
+            event_time=time(19, 0),
+            event_end_time=time(21, 0),
+            parent_event_id=parent.id,
+        )
+        draft.description = "Updated description"
+        draft.it_equipment = "Projector"
+        await session.flush()
+
+        updated = await apply_moderation_transition(
+            session,
+            draft,
+            EventStatus.APPROVED,
+            admin,
+            "approved update",
+        )
+
+        assert updated.id == parent.id
+        assert updated.public_token == parent.public_token
+        assert updated.title == "Updated title"
+        assert updated.description == "Updated description"
+        assert updated.event_time == time(19, 0)
+        assert updated.event_end_time == time(21, 0)
+        assert updated.it_equipment == "Projector"
+        assert updated.status == EventStatus.APPROVED.value
+        assert await session.get(Event, draft.id) is None
+
+        last_action = (
+            await session.execute(
+                select(ModerationLog.action)
+                .where(ModerationLog.event_id == parent.id)
+                .order_by(ModerationLog.id.desc())
+                .limit(1)
+            )
+        ).scalar_one()
+        assert last_action == ModerationAction.EDITED.value
 
 
 @pytest.mark.anyio
@@ -180,6 +287,46 @@ async def test_delete_event_completely_removes_row_and_enqueues_cleanup(
         assert (
             await delete_event_completely(session, bot=None, event_id=999999) is False
         )
+
+
+@pytest.mark.anyio
+async def test_guarded_delete_requires_a_terminal_status(
+    db_session, make_user, make_category, make_event
+):
+    async with db_session() as session:
+        creator = await make_user(session)
+        category = await make_category(session)
+        event = await make_event(
+            session,
+            creator,
+            category,
+            status=EventStatus.APPROVED.value,
+        )
+
+        deleted = await delete_event_completely(
+            session,
+            bot=None,
+            event_id=event.id,
+            allowed_statuses=DELETABLE_EVENT_STATUSES,
+        )
+        assert deleted is False
+        assert await session.get(Event, event.id) is not None
+
+        await update_event_status(
+            session,
+            event.id,
+            EventStatus.CANCELLED,
+            creator,
+        )
+        assert event.cancelled_at is not None
+
+        deleted = await delete_event_completely(
+            session,
+            bot=None,
+            event_id=event.id,
+            allowed_statuses=DELETABLE_EVENT_STATUSES,
+        )
+        assert deleted is True
 
 
 @pytest.mark.anyio

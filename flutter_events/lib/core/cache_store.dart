@@ -71,6 +71,7 @@ class CacheStore {
   /// in-flight fetch started under the previous user is discarded on arrival.
   static Future<void> clearAll() async {
     _generation++;
+    await RealtimeUpdates.instance.disconnect();
     EventCache.instance.clearForLogout();
     AnalyticsCache.instance.clear();
     await _clearPrefs();
@@ -94,6 +95,10 @@ class CacheStore {
         // Swallow: persistence is a nice-to-have, not a correctness guarantee.
       }
     }();
+  }
+
+  static void reconnectRealtime() {
+    RealtimeUpdates.instance.ensureConnected();
   }
 
   /// Reads and decodes a JSON map. Any corruption / schema drift discards the
@@ -121,9 +126,9 @@ class _ListState {
   bool isFresh(Duration ttl) => DateTime.now().difference(fetchedAt) < ttl;
 
   Map<String, dynamic> toJson() => {
-        'ids': ids,
-        'ts': fetchedAt.millisecondsSinceEpoch,
-      };
+    'ids': ids,
+    'ts': fetchedAt.millisecondsSinceEpoch,
+  };
 
   static _ListState? fromJson(Map<String, dynamic> json) {
     try {
@@ -182,7 +187,9 @@ class EventCache extends ChangeNotifier {
   /// A pending event is still awaiting a coordinator decision. Anything else has
   /// left the default review queue.
   bool _isQueueStatus(String status) =>
-      status == 'pending' || status == 'resubmitted';
+      status == 'pending' ||
+      status == 'needs_changes' ||
+      status == 'resubmitted';
 
   // ── Realtime (SSE) ─────────────────────────────────────────────────────────
 
@@ -194,6 +201,15 @@ class EventCache extends ChangeNotifier {
   }
 
   void _onRealtimeUpdate(RealtimeUpdate update) {
+    if (update.type == 'event_deleted') {
+      final id = update.data['event_id'];
+      if (id is int) {
+        _removeEvent(id);
+        _persistAll();
+        notifyListeners();
+      }
+      return;
+    }
     if (update.type != 'event_status_changed') return;
     final id = update.data['event_id'];
     if (id is! int) {
@@ -222,6 +238,9 @@ class EventCache extends ChangeNotifier {
     // authoritative ordering without blanking anything now.
     if (status != null && !_isQueueStatus(status)) {
       _removeFromList(_kPendingOpen, id);
+    }
+    if (status != null && status != 'approved') {
+      _removeFromApprovedLists(id);
     }
     _markStale(_kPendingOpen);
     _markStale(_kPendingRejected);
@@ -358,7 +377,8 @@ class EventCache extends ChangeNotifier {
   }
 
   Future<List<CategoryModel>> categories({bool force = false}) {
-    final fresh = _categories != null &&
+    final fresh =
+        _categories != null &&
         _categoriesAt != null &&
         DateTime.now().difference(_categoriesAt!) < CacheTtl.categories;
     if (!force && fresh) return Future.value(_categories!);
@@ -404,7 +424,10 @@ class EventCache extends ChangeNotifier {
 
   Future<EventModel> resubmit(int id, Map<String, dynamic> fields) async {
     final updated = await resubmitEvent(id, fields);
-    _events[id] = updated;
+    _events[updated.id] = updated;
+    if (updated.id != id) {
+      _prependToList(_kMy, updated.id);
+    }
     _markStale(_kMy);
     _markStale(_kPendingOpen);
     _markStale(_kPendingRejected);
@@ -414,11 +437,19 @@ class EventCache extends ChangeNotifier {
     return updated;
   }
 
-  Future<EventModel> updateStatus(int id, String status, String? comment) async {
+  Future<EventModel> updateStatus(
+    int id,
+    String status,
+    String? comment,
+  ) async {
     final updated = await updateEventStatus(id, status, comment);
-    _events[id] = updated;
+    if (updated.id != id) _removeEvent(id);
+    _events[updated.id] = updated;
     if (!_isQueueStatus(updated.status)) {
       _removeFromList(_kPendingOpen, id);
+    }
+    if (updated.status != 'approved') {
+      _removeFromApprovedLists(id);
     }
     _markStale(_kPendingOpen);
     _markStale(_kPendingRejected);
@@ -428,6 +459,32 @@ class EventCache extends ChangeNotifier {
     _persistAll();
     notifyListeners();
     return updated;
+  }
+
+  Future<EventModel> cancel(int id, {String? comment}) async {
+    final updated = await cancelEvent(id, comment: comment);
+    _events[id] = updated;
+    _removeFromList(_kPendingOpen, id);
+    _removeFromApprovedLists(id);
+    _markStale(_kMy);
+    _markStale(_kPendingRejected);
+    _markStale(_kApproved);
+    AnalyticsCache.instance.clear();
+    _persistAll();
+    notifyListeners();
+    return updated;
+  }
+
+  Future<void> delete(int id) async {
+    await deleteEvent(id);
+    _removeEvent(id);
+    _markStale(_kMy);
+    _markStale(_kPendingOpen);
+    _markStale(_kPendingRejected);
+    _markStale(_kApproved);
+    AnalyticsCache.instance.clear();
+    _persistAll();
+    notifyListeners();
   }
 
   Future<EventModel> patch(int id, {String? endTime}) async {
@@ -462,6 +519,19 @@ class EventCache extends ChangeNotifier {
   }
 
   void _removeFromList(String key, int id) => _lists[key]?.ids.remove(id);
+
+  void _removeFromApprovedLists(int id) {
+    for (final entry in _lists.entries) {
+      if (entry.key.startsWith('approved:')) entry.value.ids.remove(id);
+    }
+  }
+
+  void _removeEvent(int id) {
+    _events.remove(id);
+    for (final state in _lists.values) {
+      state.ids.remove(id);
+    }
+  }
 
   // ── Persistence ───────────────────────────────────────────────────────────
 
@@ -519,8 +589,9 @@ class EventCache extends ChangeNotifier {
             .map((e) => CategoryModel.fromJson(e as Map<String, dynamic>))
             .toList();
         _categories = items;
-        _categoriesAt =
-            DateTime.fromMillisecondsSinceEpoch(categoriesJson['ts'] as int);
+        _categoriesAt = DateTime.fromMillisecondsSinceEpoch(
+          categoriesJson['ts'] as int,
+        );
       } catch (_) {
         _categories = null;
         _categoriesAt = null;
@@ -550,8 +621,7 @@ class _AnalyticsEntry {
   final Object value;
   final DateTime fetchedAt;
 
-  bool get isFresh =>
-      DateTime.now().difference(fetchedAt) < CacheTtl.analytics;
+  bool get isFresh => DateTime.now().difference(fetchedAt) < CacheTtl.analytics;
 }
 
 /// In-memory, coordinator-only cache for analytics panels. Not persisted: the

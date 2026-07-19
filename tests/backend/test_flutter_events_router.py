@@ -14,9 +14,11 @@ from pydantic import ValidationError  # noqa: E402
 import app.web.routers.flutter_events as fe  # noqa: E402
 from app.models.enums import EventStatus  # noqa: E402
 from app.web.schemas import (  # noqa: E402
+    FlutterEventCancel,
     FlutterEventCreate,
     FlutterEventPatch,
     FlutterEventResubmit,
+    FlutterEventStatusUpdate,
 )
 
 
@@ -35,7 +37,9 @@ def _event(**overrides):
         event_time=time(18, 0),
         event_end_time=time(20, 0),
         location="Block C",
+        category_id=1,
         category=SimpleNamespace(name="Tech"),
+        club_id=None,
         organizer_name="Robotics Club",
         status=EventStatus.APPROVED.value,
         poster_file_id=None,
@@ -44,6 +48,9 @@ def _event(**overrides):
         registration_url=None,
         moderation_note=None,
         creator_user_id=7,
+        creator=SimpleNamespace(telegram_id=7007),
+        parent_event_id=None,
+        timezone="Asia/Almaty",
         created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
     )
     base.update(overrides)
@@ -124,6 +131,25 @@ class EventPayloadValidationTest(unittest.TestCase):
             with self.subTest(field_name=field_name):
                 with self.assertRaises(ValidationError):
                     FlutterEventResubmit(**{field_name: "   "})
+
+    def test_status_updates_only_accept_moderator_decisions(self):
+        for value in ("resubmitted", "cancelled", "archived"):
+            with self.subTest(value=value), self.assertRaises(ValidationError):
+                FlutterEventStatusUpdate(status=value)
+
+    def test_rejection_and_change_requests_require_a_comment(self):
+        for value in ("rejected", "needs_changes"):
+            with self.subTest(value=value), self.assertRaises(ValidationError):
+                FlutterEventStatusUpdate(status=value, comment="   ")
+
+    def test_lifecycle_comments_are_normalized(self):
+        status_update = FlutterEventStatusUpdate(
+            status="needs_changes",
+            comment="  fix   the date  ",
+        )
+        cancellation = FlutterEventCancel(comment="   ")
+        self.assertEqual(status_update.comment, "fix   the date")
+        self.assertIsNone(cancellation.comment)
 
 
 class SerializeEventTest(unittest.TestCase):
@@ -287,7 +313,11 @@ class EventMutationInvariantTest(unittest.TestCase):
             status=EventStatus.NEEDS_CHANGES.value,
             creator_user_id=user.id,
         )
-        with patch.object(fe, "get_event_by_id", AsyncMock(return_value=event)):
+        with (
+            patch.object(fe, "get_event_by_id", AsyncMock(return_value=event)),
+            patch.object(fe, "check_rate_limit", AsyncMock()),
+            patch.object(fe, "acquire_event_submission_lock", AsyncMock()),
+        ):
             with self.assertRaises(HTTPException) as ctx:
                 _run(
                     fe.resubmit_event(
@@ -310,6 +340,7 @@ class EventMutationInvariantTest(unittest.TestCase):
         session.add = lambda *args, **kwargs: None
         with (
             patch.object(fe, "get_event_by_id", AsyncMock(return_value=event)),
+            patch.object(fe, "check_rate_limit", AsyncMock()),
             patch.object(fe, "acquire_event_submission_lock", AsyncMock()),
             patch.object(
                 fe,
@@ -361,18 +392,38 @@ class ModerateEventTest(unittest.TestCase):
 
     def test_successful_moderation_runs_sync_and_notifies(self):
         admin = SimpleNamespace(id=1, role="admin")
-        event = _event(status=EventStatus.APPROVED.value)
+        event = _event(status=EventStatus.PENDING.value)
         session = AsyncMock()
+
+        async def approve(_session, current, _status, _admin, _comment):
+            current.status = EventStatus.APPROVED.value
+            return current
 
         with (
             patch.object(fe, "get_event_by_id", AsyncMock(return_value=event)),
             patch.object(fe, "_acquire_moderation_lock", AsyncMock(return_value=True)),
             patch.object(fe, "_release_moderation_lock", AsyncMock()) as release,
             patch.object(fe, "acquire_event_lock", AsyncMock()),
+            patch.object(fe, "acquire_event_submission_lock", AsyncMock()),
             patch.object(fe, "capture_event_snapshot", AsyncMock(return_value={})),
-            patch.object(fe, "update_event_status", AsyncMock(return_value=event)),
+            patch.object(fe, "event_has_ended", return_value=False),
+            patch.object(
+                fe,
+                "find_event_schedule_conflict",
+                AsyncMock(return_value=None),
+            ),
+            patch.object(
+                fe,
+                "apply_moderation_transition",
+                AsyncMock(side_effect=approve),
+            ),
             patch.object(fe, "enqueue_event_sync", AsyncMock()) as enqueue,
-            patch.object(fe, "publish_miniapp_event", AsyncMock()) as publish,
+            patch.object(
+                fe,
+                "_publish_event_status_change",
+                AsyncMock(),
+            ) as publish,
+            patch.object(fe, "_publish_event_deleted", AsyncMock()),
             patch.object(fe, "_notify_creator", AsyncMock()) as notify,
         ):
             result = _run(fe.moderate_event(42, self._payload(), admin, session))
@@ -388,6 +439,108 @@ class ModerateEventTest(unittest.TestCase):
         notify.assert_awaited_once()
         # the concurrency lock is always released
         release.assert_awaited_once()
+
+    def test_terminal_event_cannot_be_reapproved(self):
+        admin = SimpleNamespace(id=1, role="admin")
+        event = _event(status=EventStatus.CANCELLED.value)
+        with (
+            patch.object(fe, "get_event_by_id", AsyncMock(return_value=event)),
+            patch.object(fe, "_acquire_moderation_lock", AsyncMock(return_value=True)),
+            patch.object(fe, "_release_moderation_lock", AsyncMock()),
+            patch.object(fe, "acquire_event_lock", AsyncMock()),
+            patch.object(fe, "apply_moderation_transition", AsyncMock()) as apply,
+        ):
+            with self.assertRaises(HTTPException) as ctx:
+                _run(fe.moderate_event(42, self._payload(), admin, AsyncMock()))
+
+        self.assertEqual(ctx.exception.status_code, 409)
+        apply.assert_not_awaited()
+
+    def test_past_event_cannot_be_approved(self):
+        admin = SimpleNamespace(id=1, role="admin")
+        event = _event(status=EventStatus.PENDING.value)
+        with (
+            patch.object(fe, "get_event_by_id", AsyncMock(return_value=event)),
+            patch.object(fe, "_acquire_moderation_lock", AsyncMock(return_value=True)),
+            patch.object(fe, "_release_moderation_lock", AsyncMock()),
+            patch.object(fe, "acquire_event_lock", AsyncMock()),
+            patch.object(fe, "event_has_ended", return_value=True),
+            patch.object(fe, "apply_moderation_transition", AsyncMock()) as apply,
+        ):
+            with self.assertRaises(HTTPException) as ctx:
+                _run(fe.moderate_event(42, self._payload(), admin, AsyncMock()))
+
+        self.assertEqual(ctx.exception.status_code, 409)
+        apply.assert_not_awaited()
+
+
+class CreatorLifecycleTest(unittest.TestCase):
+    def test_stranger_cannot_cancel_an_event(self):
+        event = _event(status=EventStatus.PENDING.value, creator_user_id=7)
+        stranger = SimpleNamespace(id=8, role="user")
+        with patch.object(fe, "get_event_by_id", AsyncMock(return_value=event)):
+            with self.assertRaises(HTTPException) as ctx:
+                _run(
+                    fe.cancel_event(
+                        event.id,
+                        FlutterEventCancel(),
+                        stranger,
+                        AsyncMock(),
+                    )
+                )
+        self.assertEqual(ctx.exception.status_code, 404)
+
+    def test_owner_can_cancel_an_active_event(self):
+        event = _event(status=EventStatus.APPROVED.value, creator_user_id=7)
+        owner = SimpleNamespace(id=7, role="user")
+        session = AsyncMock()
+
+        async def cancel(_session, _event_id, _status, _user, _comment):
+            event.status = EventStatus.CANCELLED.value
+            return event
+
+        with (
+            patch.object(fe, "get_event_by_id", AsyncMock(return_value=event)),
+            patch.object(fe, "acquire_event_lock", AsyncMock()),
+            patch.object(fe, "capture_event_snapshot", AsyncMock(return_value={})),
+            patch.object(fe, "update_event_status", AsyncMock(side_effect=cancel)),
+            patch.object(fe, "enqueue_event_sync", AsyncMock()) as enqueue,
+            patch.object(fe, "_publish_event_status_change", AsyncMock()) as publish,
+            patch.object(fe, "_notify_creator", AsyncMock()),
+        ):
+            result = _run(
+                fe.cancel_event(event.id, FlutterEventCancel(), owner, session)
+            )
+
+        self.assertEqual(result.status, EventStatus.CANCELLED.value)
+        enqueue.assert_awaited_once()
+        publish.assert_awaited_once()
+
+    def test_active_event_must_be_cancelled_before_deletion(self):
+        event = _event(status=EventStatus.APPROVED.value, creator_user_id=7)
+        owner = SimpleNamespace(id=7, role="user")
+        with patch.object(fe, "get_event_by_id", AsyncMock(return_value=event)):
+            with self.assertRaises(HTTPException) as ctx:
+                _run(fe.delete_event(event.id, owner, AsyncMock()))
+        self.assertEqual(ctx.exception.status_code, 409)
+
+    def test_terminal_event_deletion_is_idempotent(self):
+        event = _event(status=EventStatus.CANCELLED.value, creator_user_id=7)
+        owner = SimpleNamespace(id=7, role="user")
+        session = AsyncMock()
+        with (
+            patch.object(fe, "get_event_by_id", AsyncMock(return_value=event)),
+            patch.object(fe, "delete_event_completely", AsyncMock(return_value=True)),
+            patch.object(fe, "_publish_event_deleted", AsyncMock()) as publish,
+        ):
+            response = _run(fe.delete_event(event.id, owner, session))
+
+        self.assertEqual(response.status_code, 204)
+        publish.assert_awaited_once()
+
+        with patch.object(fe, "get_event_by_id", AsyncMock(return_value=None)):
+            response = _run(fe.delete_event(event.id, owner, AsyncMock()))
+        self.assertEqual(response.status_code, 204)
 
 
 if __name__ == "__main__":

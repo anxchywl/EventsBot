@@ -17,8 +17,9 @@ from app.models.enums import EventStatus, ModerationAction
 from app.models.event import Event
 from app.models.moderation import ModerationLog
 from app.services.events import (
-    get_event_by_id,
     cleanup_previous_drafts,
+    event_belongs_to_telegram_user,
+    get_event_by_id,
     replace_pending_drafts_for_parent,
 )
 from app.services.event_sync import (
@@ -121,7 +122,10 @@ async def start_edit_event(
 
     settings = get_settings()
     user_id = source.from_user.id
-    if event.creator_user_id != user_id and user_id not in settings.admin_ids:
+    if (
+        not event_belongs_to_telegram_user(event, user_id)
+        and user_id not in settings.admin_ids
+    ):
         await source.answer("Unauthorized.", show_alert=True)
         return
 
