@@ -53,5 +53,21 @@ class SuperappHmacSecretGuardTest(unittest.TestCase):
         self.assertTrue(settings.superapp_bridge_enabled)
 
 
+class FlutterDevelopmentGuardTest(unittest.TestCase):
+    def test_native_auth_is_disabled_by_default(self):
+        self.assertFalse(_settings().flutter_native_auth_enabled)
+
+    def test_native_auth_requires_debug_runtime(self):
+        with pytest.raises(ValueError, match="development access"):
+            _settings(FLUTTER_NATIVE_AUTH_ENABLED=True, LOG_LEVEL="INFO")
+
+    def test_native_auth_can_be_enabled_for_development(self):
+        settings = _settings(
+            FLUTTER_NATIVE_AUTH_ENABLED=True,
+            LOG_LEVEL="DEBUG",
+        )
+        self.assertTrue(settings.flutter_native_auth_enabled)
+
+
 if __name__ == "__main__":
     unittest.main()

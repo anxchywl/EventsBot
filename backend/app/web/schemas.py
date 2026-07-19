@@ -406,6 +406,13 @@ class FlutterAuthResponse(BaseModel):
     is_verified: bool
 
 
+class FlutterSessionResponse(BaseModel):
+    user_id: int
+    role: Literal["user", "admin"]
+    first_name: str | None = None
+    is_verified: bool
+
+
 class FlutterCategoryItem(BaseModel):
     id: int
     name: str

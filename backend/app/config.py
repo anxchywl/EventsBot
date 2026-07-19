@@ -30,6 +30,10 @@ class Settings(BaseSettings):
     # flutter development toggles — extra cors origins and enabled api docs
     flutter_dev_cors: bool = Field(default=False, alias="FLUTTER_DEV_CORS")
     flutter_dev_docs: bool = Field(default=False, alias="FLUTTER_DEV_DOCS")
+    flutter_native_auth_enabled: bool = Field(
+        default=False,
+        alias="FLUTTER_NATIVE_AUTH_ENABLED",
+    )
     flutter_event_submit_rate_limit: int = Field(
         default=20,
         ge=1,
@@ -194,12 +198,13 @@ class Settings(BaseSettings):
     # fails loudly at startup instead of silently exposing the API surface.
     @model_validator(mode="after")
     def _guard_dev_flags_in_production(self) -> "Settings":
-        if (self.flutter_dev_cors or self.flutter_dev_docs) and (
-            self.log_level.upper() != "DEBUG"
-        ):
+        if (
+            self.flutter_dev_cors
+            or self.flutter_dev_docs
+            or self.flutter_native_auth_enabled
+        ) and (self.log_level.upper() != "DEBUG"):
             raise ValueError(
-                "FLUTTER_DEV_CORS/FLUTTER_DEV_DOCS must not be enabled unless "
-                "LOG_LEVEL=DEBUG (development only)."
+                "Flutter development access must not be enabled unless LOG_LEVEL=DEBUG."
             )
         return self
 

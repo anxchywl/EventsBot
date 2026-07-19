@@ -25,6 +25,9 @@ flutter run \
 release builds cannot activate shared test login or role switching, even when
 the define is set. The existing `TEST_USER_*` and `TEST_ADMIN_*` defines remain
 available for local development and must never contain production credentials.
+The backend must also run with `LOG_LEVEL=DEBUG` and
+`FLUTTER_NATIVE_AUTH_ENABLED=true`; native login and native tokens are rejected
+otherwise.
 
 Release builds require an HTTPS API endpoint:
 
@@ -35,18 +38,29 @@ flutter build apk --release \
 
 ## Jas Wallet integration contract
 
-Jas Wallet should mount `EventsFeature` from `lib/app.dart` inside its own
-authenticated navigation shell. It must initialize the Events session before
-mounting the widget and provide a backend bearer token accepted by the existing
-SuperApp bridge. The host owns authentication, top-level navigation, app
-lifecycle, and release environment configuration.
+Jas Wallet mounts `EventsFeature` from `lib/app.dart` inside its authenticated
+tab shell and supplies only its current bearer token:
 
-The widget boundary is ready, but the production session adapter is not yet
-complete. The backend accepts a configured Jas Wallet JWT, but it does not
-currently expose an authenticated bootstrap endpoint returning the resolved
-local Events user ID and role. Add that endpoint before embedding, then have the
-adapter initialize `AuthStore` and `CacheStore` from its response. Do not infer
-admin access from client-provided role data; the backend remains authoritative.
+```dart
+EventsFeature(
+  session: EventsHostSession(accessToken: jasWalletAccessToken),
+  onSessionExpired: refreshJasWalletSession,
+)
+```
+
+The feature initializes its own stores and calls
+`GET /api/flutter/auth/session` before rendering event data. That endpoint verifies
+the token, resolves or provisions the local Events identity, and returns the
+server-authoritative local user ID and role. Jas Wallet must replace the
+`EventsHostSession` with a fresh token after `onSessionExpired`; it must not pass
+or infer an Events role on the client.
+
+The host owns authentication, top-level navigation, app lifecycle, theme,
+locale, and release environment configuration. `EventsFeature` owns only its
+tab content and internal feature navigation. A `MaterialApp`/`Navigator` must
+already exist above it. The feature never logs the bearer token and does not
+need the Jas Wallet signing key. Host tokens stay in memory and are never
+written to the feature's `SharedPreferences` storage.
 
 `EventsApp` and `lib/main.dart` are standalone-development infrastructure. They
 must not be embedded in Jas Wallet. The optional development role-switch
@@ -57,8 +71,8 @@ Current dependencies supplied by the feature package:
 - Flutter Material runtime
 - the local `app_ui` package
 - HTTPS access to the Events API
-- a valid user or admin session established by the future host adapter before
-  `EventsFeature` is mounted
+- a Jas Wallet bearer token accepted by the configured backend bridge
+- a callback that refreshes or replaces an expired host session
 
 The backend token bridge is documented in
 [`../backend/SUPERAPP_BRIDGE.md`](../backend/SUPERAPP_BRIDGE.md).

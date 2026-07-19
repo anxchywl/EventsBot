@@ -66,6 +66,18 @@ async def _asgi_request(
 
 
 class FastAPIEndpointSecurityTest(unittest.TestCase):
+    def test_native_flutter_login_is_not_exposed_by_default(self):
+        status_code, _body = asyncio.run(
+            _asgi_request(
+                "POST",
+                "/api/flutter/auth/login",
+                body=json.dumps(
+                    {"email": "membertest@example.edu", "password": "password"}
+                ).encode(),
+            )
+        )
+        self.assertEqual(status_code, 404)
+
     def test_friends_endpoints_reject_missing_session(self):
         for path in (
             "/api/friends",

@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart' show MediaType;
 
@@ -40,6 +42,29 @@ class AuthResult {
   }
 }
 
+class SessionProfile {
+  const SessionProfile({
+    required this.role,
+    required this.firstName,
+    required this.userId,
+    required this.isVerified,
+  });
+
+  final String role;
+  final String? firstName;
+  final int userId;
+  final bool isVerified;
+
+  factory SessionProfile.fromJson(Map<String, dynamic> json) {
+    return SessionProfile(
+      role: json['role'] as String,
+      firstName: json['first_name'] as String?,
+      userId: json['user_id'] as int,
+      isVerified: json['is_verified'] as bool,
+    );
+  }
+}
+
 Uri _uri(String path, [Map<String, String>? query]) {
   final base = Uri.parse('$kBaseUrl$path');
   if (query == null || query.isEmpty) return base;
@@ -55,26 +80,60 @@ Map<String, String> _headers({bool auth = false}) {
   return headers;
 }
 
-final _client = http.Client();
+http.Client _client = http.Client();
+final Expando<String> _requestTokens = Expando<String>();
 const _kTimeout = Duration(seconds: 10);
 
+@visibleForTesting
+void setApiClientForTesting(http.Client client) {
+  _client.close();
+  _client = client;
+}
+
 Future<http.Response> _get(Uri uri, {Map<String, String>? headers}) =>
-    _client.get(uri, headers: headers).timeout(_kTimeout);
+    _request(() => _client.get(uri, headers: headers), headers);
 
 Future<http.Response> _post(
   Uri uri, {
   Map<String, String>? headers,
   Object? body,
-}) => _client.post(uri, headers: headers, body: body).timeout(_kTimeout);
+}) => _request(() => _client.post(uri, headers: headers, body: body), headers);
 
 Future<http.Response> _patch(
   Uri uri, {
   Map<String, String>? headers,
   Object? body,
-}) => _client.patch(uri, headers: headers, body: body).timeout(_kTimeout);
+}) => _request(() => _client.patch(uri, headers: headers, body: body), headers);
 
 Future<http.Response> _delete(Uri uri, {Map<String, String>? headers}) =>
-    _client.delete(uri, headers: headers).timeout(_kTimeout);
+    _request(() => _client.delete(uri, headers: headers), headers);
+
+Future<http.Response> _request(
+  Future<http.Response> Function() send,
+  Map<String, String>? headers,
+) async {
+  try {
+    final response = await send().timeout(_kTimeout);
+    _rememberRequestToken(response, headers);
+    return response;
+  } on TimeoutException {
+    throw NetworkException(AppLocalizations.get('networkUnavailable'));
+  } on SocketException {
+    throw NetworkException(AppLocalizations.get('networkUnavailable'));
+  } on http.ClientException {
+    throw NetworkException(AppLocalizations.get('networkUnavailable'));
+  }
+}
+
+void _rememberRequestToken(
+  http.Response response,
+  Map<String, String>? headers,
+) {
+  final authorization = headers?['Authorization'];
+  if (authorization == null || !authorization.startsWith('Bearer ')) return;
+  final token = authorization.substring(7).trim();
+  if (token.isNotEmpty) _requestTokens[response] = token;
+}
 
 bool _isOk(int code) => code >= 200 && code < 300;
 
@@ -85,6 +144,8 @@ Never _throwFor(http.Response response) {
     final detail = body is Map ? body['detail'] : null;
     if (detail is String) {
       message = detail;
+    } else if (detail is Map && detail['detail'] is String) {
+      message = detail['detail'] as String;
     } else if (detail is List && detail.isNotEmpty) {
       final first = detail.first;
       message = first is Map && first['msg'] != null
@@ -99,10 +160,10 @@ Never _throwFor(http.Response response) {
 
   switch (response.statusCode) {
     case 401:
-      // Stale/expired/foreign token (e.g. issued by a different backend):
-      // drop the session so the app re-authenticates on next launch instead
-      // of getting permanently stuck showing "offline" with cached data.
-      unawaited(AuthStore.clear());
+      final requestToken = _requestTokens[response];
+      if (requestToken != null) {
+        unawaited(AuthStore.expireIfCurrent(requestToken));
+      }
       throw UnauthorizedException(message);
     case 403:
       throw ForbiddenException(message);
@@ -111,6 +172,20 @@ Never _throwFor(http.Response response) {
     default:
       throw ApiException(response.statusCode, message);
   }
+}
+
+Future<SessionProfile> bootstrapSession(String token) async {
+  final response = await _get(
+    _uri('/api/flutter/auth/session'),
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer $token',
+    },
+  );
+  if (!_isOk(response.statusCode)) _throwFor(response);
+  return SessionProfile.fromJson(
+    jsonDecode(response.body) as Map<String, dynamic>,
+  );
 }
 
 Future<AuthResult> login(String email, String password) async {
@@ -221,10 +296,18 @@ Future<String> uploadCover({
       contentType: contentType != null ? MediaType.parse(contentType) : null,
     ),
   );
-  final streamed = await _client
-      .send(request)
-      .timeout(const Duration(seconds: 60));
+  http.StreamedResponse streamed;
+  try {
+    streamed = await _client.send(request).timeout(const Duration(seconds: 60));
+  } on TimeoutException {
+    throw NetworkException(AppLocalizations.get('networkUnavailable'));
+  } on SocketException {
+    throw NetworkException(AppLocalizations.get('networkUnavailable'));
+  } on http.ClientException {
+    throw NetworkException(AppLocalizations.get('networkUnavailable'));
+  }
   final response = await http.Response.fromStream(streamed);
+  _rememberRequestToken(response, request.headers);
   if (!_isOk(response.statusCode)) _throwFor(response);
   final body = jsonDecode(response.body) as Map<String, dynamic>;
   final ref = body['cover_ref'];

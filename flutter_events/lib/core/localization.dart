@@ -56,6 +56,7 @@ class AppLocalizations {
       'noBookings': 'No requests',
       'coordinatorComment': 'Coordinator comment',
       'somethingWentWrong': 'Something went wrong',
+      'networkUnavailable': 'No connection. Check your network and try again.',
       'newEvent': 'New event',
       'editEvent': 'Edit event',
       'dateTimeTab': 'Date & time',
@@ -273,6 +274,8 @@ class AppLocalizations {
       'noBookings': 'Нет заявок',
       'coordinatorComment': 'Комментарий координатора',
       'somethingWentWrong': 'Что-то пошло не так',
+      'networkUnavailable':
+          'Нет соединения. Проверьте интернет и повторите попытку.',
       'newEvent': 'Новое мероприятие',
       'editEvent': 'Редактировать мероприятие',
       'dateTimeTab': 'Дата и время',
@@ -427,6 +430,8 @@ class AppLocalizations {
       'noBookings': 'Сұранымдар жоқ',
       'coordinatorComment': 'Үйлестірушінің түсініктемесі',
       'somethingWentWrong': 'Бірдеңе дұрыс болмады',
+      'networkUnavailable':
+          'Байланыс жоқ. Интернетті тексеріп, қайталап көріңіз.',
       'newEvent': 'Жаңа іс-шара',
       'editEvent': 'Іс-шараны өңдеу',
       'dateTimeTab': 'Күні мен уақыты',

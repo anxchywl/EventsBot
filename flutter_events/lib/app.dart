@@ -1,8 +1,47 @@
+import 'dart:async';
+
 import 'package:app_ui/app_ui.dart';
 import 'package:flutter/material.dart';
 
+import 'core/api_client.dart';
 import 'core/auth_store.dart';
+import 'core/cache_store.dart';
+import 'core/exceptions.dart';
 import 'features/shell/app_shell.dart';
+
+Future<void>? _runtimeInitialization;
+
+Future<void> initializeEventsFeature() {
+  final existingInitialization = _runtimeInitialization;
+  if (existingInitialization != null) return existingInitialization;
+
+  late final Future<void> initialization;
+  initialization = () async {
+    try {
+      await AuthStore.init();
+      await CacheStore.init();
+    } catch (_) {
+      if (identical(_runtimeInitialization, initialization)) {
+        _runtimeInitialization = null;
+      }
+      rethrow;
+    }
+  }();
+  _runtimeInitialization = initialization;
+  return initialization;
+}
+
+@visibleForTesting
+void resetEventsFeatureRuntimeForTesting() {
+  _runtimeInitialization = null;
+}
+
+class EventsHostSession {
+  const EventsHostSession({required this.accessToken})
+    : assert(accessToken != '');
+
+  final String accessToken;
+}
 
 class EventsApp extends StatelessWidget {
   const EventsApp({
@@ -29,14 +68,148 @@ class EventsApp extends StatelessWidget {
   }
 }
 
-class EventsFeature extends StatelessWidget {
-  const EventsFeature({super.key, this.onDevelopmentRoleSwitch});
+class EventsFeature extends StatefulWidget {
+  const EventsFeature({
+    super.key,
+    required EventsHostSession session,
+    this.onSessionExpired,
+  }) : _session = session,
+       onDevelopmentRoleSwitch = null;
 
+  const EventsFeature.standalone({super.key, this.onDevelopmentRoleSwitch})
+    : _session = null,
+      onSessionExpired = null;
+
+  final EventsHostSession? _session;
+  final VoidCallback? onSessionExpired;
   final Future<void> Function()? onDevelopmentRoleSwitch;
 
   @override
+  State<EventsFeature> createState() => _EventsFeatureState();
+}
+
+class _EventsFeatureState extends State<EventsFeature> {
+  bool _loading = false;
+  bool _ready = false;
+  bool _expired = false;
+  bool _expiryReported = false;
+  String? _error;
+  int _attempt = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    AuthStore.sessionExpiryChanges.addListener(_onSessionExpired);
+    if (widget._session == null) {
+      _ready = AuthStore.isLoggedIn;
+    } else {
+      unawaited(_bootstrapHostSession());
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant EventsFeature oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget._session?.accessToken != widget._session?.accessToken) {
+      _expiryReported = false;
+      unawaited(_bootstrapHostSession());
+    }
+  }
+
+  @override
+  void dispose() {
+    _attempt++;
+    AuthStore.sessionExpiryChanges.removeListener(_onSessionExpired);
+    super.dispose();
+  }
+
+  Future<void> _bootstrapHostSession() async {
+    final session = widget._session;
+    if (session == null) return;
+    final attempt = ++_attempt;
+    if (session.accessToken.trim().isEmpty) {
+      _showExpired();
+      return;
+    }
+    setState(() {
+      _loading = true;
+      _ready = false;
+      _expired = false;
+      _error = null;
+    });
+
+    try {
+      await initializeEventsFeature();
+      if (AuthStore.token != null && AuthStore.token != session.accessToken) {
+        await AuthStore.clear();
+      }
+      final profile = await bootstrapSession(session.accessToken);
+      if (!mounted || attempt != _attempt) return;
+      await AuthStore.save(
+        token: session.accessToken,
+        role: profile.role,
+        firstName: profile.firstName,
+        userId: profile.userId,
+        persist: false,
+      );
+      if (!mounted || attempt != _attempt) return;
+      setState(() => _ready = true);
+    } on UnauthorizedException {
+      if (!mounted || attempt != _attempt) return;
+      _showExpired();
+    } on ForbiddenException catch (error) {
+      if (!mounted || attempt != _attempt) return;
+      setState(() => _error = error.message);
+    } on ApiException catch (error) {
+      if (!mounted || attempt != _attempt) return;
+      setState(() => _error = error.message);
+    } catch (_) {
+      if (!mounted || attempt != _attempt) return;
+      setState(() => _error = 'Could not start Events. Please try again.');
+    } finally {
+      if (mounted && attempt == _attempt) {
+        setState(() => _loading = false);
+      }
+    }
+  }
+
+  void _onSessionExpired() {
+    if (widget._session != null) _showExpired();
+  }
+
+  void _showExpired() {
+    if (!mounted) return;
+    setState(() {
+      _expired = true;
+      _ready = false;
+      _loading = false;
+      _error = null;
+    });
+    if (!_expiryReported) {
+      _expiryReported = true;
+      widget.onSessionExpired?.call();
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return AppShell(onDevelopmentRoleSwitch: onDevelopmentRoleSwitch);
+    if (_ready && AuthStore.isLoggedIn) {
+      return AppShell(onDevelopmentRoleSwitch: widget.onDevelopmentRoleSwitch);
+    }
+    if (_loading) {
+      return const _FeatureStartupScreen(isLoading: true);
+    }
+    if (_expired) {
+      return const _FeatureStartupScreen(
+        message:
+            'Your Jas Wallet session has expired. Reopen Events to continue.',
+      );
+    }
+    return _FeatureStartupScreen(
+      message: _error ?? 'Events could not verify your Jas Wallet session.',
+      actionText: 'Retry',
+      onAction: _bootstrapHostSession,
+    );
   }
 }
 
@@ -84,7 +257,7 @@ class _StandaloneSessionGateState extends State<_StandaloneSessionGate> {
       valueListenable: AuthStore.sessionChanges,
       builder: (context, _, _) {
         if (AuthStore.isLoggedIn) {
-          return EventsFeature(
+          return EventsFeature.standalone(
             onDevelopmentRoleSwitch: widget.onDevelopmentRoleSwitch,
           );
         }
@@ -95,6 +268,72 @@ class _StandaloneSessionGateState extends State<_StandaloneSessionGate> {
           onRetry: _signIn,
         );
       },
+    );
+  }
+}
+
+class _FeatureStartupScreen extends StatelessWidget {
+  const _FeatureStartupScreen({
+    this.message,
+    this.actionText,
+    this.onAction,
+    this.isLoading = false,
+  });
+
+  final String? message;
+  final String? actionText;
+  final VoidCallback? onAction;
+  final bool isLoading;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: SafeArea(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: Padding(
+              padding: AppSpacing.screenPadding,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const AppIcon(
+                    AppIcons.event,
+                    size: 48,
+                    color: AppColors.primary,
+                  ),
+                  const SizedBox(height: AppSpacing.lg),
+                  if (isLoading)
+                    const CircularProgressIndicator()
+                  else ...[
+                    Text(
+                      'Session required',
+                      textAlign: TextAlign.center,
+                      style: AppTextStyles.titleLarge,
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                    Text(
+                      message ?? 'Starting Events…',
+                      textAlign: TextAlign.center,
+                      style: AppTextStyles.bodyMedium.copyWith(
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                    if (actionText != null && onAction != null) ...[
+                      const SizedBox(height: AppSpacing.lg),
+                      AppPrimaryButton(
+                        size: AppButtonSize.medium,
+                        text: actionText!,
+                        onPressed: onAction,
+                      ),
+                    ],
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

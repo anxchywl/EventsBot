@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'api_client.dart';
 import 'auth_store.dart';
+import 'exceptions.dart';
 
 const bool _standaloneDevAccessRequested = bool.fromEnvironment(
   'ENABLE_STANDALONE_DEV_ACCESS',
@@ -61,8 +62,26 @@ String _cacheKey(String role) => 'dev_session_$role';
 /// swallowed so the app still opens; screens surface their own load errors.
 Future<void> ensureDevSession() async {
   if (!DevSessionConfig.isEnabled) return;
-  if (AuthStore.isLoggedIn) return;
   try {
+    if (AuthStore.isLoggedIn) {
+      final token = AuthStore.token!;
+      try {
+        final profile = await bootstrapSession(token);
+        await AuthStore.save(
+          token: token,
+          role: profile.role,
+          firstName: profile.firstName,
+          userId: profile.userId,
+        );
+        return;
+      } on UnauthorizedException {
+        await AuthStore.clear();
+      } on ForbiddenException {
+        await AuthStore.clear();
+      } on NetworkException {
+        return;
+      }
+    }
     await _activate(await _obtainSession('user'));
   } catch (_) {
     // ignore — open the app anyway
@@ -87,13 +106,29 @@ Future<AuthResult> _obtainSession(String role) async {
   if (cached != null) {
     try {
       final map = jsonDecode(cached) as Map<String, dynamic>;
-      return AuthResult(
-        token: map['token'] as String,
-        role: map['role'] as String,
-        firstName: map['first_name'] as String?,
-        userId: map['user_id'] as int,
-        isVerified: (map['is_verified'] as bool?) ?? false,
-      );
+      final token = map['token'] as String;
+      try {
+        final profile = await bootstrapSession(token);
+        return AuthResult(
+          token: token,
+          role: profile.role,
+          firstName: profile.firstName,
+          userId: profile.userId,
+          isVerified: profile.isVerified,
+        );
+      } on UnauthorizedException {
+        await prefs.remove(_cacheKey(role));
+      } on ForbiddenException {
+        await prefs.remove(_cacheKey(role));
+      } on NetworkException {
+        return AuthResult(
+          token: token,
+          role: map['role'] as String,
+          firstName: map['first_name'] as String?,
+          userId: map['user_id'] as int,
+          isVerified: (map['is_verified'] as bool?) ?? false,
+        );
+      }
     } catch (_) {
       // fall through to a fresh login if the cache is corrupt
     }

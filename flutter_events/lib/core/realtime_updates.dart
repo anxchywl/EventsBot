@@ -20,6 +20,7 @@ class RealtimeUpdates {
   final _controller = StreamController<RealtimeUpdate>.broadcast();
   HttpClient? _client;
   StreamSubscription<String>? _linesSub;
+  Timer? _reconnectTimer;
   bool _connecting = false;
   bool _closed = false;
 
@@ -36,7 +37,11 @@ class RealtimeUpdates {
   }
 
   void ensureConnected() {
-    if (!_connecting && _linesSub == null) unawaited(_connect());
+    if (!_connecting &&
+        _linesSub == null &&
+        !(_reconnectTimer?.isActive ?? false)) {
+      unawaited(_connect());
+    }
   }
 
   Future<void> _connect() async {
@@ -52,7 +57,7 @@ class RealtimeUpdates {
       final response = await request.close();
       if (response.statusCode == HttpStatus.unauthorized) {
         await response.drain<void>();
-        await AuthStore.clear();
+        await AuthStore.expireIfCurrent(token);
         return;
       }
       if (response.statusCode != HttpStatus.ok) {
@@ -98,19 +103,22 @@ class RealtimeUpdates {
     _linesSub = null;
     _client?.close(force: true);
     _client = null;
-    if (_closed) return;
+    if (_closed || (_reconnectTimer?.isActive ?? false)) return;
 
     final backoffMs = (_baseBackoff.inMilliseconds * (1 << _reconnectAttempts))
         .clamp(_baseBackoff.inMilliseconds, _maxBackoff.inMilliseconds);
     if (_reconnectAttempts < 8) _reconnectAttempts++;
 
-    Timer(Duration(milliseconds: backoffMs), () {
+    _reconnectTimer = Timer(Duration(milliseconds: backoffMs), () {
+      _reconnectTimer = null;
       if (_closed || _linesSub != null || _connecting) return;
       unawaited(_connect());
     });
   }
 
   Future<void> disconnect() async {
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
     await _linesSub?.cancel();
     _linesSub = null;
     _client?.close(force: true);
