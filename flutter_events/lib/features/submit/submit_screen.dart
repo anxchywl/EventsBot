@@ -89,6 +89,7 @@ class _SubmitScreenState extends State<SubmitScreen> {
   List<EventModel> _existingEvents = [];
 
   bool _submitting = false;
+  bool _allowPop = false;
 
   Uint8List? _coverBytes;
   String? _coverFilename;
@@ -100,10 +101,12 @@ class _SubmitScreenState extends State<SubmitScreen> {
 
   final _picker = ImagePicker();
   late final String _clientRequestId = createEventRequestId();
+  late final String _initialOrganizer;
 
   @override
   void initState() {
     super.initState();
+    _initialOrganizer = AuthStore.firstName ?? '';
     final initial = widget.initialDate;
     if (initial != null) {
       _date = initial;
@@ -112,9 +115,8 @@ class _SubmitScreenState extends State<SubmitScreen> {
     if (widget.initialEvent != null) {
       _prefillFromEvent(widget.initialEvent!);
     } else {
-      final name = AuthStore.firstName;
-      if (name != null && name.isNotEmpty) {
-        _organizerController.text = name;
+      if (_initialOrganizer.isNotEmpty) {
+        _organizerController.text = _initialOrganizer;
       }
     }
     _setupFocusTracking();
@@ -123,6 +125,109 @@ class _SubmitScreenState extends State<SubmitScreen> {
   }
 
   bool get _isResubmit => widget.initialEvent != null;
+
+  bool get _hasUnsavedChanges {
+    if (_viewMode == _SubmitViewMode.success) return false;
+    if (_coverBytes != null ||
+        _coverRef != null ||
+        _coverRemoved ||
+        _coverUploading) {
+      return true;
+    }
+
+    final initialEvent = widget.initialEvent;
+    if (initialEvent == null) {
+      return _titleController.text.isNotEmpty ||
+          _descriptionController.text.isNotEmpty ||
+          _organizerController.text != _initialOrganizer ||
+          _locationController.text.isNotEmpty ||
+          _registrationController.text.isNotEmpty ||
+          _itEquipmentController.text.isNotEmpty ||
+          _materialsController.text.isNotEmpty ||
+          !_sameDate(_date, widget.initialDate) ||
+          _time != null ||
+          _endTime != null ||
+          _categoryId != null;
+    }
+
+    final categoryChanged =
+        _categoryController.text.isNotEmpty &&
+        _categoryController.text != initialEvent.category;
+    return _titleController.text != initialEvent.title ||
+        _descriptionController.text != initialEvent.description ||
+        _organizerController.text != initialEvent.organizerName ||
+        _locationController.text != initialEvent.location ||
+        _registrationController.text != (initialEvent.registrationUrl ?? '') ||
+        _itEquipmentController.text != (initialEvent.itEquipment ?? '') ||
+        _materialsController.text != (initialEvent.materials ?? '') ||
+        _dateKey(_date) != initialEvent.eventDate ||
+        _timeKey(_time) != _normalizedTime(initialEvent.eventTime) ||
+        _timeKey(_endTime) != _normalizedTime(initialEvent.eventEndTime) ||
+        categoryChanged;
+  }
+
+  bool get _canPop {
+    if (_allowPop || _viewMode == _SubmitViewMode.success) return true;
+    if (_submitting || _viewMode != _SubmitViewMode.form) return false;
+    return !_hasUnsavedChanges;
+  }
+
+  bool _sameDate(DateTime? first, DateTime? second) {
+    if (first == null || second == null) return first == second;
+    return first.year == second.year &&
+        first.month == second.month &&
+        first.day == second.day;
+  }
+
+  String? _dateKey(DateTime? date) => date == null
+      ? null
+      : '${date.year.toString().padLeft(4, '0')}-'
+            '${date.month.toString().padLeft(2, '0')}-'
+            '${date.day.toString().padLeft(2, '0')}';
+
+  String? _timeKey(TimeOfDay? time) => time == null
+      ? null
+      : '${time.hour.toString().padLeft(2, '0')}:'
+            '${time.minute.toString().padLeft(2, '0')}';
+
+  String? _normalizedTime(String? value) {
+    if (value == null || value.length < 5) return value;
+    return value.substring(0, 5);
+  }
+
+  Future<void> _handlePop(bool didPop, bool? result) async {
+    if (didPop || !mounted) return;
+    if (_submitting) {
+      _showMessage(AppLocalizations.get('submissionInProgress'));
+      return;
+    }
+    if (_viewMode != _SubmitViewMode.form) {
+      setState(() => _viewMode = _SubmitViewMode.form);
+      return;
+    }
+
+    final discard = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(AppLocalizations.get('unsavedChanges')),
+        content: Text(AppLocalizations.get('unsavedChangesMessage')),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: Text(AppLocalizations.get('keepEditing')),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: Text(AppLocalizations.get('discard')),
+          ),
+        ],
+      ),
+    );
+    if (discard != true || !mounted) return;
+    setState(() => _allowPop = true);
+    Navigator.pop(context, result);
+  }
 
   void _prefillFromEvent(EventModel e) {
     _titleController.text = e.title;
@@ -635,8 +740,9 @@ class _SubmitScreenState extends State<SubmitScreen> {
 
   @override
   Widget build(BuildContext context) {
+    late final Widget content;
     if (widget.asSheet) {
-      return Padding(
+      content = Padding(
         padding: EdgeInsets.only(
           bottom: MediaQuery.of(context).viewInsets.bottom,
         ),
@@ -680,10 +786,17 @@ class _SubmitScreenState extends State<SubmitScreen> {
           ),
         ),
       );
+    } else {
+      content = Scaffold(
+        appBar: AppAppBar(showBackButton: true, title: _currentTitle),
+        body: _buildBodyContainer(),
+      );
     }
-    return Scaffold(
-      appBar: AppAppBar(showBackButton: true, title: _currentTitle),
-      body: _buildBodyContainer(),
+
+    return PopScope<bool>(
+      canPop: _canPop,
+      onPopInvokedWithResult: _handlePop,
+      child: content,
     );
   }
 

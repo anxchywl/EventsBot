@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:app_ui/app_ui.dart';
 import 'package:events_feature/app.dart';
 import 'package:events_feature/core/api_client.dart';
 import 'package:events_feature/core/auth_store.dart';
@@ -9,6 +10,7 @@ import 'package:events_feature/core/cache_store.dart';
 import 'package:events_feature/core/dev_session.dart';
 import 'package:events_feature/core/exceptions.dart';
 import 'package:events_feature/features/shell/app_shell.dart';
+import 'package:events_feature/features/submit/submit_screen.dart';
 import 'package:events_feature/models/event_model.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -172,6 +174,86 @@ void main() {
     expect(tester.getSize(find.byType(IndexedStack)).width, 840);
     expect(tester.takeException(), isNull);
     await _disposeShell(tester);
+  });
+
+  testWidgets('dirty event forms require an explicit discard decision', (
+    tester,
+  ) async {
+    await _pumpSubmitRoute(tester);
+    final locationField = find.byWidgetPredicate(
+      (widget) => widget is AppTextField && widget.label == 'Place',
+    );
+    final location = find.descendant(
+      of: locationField,
+      matching: find.byType(TextFormField),
+    );
+    await tester.enterText(location, 'Main hall');
+    tester.testTextInput.hide();
+    FocusManager.instance.primaryFocus?.unfocus();
+    await tester.pump();
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+
+    expect(find.text('Unsaved changes'), findsOneWidget);
+    await tester.tap(find.text('Keep editing'));
+    await tester.pumpAndSettle();
+    expect(find.byType(SubmitScreen), findsOneWidget);
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Discard'));
+    await tester.pumpAndSettle();
+    expect(find.byType(SubmitScreen), findsNothing);
+    expect(find.text('Host'), findsOneWidget);
+  });
+
+  testWidgets('prefilled event values are not treated as unsaved changes', (
+    tester,
+  ) async {
+    final event = EventModel(
+      id: 42,
+      publicToken: 'token',
+      title: 'Orientation',
+      description: 'Welcome session',
+      eventDate: '2099-09-10',
+      eventTime: '10:00',
+      eventEndTime: '11:00',
+      location: 'Main hall',
+      category: 'Community',
+      organizerName: 'Student Life',
+      status: 'needs_changes',
+    );
+    await _pumpSubmitRoute(tester, initialEvent: event);
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+
+    expect(find.text('Unsaved changes'), findsNothing);
+    expect(find.byType(SubmitScreen), findsNothing);
+    expect(find.text('Host'), findsOneWidget);
+  });
+
+  testWidgets('dirty event sheets block barrier dismissal', (tester) async {
+    await _pumpSubmitRoute(tester, asSheet: true);
+    final locationField = find.byWidgetPredicate(
+      (widget) => widget is AppTextField && widget.label == 'Place',
+    );
+    await tester.enterText(
+      find.descendant(of: locationField, matching: find.byType(TextFormField)),
+      'Main hall',
+    );
+    tester.testTextInput.hide();
+    FocusManager.instance.primaryFocus?.unfocus();
+    await tester.pump();
+
+    await tester.tapAt(const Offset(8, 8));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Unsaved changes'), findsOneWidget);
+    await tester.tap(find.text('Keep editing'));
+    await tester.pumpAndSettle();
+    expect(find.byType(SubmitScreen), findsOneWidget);
   });
 
   testWidgets('host session resolves its authoritative role before mounting', (
@@ -490,4 +572,64 @@ Future<void> _disposeShell(WidgetTester tester) async {
   await tester.pumpWidget(const SizedBox.shrink());
   await AuthStore.clear();
   await tester.pump();
+}
+
+Future<void> _pumpSubmitRoute(
+  WidgetTester tester, {
+  EventModel? initialEvent,
+  bool asSheet = false,
+}) async {
+  await CacheStore.clearAll();
+  setApiClientForTesting(
+    MockClient((request) async {
+      if (request.url.path == '/api/flutter/events/categories') {
+        return http.Response(
+          jsonEncode([
+            {'id': 1, 'name': 'Community', 'slug': 'community'},
+          ]),
+          200,
+        );
+      }
+      if (request.url.path == '/api/flutter/events') {
+        return http.Response('[]', 200);
+      }
+      return http.Response(jsonEncode({'detail': 'Not found'}), 404);
+    }),
+  );
+
+  await tester.pumpWidget(
+    MaterialApp(
+      home: Builder(
+        builder: (context) => Scaffold(
+          body: TextButton(
+            onPressed: () {
+              if (asSheet) {
+                unawaited(
+                  showModalBottomSheet<void>(
+                    context: context,
+                    isScrollControlled: true,
+                    builder: (_) =>
+                        SubmitScreen(initialEvent: initialEvent, asSheet: true),
+                  ),
+                );
+                return;
+              }
+              unawaited(
+                Navigator.push(
+                  context,
+                  MaterialPageRoute<void>(
+                    builder: (_) => SubmitScreen(initialEvent: initialEvent),
+                  ),
+                ),
+              );
+            },
+            child: const Text('Host'),
+          ),
+        ),
+      ),
+    ),
+  );
+  await tester.tap(find.text('Host'));
+  await tester.pumpAndSettle();
+  expect(find.byType(SubmitScreen), findsOneWidget);
 }
