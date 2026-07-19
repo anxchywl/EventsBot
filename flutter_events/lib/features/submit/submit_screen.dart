@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 import 'dart:typed_data';
 
@@ -10,6 +11,7 @@ import 'package:intl/intl.dart';
 import '../../core/api_client.dart';
 import '../../core/auth_store.dart';
 import '../../core/cache_store.dart';
+import '../../core/event_draft_store.dart';
 import '../../core/exceptions.dart';
 import '../../core/localization.dart';
 import '../../models/category_model.dart';
@@ -47,7 +49,8 @@ class SubmitScreen extends StatefulWidget {
   State<SubmitScreen> createState() => _SubmitScreenState();
 }
 
-class _SubmitScreenState extends State<SubmitScreen> {
+class _SubmitScreenState extends State<SubmitScreen>
+    with WidgetsBindingObserver {
   final _formKeys = [
     GlobalKey<FormState>(),
     GlobalKey<FormState>(),
@@ -90,6 +93,10 @@ class _SubmitScreenState extends State<SubmitScreen> {
 
   bool _submitting = false;
   bool _allowPop = false;
+  bool _restoringDraft = false;
+  bool _suppressDraftSave = false;
+  Timer? _draftSaveTimer;
+  Future<void> _draftWrite = Future<void>.value();
 
   Uint8List? _coverBytes;
   String? _coverFilename;
@@ -100,12 +107,14 @@ class _SubmitScreenState extends State<SubmitScreen> {
   String? _coverError;
 
   final _picker = ImagePicker();
-  late final String _clientRequestId = createEventRequestId();
+  late String _clientRequestId;
   late final String _initialOrganizer;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _clientRequestId = createEventRequestId();
     _initialOrganizer = AuthStore.firstName ?? '';
     final initial = widget.initialDate;
     if (initial != null) {
@@ -120,8 +129,14 @@ class _SubmitScreenState extends State<SubmitScreen> {
       }
     }
     _setupFocusTracking();
+    _setupDraftAutosave();
     _loadCategories();
     _loadExistingEvents();
+    if (!_isResubmit) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        unawaited(_offerDraftRecovery());
+      });
+    }
   }
 
   bool get _isResubmit => widget.initialEvent != null;
@@ -225,8 +240,160 @@ class _SubmitScreenState extends State<SubmitScreen> {
       ),
     );
     if (discard != true || !mounted) return;
+    _suppressDraftSave = true;
+    _draftSaveTimer?.cancel();
+    final userId = AuthStore.userId;
+    if (userId != null) await _clearDraft(userId);
+    if (!mounted) return;
     setState(() => _allowPop = true);
     Navigator.pop(context, result);
+  }
+
+  void _setupDraftAutosave() {
+    if (_isResubmit) return;
+    for (final controller in [
+      _titleController,
+      _descriptionController,
+      _organizerController,
+      _locationController,
+      _registrationController,
+      _dateController,
+      _timeController,
+      _endTimeController,
+      _itEquipmentController,
+      _materialsController,
+      _categoryController,
+    ]) {
+      controller.addListener(_scheduleDraftSave);
+    }
+  }
+
+  void _scheduleDraftSave() {
+    if (_isResubmit || _restoringDraft || _suppressDraftSave) return;
+    _draftSaveTimer?.cancel();
+    _draftSaveTimer = Timer(
+      const Duration(milliseconds: 400),
+      () => unawaited(_saveDraftNow()),
+    );
+  }
+
+  Future<void> _saveDraftNow() async {
+    _draftSaveTimer?.cancel();
+    final userId = AuthStore.userId;
+    if (_isResubmit || _suppressDraftSave || userId == null) return;
+    if (!_hasUnsavedChanges) {
+      await _clearDraft(userId);
+      return;
+    }
+
+    final draft = EventDraft(
+      userId: userId,
+      clientRequestId: _clientRequestId,
+      updatedAt: DateTime.now(),
+      currentStep: _currentStep,
+      title: _titleController.text,
+      description: _descriptionController.text,
+      organizer: _organizerController.text,
+      location: _locationController.text,
+      registrationUrl: _registrationController.text,
+      itEquipment: _itEquipmentController.text,
+      materials: _materialsController.text,
+      eventDate: _dateKey(_date),
+      startTime: _timeKey(_time),
+      endTime: _timeKey(_endTime),
+      categoryId: _categoryId,
+      categoryName: _categoryController.text.isEmpty
+          ? null
+          : _categoryController.text,
+    );
+    await _queueDraftWrite(() => EventDraftStore.save(draft));
+  }
+
+  Future<void> _clearDraft(int userId) {
+    return _queueDraftWrite(() => EventDraftStore.clear(userId));
+  }
+
+  Future<void> _queueDraftWrite(Future<void> Function() write) {
+    _draftWrite = _draftWrite.then((_) async {
+      try {
+        await write();
+      } catch (_) {}
+    });
+    return _draftWrite;
+  }
+
+  Future<void> _offerDraftRecovery() async {
+    final userId = AuthStore.userId;
+    if (userId == null) return;
+    final draft = await EventDraftStore.load(userId);
+    if (draft == null || !mounted) return;
+
+    final restore = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(AppLocalizations.get('restoreDraft')),
+        content: Text(AppLocalizations.get('restoreDraftMessage')),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: Text(AppLocalizations.get('startFresh')),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: Text(AppLocalizations.get('restore')),
+          ),
+        ],
+      ),
+    );
+    if (!mounted) return;
+    if (restore != true) {
+      await _clearDraft(userId);
+      return;
+    }
+
+    _restoringDraft = true;
+    setState(() => _applyDraft(draft));
+    _restoringDraft = false;
+  }
+
+  void _applyDraft(EventDraft draft) {
+    _clientRequestId = draft.clientRequestId;
+    _currentStep = draft.currentStep;
+    _titleController.text = draft.title;
+    _descriptionController.text = draft.description;
+    _organizerController.text = draft.organizer;
+    _locationController.text = draft.location;
+    _registrationController.text = draft.registrationUrl;
+    _itEquipmentController.text = draft.itEquipment;
+    _materialsController.text = draft.materials;
+    _categoryId = draft.categoryId;
+    _categoryController.text = draft.categoryName ?? '';
+
+    final dateParts = draft.eventDate?.split('-');
+    if (dateParts != null && dateParts.length == 3) {
+      final year = int.tryParse(dateParts[0]);
+      final month = int.tryParse(dateParts[1]);
+      final day = int.tryParse(dateParts[2]);
+      if (year != null && month != null && day != null) {
+        _date = DateTime(year, month, day);
+        _dateController.text = DateFormat('dd.MM.yyyy').format(_date!);
+      }
+    }
+    _time = draft.startTime == null ? null : _parseTimeOfDay(draft.startTime!);
+    _timeController.text = _time == null ? '' : _formatTime(_time!);
+    _endTime = draft.endTime == null ? null : _parseTimeOfDay(draft.endTime!);
+    _endTimeController.text = _endTime == null ? '' : _formatTime(_endTime!);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached ||
+        state == AppLifecycleState.hidden) {
+      unawaited(_saveDraftNow());
+    }
   }
 
   void _prefillFromEvent(EventModel e) {
@@ -325,6 +492,9 @@ class _SubmitScreenState extends State<SubmitScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _draftSaveTimer?.cancel();
+    unawaited(_saveDraftNow());
     _titleController.dispose();
     _descriptionController.dispose();
     _organizerController.dispose();
@@ -555,6 +725,7 @@ class _SubmitScreenState extends State<SubmitScreen> {
 
     if (_currentStep < 2) {
       setState(() => _currentStep++);
+      _scheduleDraftSave();
     } else {
       _submit();
     }
@@ -660,6 +831,10 @@ class _SubmitScreenState extends State<SubmitScreen> {
       } else {
         await EventCache.instance.submit(fields);
       }
+      if (!mounted) return;
+      _suppressDraftSave = true;
+      final userId = AuthStore.userId;
+      if (userId != null) await _clearDraft(userId);
       if (!mounted) return;
       setState(() => _viewMode = _SubmitViewMode.success);
     } on ConflictException catch (e) {
@@ -1791,7 +1966,10 @@ class _SubmitScreenState extends State<SubmitScreen> {
                         text: AppLocalizations.get('back'),
                         onPressed: _submitting
                             ? null
-                            : () => setState(() => _currentStep--),
+                            : () {
+                                setState(() => _currentStep--);
+                                _scheduleDraftSave();
+                              },
                       ),
                     ),
                     const SizedBox(width: AppSpacing.md),

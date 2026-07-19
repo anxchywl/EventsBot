@@ -8,6 +8,7 @@ import 'package:events_feature/core/api_client.dart';
 import 'package:events_feature/core/auth_store.dart';
 import 'package:events_feature/core/cache_store.dart';
 import 'package:events_feature/core/dev_session.dart';
+import 'package:events_feature/core/event_draft_store.dart';
 import 'package:events_feature/core/exceptions.dart';
 import 'package:events_feature/features/shell/app_shell.dart';
 import 'package:events_feature/features/submit/submit_screen.dart';
@@ -254,6 +255,70 @@ void main() {
     await tester.tap(find.text('Keep editing'));
     await tester.pumpAndSettle();
     expect(find.byType(SubmitScreen), findsOneWidget);
+  });
+
+  testWidgets('unfinished create drafts can be restored after a refresh', (
+    tester,
+  ) async {
+    await AuthStore.save(token: 'user-token', role: 'user', userId: 7);
+    await EventDraftStore.save(
+      EventDraft(
+        userId: 7,
+        clientRequestId: 'persisted-request-id',
+        updatedAt: DateTime.now(),
+        currentStep: 0,
+        title: '',
+        description: '',
+        organizer: '',
+        location: 'Main hall',
+        registrationUrl: '',
+        itEquipment: '',
+        materials: '',
+      ),
+    );
+
+    await _pumpSubmitRoute(tester);
+    expect(find.text('Restore draft?'), findsOneWidget);
+    await tester.tap(find.text('Restore'));
+    await tester.pumpAndSettle();
+
+    final locationField = find.byWidgetPredicate(
+      (widget) => widget is AppTextField && widget.label == 'Place',
+    );
+    final locationInput = find.descendant(
+      of: locationField,
+      matching: find.byType(TextFormField),
+    );
+    expect(
+      tester.widget<TextFormField>(locationInput).controller?.text,
+      'Main hall',
+    );
+    await tester.pumpWidget(const SizedBox.shrink());
+    await AuthStore.clear();
+    await tester.pump();
+  });
+
+  testWidgets('create forms persist changes before process replacement', (
+    tester,
+  ) async {
+    await AuthStore.save(token: 'user-token', role: 'user', userId: 7);
+    await _pumpSubmitRoute(tester);
+    final locationField = find.byWidgetPredicate(
+      (widget) => widget is AppTextField && widget.label == 'Place',
+    );
+    await tester.enterText(
+      find.descendant(of: locationField, matching: find.byType(TextFormField)),
+      'Main hall',
+    );
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+
+    final draft = await EventDraftStore.load(7);
+    expect(draft?.location, 'Main hall');
+    expect(draft?.clientRequestId, isNotEmpty);
+    await AuthStore.clear();
+    await tester.pump();
   });
 
   testWidgets('host session resolves its authoritative role before mounting', (
