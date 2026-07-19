@@ -12,7 +12,8 @@ Technical setup, environment, and deployment reference. For product and business
 | API and web server | FastAPI + Uvicorn |
 | Database | PostgreSQL + SQLAlchemy (async) + Alembic |
 | Cache | Redis |
-| Mini App frontend | Vanilla JS and CSS |
+| Telegram Mini App | Vanilla JS and CSS |
+| Events feature | Flutter (`flutter_events/`) and shared `app_ui/` package |
 | Runtime | Docker Compose |
 
 ---
@@ -23,6 +24,8 @@ Technical setup, environment, and deployment reference. For product and business
 events_bot/
 ├── backend/               # Python application code and Alembic migrations
 ├── frontend/              # Mini App static assets
+├── flutter_events/        # Flutter Events feature and standalone host
+├── app_ui/                # shared Flutter design system package
 ├── docs/                  # product and infrastructure documentation
 ├── .github/               # CI/CD workflows
 ├── docker/                # Dockerfiles and Docker Compose files
@@ -76,6 +79,11 @@ uvicorn app.web.main:web_app --reload --host 0.0.0.0 --port 8000
 ```
 
 Open `http://localhost:8000` to check the Mini App locally.
+
+The Flutter Events feature is developed separately from the bot and Mini App
+server. Its standalone host and Jas Wallet integration contract are documented
+in [`flutter_events/README.md`](../flutter_events/README.md); it does not change
+the Docker services described here.
 
 **Production**
 
