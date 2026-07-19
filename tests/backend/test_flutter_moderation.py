@@ -1,6 +1,7 @@
 import asyncio
 import os
 import unittest
+from datetime import date, time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -39,6 +40,10 @@ class ResubmitAfterAdminTransitionTest(unittest.TestCase):
             status=status,
             parent_event_id=None,
             title="Robotics night",
+            event_date=date(2099, 5, 1),
+            event_time=time(18, 0),
+            event_end_time=time(20, 0),
+            location="Block C",
             creator=SimpleNamespace(first_name="Ann"),
         )
 
@@ -59,6 +64,16 @@ class ResubmitAfterAdminTransitionTest(unittest.TestCase):
                 "_notify_reviewer_of_resubmission",
                 AsyncMock(),
             ) as notify,
+            patch.object(
+                flutter_events,
+                "acquire_event_submission_lock",
+                AsyncMock(),
+            ),
+            patch.object(
+                flutter_events,
+                "find_event_schedule_conflict",
+                AsyncMock(return_value=None),
+            ),
         ):
             result = _run(
                 flutter_events.resubmit_event(event.id, payload, user, session)

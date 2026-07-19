@@ -30,6 +30,16 @@ class Settings(BaseSettings):
     # flutter development toggles — extra cors origins and enabled api docs
     flutter_dev_cors: bool = Field(default=False, alias="FLUTTER_DEV_CORS")
     flutter_dev_docs: bool = Field(default=False, alias="FLUTTER_DEV_DOCS")
+    flutter_event_submit_rate_limit: int = Field(
+        default=20,
+        ge=1,
+        alias="FLUTTER_EVENT_SUBMIT_RATE_LIMIT",
+    )
+    flutter_event_submit_rate_window_seconds: int = Field(
+        default=3600,
+        ge=1,
+        alias="FLUTTER_EVENT_SUBMIT_RATE_WINDOW_SECONDS",
+    )
 
     # ── University superapp identity bridge ──────────────────────────────────
     # All optional and OFF by default: until an issuer + a verification key are

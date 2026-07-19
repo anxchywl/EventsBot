@@ -4,6 +4,7 @@ import os
 import struct
 import unittest
 import zlib
+from datetime import date
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -19,6 +20,7 @@ from app.services.cover_storage import (  # noqa: E402
     CoverUploadError,
     validate_cover_bytes,
 )
+from app.web.schemas import FlutterEventCreate  # noqa: E402
 
 
 def _run(coro):
@@ -298,11 +300,11 @@ class ApplyCoverChangeTest(unittest.TestCase):
 
 class SubmitEventCoverTest(unittest.TestCase):
     def _payload(self, cover_ref=None):
-        return SimpleNamespace(
+        return FlutterEventCreate(
             category_id=1,
             title="T",
             description="D",
-            event_date="2099-01-01",
+            event_date=date(2099, 1, 1),
             event_time="10:00",
             event_end_time="11:00",
             location="Room 1",
@@ -311,6 +313,7 @@ class SubmitEventCoverTest(unittest.TestCase):
             materials=None,
             registration_url=None,
             cover_ref=cover_ref,
+            client_request_id="request_1234567890",
         )
 
     def _session(self):
@@ -333,6 +336,22 @@ class SubmitEventCoverTest(unittest.TestCase):
                 flutter_events,
                 "get_category_by_id",
                 AsyncMock(return_value=SimpleNamespace(id=1)),
+            ),
+            patch.object(
+                flutter_events,
+                "acquire_event_submission_lock",
+                AsyncMock(),
+            ),
+            patch.object(
+                flutter_events,
+                "get_event_by_client_request_id",
+                AsyncMock(return_value=None),
+            ),
+            patch.object(flutter_events, "check_rate_limit", AsyncMock()),
+            patch.object(
+                flutter_events,
+                "find_event_schedule_conflict",
+                AsyncMock(return_value=None),
             ),
             patch.object(
                 flutter_events,
@@ -376,6 +395,22 @@ class SubmitEventCoverTest(unittest.TestCase):
                 AsyncMock(return_value=SimpleNamespace(id=1)),
             ),
             patch.object(
+                flutter_events,
+                "acquire_event_submission_lock",
+                AsyncMock(),
+            ),
+            patch.object(
+                flutter_events,
+                "get_event_by_client_request_id",
+                AsyncMock(return_value=None),
+            ),
+            patch.object(flutter_events, "check_rate_limit", AsyncMock()),
+            patch.object(
+                flutter_events,
+                "find_event_schedule_conflict",
+                AsyncMock(return_value=None),
+            ),
+            patch.object(
                 flutter_events, "consume_and_store_cover", side_effect=_fake_consume
             ),
             patch.object(
@@ -399,6 +434,22 @@ class SubmitEventCoverTest(unittest.TestCase):
                 flutter_events,
                 "get_category_by_id",
                 AsyncMock(return_value=SimpleNamespace(id=1)),
+            ),
+            patch.object(
+                flutter_events,
+                "acquire_event_submission_lock",
+                AsyncMock(),
+            ),
+            patch.object(
+                flutter_events,
+                "get_event_by_client_request_id",
+                AsyncMock(return_value=None),
+            ),
+            patch.object(flutter_events, "check_rate_limit", AsyncMock()),
+            patch.object(
+                flutter_events,
+                "find_event_schedule_conflict",
+                AsyncMock(return_value=None),
             ),
             patch.object(
                 flutter_events,

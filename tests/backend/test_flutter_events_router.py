@@ -9,9 +9,15 @@ os.environ.setdefault("BOT_TOKEN", "123456:test-token")
 os.environ.setdefault("SESSION_SECRET", "test-session-secret")
 
 from fastapi import HTTPException  # noqa: E402
+from pydantic import ValidationError  # noqa: E402
 
 import app.web.routers.flutter_events as fe  # noqa: E402
 from app.models.enums import EventStatus  # noqa: E402
+from app.web.schemas import (  # noqa: E402
+    FlutterEventCreate,
+    FlutterEventPatch,
+    FlutterEventResubmit,
+)
 
 
 def _run(coro):
@@ -22,6 +28,7 @@ def _event(**overrides):
     base = dict(
         id=42,
         public_token="tok-42",
+        client_request_fingerprint=None,
         title="Robotics Night",
         description="Come build robots",
         event_date=date(2099, 5, 1),
@@ -41,6 +48,82 @@ def _event(**overrides):
     )
     base.update(overrides)
     return SimpleNamespace(**base)
+
+
+def _create_payload(**overrides):
+    base = dict(
+        title="Robotics Night",
+        description="Come build robots",
+        event_date=date(2099, 5, 1),
+        event_time="18:00",
+        event_end_time="20:00",
+        location="Block C",
+        category_id=1,
+        organizer_name="Robotics Club",
+        client_request_id="request_1234567890",
+    )
+    base.update(overrides)
+    return FlutterEventCreate(**base)
+
+
+class EventPayloadValidationTest(unittest.TestCase):
+    def test_normalizes_single_line_fields_and_accepts_unicode(self):
+        payload = _create_payload(
+            title="  Robotics   Night 🎓  ",
+            organizer_name="  Студенческий клуб  ",
+        )
+        self.assertEqual(payload.title, "Robotics Night 🎓")
+        self.assertEqual(payload.organizer_name, "Студенческий клуб")
+
+    def test_rejects_blank_required_fields_and_control_characters(self):
+        for field_name, value in (
+            ("title", "   "),
+            ("location", "Room\x00A"),
+            ("organizer_name", "Club\nAdmin"),
+        ):
+            with self.subTest(field_name=field_name):
+                with self.assertRaises(ValidationError):
+                    _create_payload(**{field_name: value})
+
+    def test_rejects_invalid_registration_schemes_and_whitespace(self):
+        for value in (
+            "javascript:alert(1)",
+            "file:///tmp/form",
+            "/relative",
+            "https://events.example.edu/a b",
+        ):
+            with self.subTest(value=value):
+                with self.assertRaises(ValidationError):
+                    _create_payload(registration_url=value)
+
+    def test_accepts_http_links_with_a_real_hostname(self):
+        payload = _create_payload(
+            registration_url="https://events.example.edu/register?club=robotics"
+        )
+        self.assertEqual(
+            payload.registration_url,
+            "https://events.example.edu/register?club=robotics",
+        )
+
+    def test_accepts_legacy_payload_without_client_request_id(self):
+        data = _create_payload().model_dump()
+        data.pop("client_request_id")
+        payload = FlutterEventCreate(**data)
+        self.assertIsNone(payload.client_request_id)
+
+    def test_rejects_invalid_client_request_id(self):
+        with self.assertRaises(ValidationError):
+            _create_payload(client_request_id="short")
+
+    def test_patch_rejects_reversed_times(self):
+        with self.assertRaises(ValidationError):
+            FlutterEventPatch(event_time="20:00", event_end_time="18:00")
+
+    def test_resubmit_rejects_explicitly_blank_core_fields(self):
+        for field_name in ("title", "description", "location", "organizer_name"):
+            with self.subTest(field_name=field_name):
+                with self.assertRaises(ValidationError):
+                    FlutterEventResubmit(**{field_name: "   "})
 
 
 class SerializeEventTest(unittest.TestCase):
@@ -118,6 +201,133 @@ class GetEventVisibilityTest(unittest.TestCase):
                     fe.get_event(123, SimpleNamespace(id=1, role="admin"), AsyncMock())
                 )
         self.assertEqual(ctx.exception.status_code, 404)
+
+
+class EventMutationInvariantTest(unittest.TestCase):
+    def test_create_retry_returns_the_existing_owned_event(self):
+        user = SimpleNamespace(id=7)
+        payload = _create_payload()
+        fingerprint = fe.event_submission_fingerprint(
+            payload.model_dump(mode="json", exclude={"client_request_id"})
+        )
+        existing = _event(
+            creator_user_id=user.id,
+            client_request_fingerprint=fingerprint,
+        )
+        session = AsyncMock()
+        with (
+            patch.object(fe, "acquire_event_submission_lock", AsyncMock()),
+            patch.object(
+                fe,
+                "get_event_by_client_request_id",
+                AsyncMock(return_value=existing),
+            ),
+            patch.object(fe, "check_rate_limit", AsyncMock()) as rate_limit,
+            patch.object(fe, "create_pending_event", AsyncMock()) as create,
+        ):
+            result = _run(fe.submit_event(payload, user, session))
+
+        self.assertEqual(result.id, existing.id)
+        rate_limit.assert_not_awaited()
+        create.assert_not_awaited()
+
+    def test_create_retry_rejects_a_changed_payload_for_the_same_key(self):
+        user = SimpleNamespace(id=7)
+        existing = _event(
+            creator_user_id=user.id,
+            client_request_fingerprint="different",
+        )
+        with (
+            patch.object(fe, "acquire_event_submission_lock", AsyncMock()),
+            patch.object(
+                fe,
+                "get_event_by_client_request_id",
+                AsyncMock(return_value=existing),
+            ),
+            patch.object(fe, "check_rate_limit", AsyncMock()) as rate_limit,
+        ):
+            with self.assertRaises(HTTPException) as ctx:
+                _run(fe.submit_event(_create_payload(), user, AsyncMock()))
+
+        self.assertEqual(ctx.exception.status_code, 409)
+        rate_limit.assert_not_awaited()
+
+    def test_create_rejects_an_overlapping_active_event(self):
+        user = SimpleNamespace(id=7)
+        session = AsyncMock()
+        with (
+            patch.object(fe, "acquire_event_submission_lock", AsyncMock()),
+            patch.object(
+                fe,
+                "get_event_by_client_request_id",
+                AsyncMock(return_value=None),
+            ),
+            patch.object(fe, "check_rate_limit", AsyncMock()),
+            patch.object(
+                fe,
+                "get_category_by_id",
+                AsyncMock(return_value=SimpleNamespace(id=1)),
+            ),
+            patch.object(
+                fe,
+                "find_event_schedule_conflict",
+                AsyncMock(return_value=_event()),
+            ),
+            patch.object(fe, "create_pending_event", AsyncMock()) as create,
+        ):
+            with self.assertRaises(HTTPException) as ctx:
+                _run(fe.submit_event(_create_payload(), user, session))
+
+        self.assertEqual(ctx.exception.status_code, 409)
+        create.assert_not_awaited()
+
+    def test_partial_resubmit_cannot_reverse_the_persisted_time_range(self):
+        user = SimpleNamespace(id=7)
+        event = _event(
+            status=EventStatus.NEEDS_CHANGES.value,
+            creator_user_id=user.id,
+        )
+        with patch.object(fe, "get_event_by_id", AsyncMock(return_value=event)):
+            with self.assertRaises(HTTPException) as ctx:
+                _run(
+                    fe.resubmit_event(
+                        event.id,
+                        FlutterEventResubmit(event_end_time="17:00"),
+                        user,
+                        AsyncMock(),
+                    )
+                )
+        self.assertEqual(ctx.exception.status_code, 422)
+
+    def test_resubmit_can_clear_optional_text_fields(self):
+        user = SimpleNamespace(id=7)
+        event = _event(
+            status=EventStatus.NEEDS_CHANGES.value,
+            creator_user_id=user.id,
+            registration_url="https://events.example.edu/register",
+        )
+        session = AsyncMock()
+        session.add = lambda *args, **kwargs: None
+        with (
+            patch.object(fe, "get_event_by_id", AsyncMock(return_value=event)),
+            patch.object(fe, "acquire_event_submission_lock", AsyncMock()),
+            patch.object(
+                fe,
+                "find_event_schedule_conflict",
+                AsyncMock(return_value=None),
+            ),
+            patch.object(fe, "_notify_reviewer_of_resubmission", AsyncMock()),
+        ):
+            _run(
+                fe.resubmit_event(
+                    event.id,
+                    FlutterEventResubmit(registration_url=""),
+                    user,
+                    session,
+                )
+            )
+
+        self.assertIsNone(event.registration_url)
 
 
 class ModerationLockTest(unittest.TestCase):

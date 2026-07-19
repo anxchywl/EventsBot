@@ -1,9 +1,10 @@
 import os
+from datetime import date, time
 
 os.environ.setdefault("BOT_TOKEN", "123456:test-token")
 
 import pytest  # noqa: E402
-from sqlalchemy import func, select  # noqa: E402
+from sqlalchemy import select  # noqa: E402
 
 from app.models.enums import EventStatus, ModerationAction  # noqa: E402
 from app.models.event import Event  # noqa: E402
@@ -11,6 +12,8 @@ from app.models.event_sync import EventSyncJob  # noqa: E402
 from app.models.moderation import ModerationLog  # noqa: E402
 from app.services.events import (  # noqa: E402
     delete_event_completely,
+    find_event_schedule_conflict,
+    get_category_by_id,
     get_event_by_public_token,
     get_pending_events,
     update_event_status,
@@ -210,3 +213,66 @@ async def test_public_token_unique_index_enforced(
         dup.public_token = first.public_token
         with pytest.raises(IntegrityError):
             await session.flush()
+
+
+@pytest.mark.anyio
+async def test_client_request_id_unique_index_enforced(
+    db_session, make_user, make_category, make_event
+):
+    from sqlalchemy.exc import IntegrityError
+
+    async with db_session() as session:
+        creator = await make_user(session)
+        category = await make_category(session)
+        await make_event(
+            session,
+            creator,
+            category,
+            client_request_id="request_1234567890",
+            client_request_fingerprint="a" * 64,
+        )
+
+        with pytest.raises(IntegrityError):
+            await make_event(
+                session,
+                creator,
+                category,
+                title="Duplicate request",
+                client_request_id="request_1234567890",
+                client_request_fingerprint="a" * 64,
+            )
+
+
+@pytest.mark.anyio
+async def test_schedule_conflict_uses_time_overlap_not_the_whole_day(
+    db_session, make_user, make_category, make_event
+):
+    async with db_session() as session:
+        creator = await make_user(session)
+        category = await make_category(session)
+        existing = await make_event(session, creator, category)
+
+        overlap = await find_event_schedule_conflict(
+            session,
+            event_date=date(2099, 5, 1),
+            event_time=time(19, 0),
+            event_end_time=time(21, 0),
+            location="  block   c  ",
+        )
+        adjacent = await find_event_schedule_conflict(
+            session,
+            event_date=date(2099, 5, 1),
+            event_time=time(20, 0),
+            event_end_time=time(21, 0),
+            location="Block C",
+        )
+
+        assert overlap.id == existing.id
+        assert adjacent is None
+
+
+@pytest.mark.anyio
+async def test_inactive_category_cannot_be_selected(db_session, make_category):
+    async with db_session() as session:
+        category = await make_category(session, is_active=False)
+        assert await get_category_by_id(session, category.id) is None

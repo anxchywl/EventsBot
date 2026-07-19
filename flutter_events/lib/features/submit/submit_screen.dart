@@ -1,3 +1,4 @@
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:app_ui/app_ui.dart';
@@ -13,6 +14,7 @@ import '../../core/exceptions.dart';
 import '../../core/localization.dart';
 import '../../models/category_model.dart';
 import '../../models/event_model.dart';
+import 'event_form_validation.dart';
 
 enum _SubmitViewMode {
   form,
@@ -97,6 +99,7 @@ class _SubmitScreenState extends State<SubmitScreen> {
   String? _coverError;
 
   final _picker = ImagePicker();
+  late final String _clientRequestId = createEventRequestId();
 
   @override
   void initState() {
@@ -329,77 +332,107 @@ class _SubmitScreenState extends State<SubmitScreen> {
     return h * 60 + m;
   }
 
-  String? _required(String? value) {
-    if (value == null || value.trim().isEmpty) {
-      return AppLocalizations.get('required');
-    }
-    return null;
-  }
+  String? _validateTitle(String? value) => validateRequiredEventText(
+    value,
+    maxLength: EventFormLimits.title,
+    emptyMessage: AppLocalizations.get('required'),
+    fieldName: 'Title',
+  );
+
+  String? _validateDescription(String? value) => validateRequiredEventText(
+    value,
+    maxLength: EventFormLimits.description,
+    emptyMessage: AppLocalizations.get('required'),
+    fieldName: 'Description',
+    allowLineBreaks: true,
+  );
+
+  String? _validateOrganizer(String? value) => validateRequiredEventText(
+    value,
+    maxLength: EventFormLimits.organizer,
+    emptyMessage: AppLocalizations.get('required'),
+    fieldName: 'Organizer',
+  );
+
+  String? _validateLocation(String? value) => validateRequiredEventText(
+    value,
+    maxLength: EventFormLimits.location,
+    emptyMessage: AppLocalizations.get('required'),
+    fieldName: 'Location',
+  );
 
   String? _validateDate(String? value) {
-    if (_date == null) return AppLocalizations.get('specifyDate');
-    return null;
+    return validateEventDate(
+      _date,
+      now: DateTime.now(),
+      missingMessage: AppLocalizations.get('specifyDate'),
+    );
   }
 
   String? _validateTime(String? value) {
-    if (_time == null) return AppLocalizations.get('specifyTime');
-    if (_date != null) {
-      final now = DateTime.now();
-      if (_date!.year == now.year &&
-          _date!.month == now.month &&
-          _date!.day == now.day) {
-        if (_toMinutes(_time!) < now.hour * 60 + now.minute) {
-          return 'Time has already passed today';
-        }
-      }
-    }
-    return null;
+    return validateEventStartTime(
+      date: _date,
+      startTime: _time,
+      now: DateTime.now(),
+      missingMessage: AppLocalizations.get('specifyTime'),
+    );
   }
 
   String? _validateEndTime(String? value) {
-    if (_endTime == null) return AppLocalizations.get('specifyEndTime');
-    if (_time != null) {
-      if (_toMinutes(_endTime!) <= _toMinutes(_time!)) {
-        return 'End time must be after start time';
-      }
-    }
-    return null;
+    return validateEventEndTime(
+      startTime: _time,
+      endTime: _endTime,
+      missingMessage: AppLocalizations.get('specifyEndTime'),
+    );
   }
 
   String? _validateRegistrationUrl(String? value) {
-    if (value == null || value.trim().isEmpty) return null;
-    final text = value.trim();
-    final uri = Uri.tryParse(text);
-    final hasScheme = text.startsWith('http://') || text.startsWith('https://');
-    if (uri == null ||
-        !hasScheme ||
-        uri.host.isEmpty ||
-        !uri.host.contains('.')) {
-      return 'Please enter a valid URL';
-    }
-    return null;
+    return validateEventRegistrationUrl(value);
   }
 
   bool _isStepValid(int step) {
     if (step == 0) {
-      if (_date == null) return false;
-      if (_time == null) return false;
-      if (_endTime == null) return false;
-      if (_locationController.text.trim().isEmpty) return false;
+      if (_validateDate(_dateController.text) != null) return false;
+      if (_validateTime(_timeController.text) != null) return false;
+      if (_validateEndTime(_endTimeController.text) != null) return false;
+      if (_validateLocation(_locationController.text) != null) return false;
       if (_validateRegistrationUrl(_registrationController.text) != null) {
         return false;
       }
       return true;
     }
     if (step == 1) {
-      if (_required(_titleController.text) != null) return false;
-      if (_required(_descriptionController.text) != null) return false;
-      if (_required(_organizerController.text) != null) return false;
+      if (_validateTitle(_titleController.text) != null) return false;
+      if (_validateDescription(_descriptionController.text) != null) {
+        return false;
+      }
+      if (_validateOrganizer(_organizerController.text) != null) return false;
       if (_categoryId == null) return false;
       return true;
     }
     // wait for cover upload before submit
-    if (step == 2) return !_coverUploading;
+    if (step == 2) {
+      if (_coverUploading) return false;
+      if (validateOptionalEventText(
+            _itEquipmentController.text,
+            maxLength: EventFormLimits.resource,
+            fieldName: 'IT equipment',
+            allowLineBreaks: true,
+          ) !=
+          null) {
+        return false;
+      }
+      if (validateOptionalEventText(
+            _materialsController.text,
+            maxLength: EventFormLimits.resource,
+            fieldName: 'Materials',
+            allowLineBreaks: true,
+          ) !=
+          null) {
+        return false;
+      }
+      return true;
+    }
     return true;
   }
 
@@ -479,6 +512,22 @@ class _SubmitScreenState extends State<SubmitScreen> {
       _showMessage(AppLocalizations.get('coverStillUploading'));
       return;
     }
+    int? invalidStep;
+    for (var step = 0; step < _formKeys.length; step++) {
+      if (!_isStepValid(step)) {
+        invalidStep = step;
+        break;
+      }
+    }
+    if (invalidStep != null) {
+      final stepToReview = invalidStep;
+      setState(() => _currentStep = stepToReview);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _formKeys[stepToReview].currentState?.validate();
+      });
+      _showMessage('Please review the highlighted fields');
+      return;
+    }
     setState(() => _submitting = true);
     try {
       final fields = {
@@ -494,6 +543,9 @@ class _SubmitScreenState extends State<SubmitScreen> {
         'materials': _nullIfEmpty(_materialsController.text),
         'registration_url': _nullIfEmpty(_registrationController.text),
       };
+      if (!_isResubmit) {
+        fields['client_request_id'] = _clientRequestId;
+      }
       if (_coverRef != null) {
         fields['cover_ref'] = _coverRef;
       }
@@ -511,6 +563,8 @@ class _SubmitScreenState extends State<SubmitScreen> {
       _showMessage(e.message);
     } on ApiException catch (e) {
       _showMessage(e.message);
+    } catch (_) {
+      _showMessage(AppLocalizations.get('somethingWentWrong'));
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
@@ -558,9 +612,10 @@ class _SubmitScreenState extends State<SubmitScreen> {
   }
 
   void _showMessage(String message) {
-    ScaffoldMessenger.of(
+    if (!mounted) return;
+    ScaffoldMessenger.maybeOf(
       context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+    )?.showSnackBar(SnackBar(content: Text(message)));
   }
 
   String get _currentTitle {
@@ -721,7 +776,17 @@ class _SubmitScreenState extends State<SubmitScreen> {
   }
 
   Widget _buildDatePickerView({Key? key}) {
-    final now = DateTime.now();
+    final now = DateUtils.dateOnly(DateTime.now());
+    final defaultLastDate = now.add(const Duration(days: 365));
+    final selectedDate = DateUtils.dateOnly(_date ?? now);
+    final lastDate = selectedDate.isAfter(defaultLastDate)
+        ? selectedDate
+        : defaultLastDate;
+    final pickerDate = clampEventPickerDate(
+      _date ?? now,
+      firstDate: now,
+      lastDate: lastDate,
+    );
     final isLight = Theme.of(context).brightness == Brightness.light;
     final textPrimary = isLight ? const Color(0xFF0A0A1A) : Colors.white;
     final textSub = isLight ? const Color(0xFF6B6B80) : const Color(0xFF8E8EA3);
@@ -743,9 +808,9 @@ class _SubmitScreenState extends State<SubmitScreen> {
                 ),
               ),
               child: CalendarDatePicker(
-                initialDate: _date ?? now,
+                initialDate: pickerDate,
                 firstDate: now,
-                lastDate: now.add(const Duration(days: 365)),
+                lastDate: lastDate,
                 onDateChanged: (date) {
                   setState(() {
                     _date = date;
@@ -763,7 +828,7 @@ class _SubmitScreenState extends State<SubmitScreen> {
               text: 'OK',
               onPressed: () {
                 setState(() {
-                  _date ??= now;
+                  _date = pickerDate;
                   _dateController.text = DateFormat(
                     'dd.MM.yyyy',
                   ).format(_date!);
@@ -778,10 +843,10 @@ class _SubmitScreenState extends State<SubmitScreen> {
   }
 
   Widget _buildTimePickerView({Key? key, required bool isEnd}) {
-    final defaultHour = isEnd
-        ? (_time != null ? (_time!.hour + 1) % 24 : TimeOfDay.now().hour)
-        : 15;
-    final defaultMinute = isEnd ? (_time != null ? _time!.minute : 0) : 0;
+    final startMinutes = _time == null ? null : _toMinutes(_time!);
+    final defaultEndMinutes = min((startMinutes ?? 14 * 60) + 60, 23 * 60 + 59);
+    final defaultHour = isEnd ? defaultEndMinutes ~/ 60 : 15;
+    final defaultMinute = isEnd ? defaultEndMinutes % 60 : 0;
 
     return KeyedSubtree(
       key: key,
@@ -817,15 +882,10 @@ class _SubmitScreenState extends State<SubmitScreen> {
                       } else {
                         _time = t;
                         _timeController.text = _formatTime(t);
-                        // Auto-adjust end time if it becomes invalid
                         if (_endTime != null) {
                           if (_toMinutes(_endTime!) <= _toMinutes(_time!)) {
-                            final newEnd = TimeOfDay(
-                              hour: (t.hour + 1) % 24,
-                              minute: t.minute,
-                            );
-                            _endTime = newEnd;
-                            _endTimeController.text = _formatTime(newEnd);
+                            _endTime = null;
+                            _endTimeController.clear();
                           }
                         }
                       }
@@ -1063,8 +1123,9 @@ class _SubmitScreenState extends State<SubmitScreen> {
               controller: _titleController,
               focusNode: _titleFocus,
               label: AppLocalizations.get('title'),
-              maxLength: 100,
-              validator: _required,
+              maxLength: EventFormLimits.title,
+              validator: _validateTitle,
+              textCapitalization: TextCapitalization.sentences,
             ),
             !_isEditing || _titleFocus.hasFocus,
             focusNode: _titleFocus,
@@ -1076,8 +1137,9 @@ class _SubmitScreenState extends State<SubmitScreen> {
               focusNode: _descriptionFocus,
               label: AppLocalizations.get('description'),
               maxLines: 4,
-              maxLength: 1000,
-              validator: _required,
+              maxLength: EventFormLimits.description,
+              validator: _validateDescription,
+              textCapitalization: TextCapitalization.sentences,
             ),
             !_isEditing || _descriptionFocus.hasFocus,
             focusNode: _descriptionFocus,
@@ -1088,8 +1150,9 @@ class _SubmitScreenState extends State<SubmitScreen> {
               controller: _organizerController,
               focusNode: _organizerFocus,
               label: AppLocalizations.get('organizer'),
-              maxLength: 100,
-              validator: _required,
+              maxLength: EventFormLimits.organizer,
+              validator: _validateOrganizer,
+              textCapitalization: TextCapitalization.words,
             ),
             !_isEditing || _organizerFocus.hasFocus,
             focusNode: _organizerFocus,
@@ -1513,8 +1576,9 @@ class _SubmitScreenState extends State<SubmitScreen> {
               controller: _locationController,
               focusNode: _locationFocus,
               label: AppLocalizations.get('place'),
-              maxLength: 200,
-              validator: _required,
+              maxLength: EventFormLimits.location,
+              validator: _validateLocation,
+              textCapitalization: TextCapitalization.words,
             ),
             !_isEditing || _locationFocus.hasFocus,
             focusNode: _locationFocus,
@@ -1526,7 +1590,7 @@ class _SubmitScreenState extends State<SubmitScreen> {
               focusNode: _registrationFocus,
               label: AppLocalizations.get('registrationUrl'),
               keyboardType: TextInputType.url,
-              maxLength: 500,
+              maxLength: EventFormLimits.registrationUrl,
               errorText: _validateRegistrationUrl(_registrationController.text),
               onChanged: (_) => setState(() {}),
               validator: _validateRegistrationUrl,
@@ -1552,7 +1616,14 @@ class _SubmitScreenState extends State<SubmitScreen> {
               label: AppLocalizations.get('itEquipment'),
               hint: AppLocalizations.get('itEquipmentHint'),
               maxLines: 3,
-              maxLength: 500,
+              maxLength: EventFormLimits.resource,
+              validator: (value) => validateOptionalEventText(
+                value,
+                maxLength: EventFormLimits.resource,
+                fieldName: 'IT equipment',
+                allowLineBreaks: true,
+              ),
+              textCapitalization: TextCapitalization.sentences,
             ),
             !_isEditing || _itEquipmentFocus.hasFocus,
             focusNode: _itEquipmentFocus,
@@ -1565,7 +1636,14 @@ class _SubmitScreenState extends State<SubmitScreen> {
               label: AppLocalizations.get('materials'),
               hint: AppLocalizations.get('materialsHint'),
               maxLines: 3,
-              maxLength: 500,
+              maxLength: EventFormLimits.resource,
+              validator: (value) => validateOptionalEventText(
+                value,
+                maxLength: EventFormLimits.resource,
+                fieldName: 'Materials',
+                allowLineBreaks: true,
+              ),
+              textCapitalization: TextCapitalization.sentences,
             ),
             !_isEditing || _materialsFocus.hasFocus,
             focusNode: _materialsFocus,
@@ -1586,6 +1664,8 @@ class _SubmitScreenState extends State<SubmitScreen> {
             _titleController,
             _descriptionController,
             _organizerController,
+            _itEquipmentController,
+            _materialsController,
           ]),
           builder: (context, child) {
             final isValid = _isStepValid(_currentStep);

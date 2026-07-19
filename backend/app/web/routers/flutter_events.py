@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from datetime import datetime
 
 from fastapi import (
     APIRouter,
@@ -30,11 +29,16 @@ from app.services.event_sync import (
     enqueue_event_sync,
 )
 from app.services.events import (
+    acquire_event_submission_lock,
     create_pending_event,
+    event_submission_fingerprint,
+    find_event_schedule_conflict,
     get_active_categories,
     get_category_by_id,
+    get_event_by_client_request_id,
     get_event_by_id,
     get_pending_events,
+    normalize_event_location,
     update_event_status,
 )
 from app.config import get_settings
@@ -55,6 +59,8 @@ from app.web.schemas import (
     FlutterEventPatch,
     FlutterEventResubmit,
     FlutterEventStatusUpdate,
+    validate_event_schedule,
+    validate_event_time_range,
 )
 from app.web.realtime import publish_miniapp_event, subscribe_miniapp_events
 from app.web.telegram import get_web_bot
@@ -307,23 +313,67 @@ async def submit_event(
     user: User = Depends(require_flutter_user),
     session: AsyncSession = Depends(get_session),
 ) -> FlutterEventItem:
+    request_fingerprint: str | None = None
+    if payload.client_request_id is not None:
+        request_fingerprint = event_submission_fingerprint(
+            payload.model_dump(
+                mode="json",
+                exclude={"client_request_id"},
+            )
+        )
+        await acquire_event_submission_lock(
+            session,
+            f"event-request:{payload.client_request_id}",
+        )
+        existing = await get_event_by_client_request_id(
+            session,
+            payload.client_request_id,
+        )
+        if existing is not None:
+            if (
+                existing.creator_user_id != user.id
+                or existing.client_request_fingerprint != request_fingerprint
+            ):
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT,
+                    "This event request could not be completed",
+                )
+            return _serialize_event(existing)
+
+    settings = get_settings()
+    await check_rate_limit(
+        f"rate:flutter:{user.id}:event_submit",
+        settings.flutter_event_submit_rate_limit,
+        settings.flutter_event_submit_rate_window_seconds,
+        "Too many event submissions. Please try again later.",
+    )
+
     category = await get_category_by_id(session, payload.category_id)
     if category is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Category not found")
 
-    conflict = await session.scalar(
-        select(Event.id)
-        .where(
-            Event.status == EventStatus.APPROVED.value,
-            Event.event_date == payload.event_date,
-            func.lower(Event.location) == func.lower(payload.location),
-        )
-        .limit(1)
+    event_time, event_end_time = validate_event_schedule(
+        payload.event_date,
+        payload.event_time,
+        payload.event_end_time,
+    )
+    await acquire_event_submission_lock(
+        session,
+        "event-schedule:"
+        f"{payload.event_date.isoformat()}:"
+        f"{normalize_event_location(payload.location)}",
+    )
+    conflict = await find_event_schedule_conflict(
+        session,
+        event_date=payload.event_date,
+        event_time=event_time,
+        event_end_time=event_end_time,
+        location=payload.location,
     )
     if conflict is not None:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
-            "This location is already booked on that date",
+            "This location is already booked during that time",
         )
 
     # fail forged tokens before creating the event
@@ -334,13 +384,13 @@ async def submit_event(
             payload.cover_ref, user.id, sent_covers
         )
 
-    event_time = datetime.strptime(payload.event_time, "%H:%M").time()
-    event_end_time = datetime.strptime(payload.event_end_time, "%H:%M").time()
     event = await create_pending_event(
         session,
         creator=user,
         event_data={
             "title": payload.title,
+            "client_request_id": payload.client_request_id,
+            "client_request_fingerprint": request_fingerprint,
             "description": payload.description,
             "event_date": payload.event_date,
             "event_time": event_time,
@@ -390,6 +440,47 @@ async def resubmit_event(
     # repeated resubmissions while the event is already awaiting review
     was_needs_changes = event.status == EventStatus.NEEDS_CHANGES.value
 
+    event_date = payload.event_date or event.event_date
+    event_time_value = payload.event_time or event.event_time.strftime("%H:%M")
+    event_end_time_value = payload.event_end_time or (
+        event.event_end_time.strftime("%H:%M") if event.event_end_time else None
+    )
+    if event_end_time_value is None:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "Event end time is required",
+        )
+    try:
+        event_time, event_end_time = validate_event_schedule(
+            event_date,
+            event_time_value,
+            event_end_time_value,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            str(exc),
+        ) from exc
+
+    location = payload.location or event.location
+    await acquire_event_submission_lock(
+        session,
+        f"event-schedule:{event_date.isoformat()}:{normalize_event_location(location)}",
+    )
+    conflict = await find_event_schedule_conflict(
+        session,
+        event_date=event_date,
+        event_time=event_time,
+        event_end_time=event_end_time,
+        location=location,
+        exclude_event_id=event.id,
+    )
+    if conflict is not None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "This location is already booked during that time",
+        )
+
     # apply any updated fields to the existing row (no new event/draft)
     if payload.category_id is not None and payload.category_id != event.category_id:
         category = await get_category_by_id(session, payload.category_id)
@@ -401,20 +492,20 @@ async def resubmit_event(
     if payload.description is not None:
         event.description = payload.description
     if payload.event_date is not None:
-        event.event_date = payload.event_date
+        event.event_date = event_date
     if payload.event_time is not None:
-        event.event_time = datetime.strptime(payload.event_time, "%H:%M").time()
+        event.event_time = event_time
     if payload.event_end_time is not None:
-        event.event_end_time = datetime.strptime(payload.event_end_time, "%H:%M").time()
+        event.event_end_time = event_end_time
     if payload.location is not None:
         event.location = payload.location
     if payload.organizer_name is not None:
         event.organizer_name = payload.organizer_name
-    if payload.it_equipment is not None:
+    if "it_equipment" in payload.model_fields_set:
         event.it_equipment = payload.it_equipment
-    if payload.materials is not None:
+    if "materials" in payload.model_fields_set:
         event.materials = payload.materials
-    if payload.registration_url is not None:
+    if "registration_url" in payload.model_fields_set:
         event.registration_url = payload.registration_url
 
     sent_covers: list[int] = []
@@ -486,8 +577,49 @@ async def patch_event(
     if event is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Event not found")
 
-    if payload.event_end_time is not None:
-        event.event_end_time = datetime.strptime(payload.event_end_time, "%H:%M").time()
+    if payload.event_time is not None or payload.event_end_time is not None:
+        event_time_value = payload.event_time or event.event_time.strftime("%H:%M")
+        event_end_time_value = payload.event_end_time or (
+            event.event_end_time.strftime("%H:%M") if event.event_end_time else None
+        )
+        if event_end_time_value is None:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                "Event end time is required",
+            )
+        try:
+            event_time, event_end_time = validate_event_time_range(
+                event_time_value,
+                event_end_time_value,
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                str(exc),
+            ) from exc
+
+        await acquire_event_submission_lock(
+            session,
+            "event-schedule:"
+            f"{event.event_date.isoformat()}:"
+            f"{normalize_event_location(event.location)}",
+        )
+        conflict = await find_event_schedule_conflict(
+            session,
+            event_date=event.event_date,
+            event_time=event_time,
+            event_end_time=event_end_time,
+            location=event.location,
+            exclude_event_id=event.id,
+        )
+        if conflict is not None:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "This location is already booked during that time",
+            )
+
+        event.event_time = event_time
+        event.event_end_time = event_end_time
 
     sent_covers: list[int] = []
     await _apply_cover_change(

@@ -1,15 +1,17 @@
 import asyncio
 import os
 import unittest
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from types import SimpleNamespace
 
 os.environ.setdefault("BOT_TOKEN", "123456:test-token")
 
 from app.models.enums import EventStatus, ModerationAction  # noqa: E402
+from app.models.event import Event  # noqa: E402
 from app.models.moderation import ModerationLog  # noqa: E402
 from app.services.events import (  # noqa: E402
     ensure_event_public_token,
+    find_event_schedule_conflict,
     get_pending_events,
     normalize_public_token,
     update_event_status,
@@ -91,6 +93,85 @@ class PendingQueueTest(unittest.TestCase):
 
         # resubmitted (creator waiting) first, then needs_changes, then pending
         self.assertEqual([e.id for e in result], [3, 2, 1])
+
+
+def _scheduled_event(
+    event_id,
+    start,
+    end,
+    location="Block C",
+):
+    return SimpleNamespace(
+        id=event_id,
+        status=EventStatus.APPROVED.value,
+        event_date=date(2099, 5, 1),
+        event_time=start,
+        event_end_time=end,
+        location=location,
+    )
+
+
+class EventScheduleConflictTest(unittest.TestCase):
+    def test_detects_only_real_time_overlap_at_the_same_location(self):
+        existing = _scheduled_event(1, time(18, 0), time(20, 0))
+        session = PendingSession([existing])
+
+        overlap = _run(
+            find_event_schedule_conflict(
+                session,
+                event_date=date(2099, 5, 1),
+                event_time=time(19, 0),
+                event_end_time=time(21, 0),
+                location="  block   c ",
+            )
+        )
+        adjacent = _run(
+            find_event_schedule_conflict(
+                session,
+                event_date=date(2099, 5, 1),
+                event_time=time(20, 0),
+                event_end_time=time(21, 0),
+                location="Block C",
+            )
+        )
+
+        self.assertIs(overlap, existing)
+        self.assertIsNone(adjacent)
+
+    def test_excludes_the_event_being_resubmitted(self):
+        existing = _scheduled_event(1, time(18, 0), time(20, 0))
+        session = PendingSession([existing])
+        result = _run(
+            find_event_schedule_conflict(
+                session,
+                event_date=date(2099, 5, 1),
+                event_time=time(18, 0),
+                event_end_time=time(20, 0),
+                location="Block C",
+                exclude_event_id=1,
+            )
+        )
+        self.assertIsNone(result)
+
+    def test_legacy_events_without_end_time_reserve_one_hour(self):
+        existing = _scheduled_event(1, time(18, 0), None)
+        session = PendingSession([existing])
+        result = _run(
+            find_event_schedule_conflict(
+                session,
+                event_date=date(2099, 5, 1),
+                event_time=time(18, 30),
+                event_end_time=time(19, 30),
+                location="Block C",
+            )
+        )
+        self.assertIs(result, existing)
+
+    def test_client_request_id_has_a_unique_database_index(self):
+        indexes = {index.name: index for index in Event.__table__.indexes}
+        self.assertIn("ix_events_client_request_id", indexes)
+        self.assertTrue(indexes["ix_events_client_request_id"].unique)
+        self.assertEqual(Event.client_request_fingerprint.type.length, 64)
 
 
 class FakeScalarOne:

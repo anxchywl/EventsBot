@@ -1,8 +1,11 @@
+import hashlib
+import json
 import logging
+from datetime import date, datetime, time, timedelta
 from typing import Sequence
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from aiogram import Bot
@@ -30,9 +33,91 @@ async def get_category_by_id(
     session: AsyncSession, category_id: int
 ) -> EventCategory | None:
     result = await session.execute(
-        select(EventCategory).where(EventCategory.id == category_id)
+        select(EventCategory).where(
+            EventCategory.id == category_id,
+            EventCategory.is_active.is_(True),
+        )
     )
     return result.scalar_one_or_none()
+
+
+_SCHEDULED_EVENT_STATUSES = {
+    EventStatus.PENDING.value,
+    EventStatus.APPROVED.value,
+    EventStatus.NEEDS_CHANGES.value,
+    EventStatus.RESUBMITTED.value,
+}
+
+
+def normalize_event_location(value: str) -> str:
+    return " ".join(value.split()).casefold()
+
+
+def event_submission_fingerprint(payload: dict) -> str:
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+async def acquire_event_submission_lock(
+    session: AsyncSession,
+    lock_key: str,
+) -> None:
+    await session.execute(
+        select(func.pg_advisory_xact_lock(func.hashtextextended(lock_key, 0)))
+    )
+
+
+async def get_event_by_client_request_id(
+    session: AsyncSession,
+    client_request_id: str,
+) -> Event | None:
+    result = await session.execute(
+        select(Event)
+        .where(Event.client_request_id == client_request_id)
+        .options(selectinload(Event.category), selectinload(Event.creator))
+    )
+    return result.scalar_one_or_none()
+
+
+def _legacy_event_end(event_date: date, start_time: time) -> time:
+    start = datetime.combine(event_date, start_time)
+    end = min(start + timedelta(hours=1), datetime.combine(event_date, time.max))
+    return end.time()
+
+
+async def find_event_schedule_conflict(
+    session: AsyncSession,
+    *,
+    event_date: date,
+    event_time: time,
+    event_end_time: time,
+    location: str,
+    exclude_event_id: int | None = None,
+) -> Event | None:
+    result = await session.execute(
+        select(Event).where(
+            Event.event_date == event_date,
+            Event.status.in_(_SCHEDULED_EVENT_STATUSES),
+        )
+    )
+    normalized_location = normalize_event_location(location)
+    for candidate in result.scalars().all():
+        if exclude_event_id is not None and candidate.id == exclude_event_id:
+            continue
+        if normalize_event_location(candidate.location) != normalized_location:
+            continue
+        candidate_end = candidate.event_end_time or _legacy_event_end(
+            candidate.event_date,
+            candidate.event_time,
+        )
+        if event_time < candidate_end and event_end_time > candidate.event_time:
+            return candidate
+    return None
 
 
 # create a pending event with initial moderation history
@@ -44,6 +129,8 @@ async def create_pending_event(
     event = Event(
         creator_user_id=creator.id,
         public_token=str(uuid4()),
+        client_request_id=event_data.get("client_request_id"),
+        client_request_fingerprint=event_data.get("client_request_fingerprint"),
         title=event_data["title"],
         description=event_data["description"],
         event_date=event_data["event_date"],
