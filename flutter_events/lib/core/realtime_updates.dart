@@ -20,6 +20,7 @@ class RealtimeUpdates {
   final _controller = StreamController<RealtimeUpdate>.broadcast();
   HttpClient? _client;
   StreamSubscription<String>? _linesSub;
+  Timer? _reconnectTimer;
   bool _connecting = false;
   bool _closed = false;
 
@@ -31,10 +32,16 @@ class RealtimeUpdates {
   static const Duration _maxBackoff = Duration(seconds: 60);
 
   Stream<RealtimeUpdate> get stream {
-    if (!_connecting && _linesSub == null) {
+    ensureConnected();
+    return _controller.stream;
+  }
+
+  void ensureConnected() {
+    if (!_connecting &&
+        _linesSub == null &&
+        !(_reconnectTimer?.isActive ?? false)) {
       unawaited(_connect());
     }
-    return _controller.stream;
   }
 
   Future<void> _connect() async {
@@ -48,6 +55,11 @@ class RealtimeUpdates {
       final request = await _client!.getUrl(uri);
       request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
       final response = await request.close();
+      if (response.statusCode == HttpStatus.unauthorized) {
+        await response.drain<void>();
+        await AuthStore.expireIfCurrent(token);
+        return;
+      }
       if (response.statusCode != HttpStatus.ok) {
         _scheduleReconnect();
         return;
@@ -91,23 +103,32 @@ class RealtimeUpdates {
     _linesSub = null;
     _client?.close(force: true);
     _client = null;
-    if (_closed) return;
+    if (_closed || (_reconnectTimer?.isActive ?? false)) return;
 
-    final backoffMs =
-        (_baseBackoff.inMilliseconds * (1 << _reconnectAttempts))
-            .clamp(_baseBackoff.inMilliseconds, _maxBackoff.inMilliseconds);
+    final backoffMs = (_baseBackoff.inMilliseconds * (1 << _reconnectAttempts))
+        .clamp(_baseBackoff.inMilliseconds, _maxBackoff.inMilliseconds);
     if (_reconnectAttempts < 8) _reconnectAttempts++;
 
-    Timer(Duration(milliseconds: backoffMs), () {
+    _reconnectTimer = Timer(Duration(milliseconds: backoffMs), () {
+      _reconnectTimer = null;
       if (_closed || _linesSub != null || _connecting) return;
       unawaited(_connect());
     });
   }
 
+  Future<void> disconnect() async {
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+    await _linesSub?.cancel();
+    _linesSub = null;
+    _client?.close(force: true);
+    _client = null;
+    _reconnectAttempts = 0;
+  }
+
   Future<void> close() async {
     _closed = true;
-    await _linesSub?.cancel();
+    await disconnect();
     await _controller.close();
-    _client?.close(force: true);
   }
 }

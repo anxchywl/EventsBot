@@ -28,6 +28,7 @@ class EventDetailScreen extends StatefulWidget {
 class _EventDetailScreenState extends State<EventDetailScreen> {
   late EventModel _event = widget.event;
   bool _moderating = false;
+  bool _lifecycleMutating = false;
 
   // Only coordinators (admins) moderate. The backend
   // (PATCH /api/flutter/events/{id}/status via require_flutter_admin) is the
@@ -45,8 +46,17 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
           _event.status == 'approved' ||
           _event.status == 'rejected');
 
-  // creators may edit & resubmit their own event once it needs changes
-  bool get _canResubmit => !AuthStore.isAdmin && _event.isNeedsChanges;
+  // creator edits to published events are reviewed as drafts by the backend
+  bool get _canResubmit =>
+      !AuthStore.isAdmin &&
+      widget.showStatus &&
+      (_event.isNeedsChanges || _event.status == 'approved');
+
+  bool get _canCancel =>
+      !AuthStore.isAdmin && widget.showStatus && _event.canCreatorCancel;
+
+  bool get _canDelete =>
+      !AuthStore.isAdmin && widget.showStatus && _event.canCreatorDelete;
 
   @override
   void initState() {
@@ -108,36 +118,36 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
             AppSpacing.xxl,
           ),
           children: [
-          if (hasImage) ...[
-            ClipRRect(
-              borderRadius: AppSpacing.borderRadiusDf,
-              child: AspectRatio(
-                aspectRatio: 16 / 10,
-                child: Image.network(
-                  _event.coverUrl!,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, _, _) =>
-                      const ColoredBox(color: AppColors.fieldBackground),
+            if (hasImage) ...[
+              ClipRRect(
+                borderRadius: AppSpacing.borderRadiusDf,
+                child: AspectRatio(
+                  aspectRatio: 16 / 10,
+                  child: Image.network(
+                    _event.coverUrl!,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, _, _) =>
+                        const ColoredBox(color: AppColors.fieldBackground),
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: AppSpacing.lg),
-          ],
+              const SizedBox(height: AppSpacing.lg),
+            ],
 
-          _titleCard(theme),
-          const SizedBox(height: AppSpacing.lg),
-          _factsCard(),
-          if (_event.description.isNotEmpty)
-            _section('Description', _event.description),
-          if (AuthStore.isAdmin && _event.itEquipment?.isNotEmpty == true)
-            _section('IT Equipment', _event.itEquipment!),
-          if (AuthStore.isAdmin && _event.materials?.isNotEmpty == true)
-            _section('Materials', _event.materials!),
-          if (_event.registrationUrl?.isNotEmpty == true)
-            _registrationCard(_event.registrationUrl!, theme),
-          const SizedBox(height: AppSpacing.xxl),
-        ],
-      ),
+            _titleCard(theme),
+            const SizedBox(height: AppSpacing.lg),
+            _factsCard(),
+            if (_event.description.isNotEmpty)
+              _section('Description', _event.description),
+            if (AuthStore.isAdmin && _event.itEquipment?.isNotEmpty == true)
+              _section('IT Equipment', _event.itEquipment!),
+            if (AuthStore.isAdmin && _event.materials?.isNotEmpty == true)
+              _section('Materials', _event.materials!),
+            if (_event.registrationUrl?.isNotEmpty == true)
+              _registrationCard(_event.registrationUrl!, theme),
+            const SizedBox(height: AppSpacing.xxl),
+          ],
+        ),
       ),
       bottomNavigationBar: _buildBottomBar(),
     );
@@ -157,7 +167,7 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
         ),
       );
     }
-    if (_canResubmit) {
+    if (_canResubmit || _canCancel || _canDelete) {
       return SafeArea(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(
@@ -166,10 +176,39 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
             AppSpacing.df,
             AppSpacing.md,
           ),
-          child: AppPrimaryButton(
-            size: AppButtonSize.medium,
-            text: AppLocalizations.get('editAndResubmit'),
-            onPressed: _openResubmit,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (_canResubmit)
+                AppPrimaryButton(
+                  size: AppButtonSize.medium,
+                  text: _event.status == 'approved'
+                      ? 'Edit event'
+                      : AppLocalizations.get('editAndResubmit'),
+                  isLoading: _lifecycleMutating,
+                  onPressed: _lifecycleMutating ? null : _openResubmit,
+                ),
+              if (_canResubmit && _canCancel)
+                const SizedBox(height: AppSpacing.sm),
+              if (_canCancel)
+                AppSecondaryButton(
+                  size: AppButtonSize.medium,
+                  text: 'Cancel event',
+                  isLoading: _lifecycleMutating,
+                  borderColor: AppColors.error,
+                  textColor: AppColors.error,
+                  onPressed: _lifecycleMutating ? null : _confirmCancel,
+                ),
+              if (_canDelete)
+                AppSecondaryButton(
+                  size: AppButtonSize.medium,
+                  text: 'Delete event',
+                  isLoading: _lifecycleMutating,
+                  borderColor: AppColors.error,
+                  textColor: AppColors.error,
+                  onPressed: _lifecycleMutating ? null : _confirmDelete,
+                ),
+            ],
           ),
         ),
       );
@@ -180,13 +219,82 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
   Future<void> _openResubmit() async {
     final result = await showModalBottomSheet<bool>(
       context: context,
-      backgroundColor: Colors.transparent,
+      backgroundColor: AppColors.transparent,
       isScrollControlled: true,
       useSafeArea: false,
       builder: (context) => SubmitScreen(initialEvent: _event, asSheet: true),
     );
     if (result == true && mounted) {
       Navigator.pop(context, true);
+    }
+  }
+
+  Future<void> _confirmCancel() async {
+    final comment = await _promptComment(
+      icon: AppIcons.close,
+      iconColor: AppColors.error,
+      title: 'Cancel event?',
+      description:
+          'The event will be unpublished and can only be deleted afterward.',
+      actionText: 'Cancel event',
+      isDestructive: true,
+      commentRequired: false,
+    );
+    if (comment == null || _lifecycleMutating) return;
+
+    setState(() => _lifecycleMutating = true);
+    try {
+      final updated = await EventCache.instance.cancel(
+        _event.id,
+        comment: comment.trim().isEmpty ? null : comment.trim(),
+      );
+      if (!mounted) return;
+      setState(() => _event = updated);
+      _showMessage('Event cancelled');
+    } on ApiException catch (error) {
+      _showMessage(error.message);
+    } catch (_) {
+      _showMessage(AppLocalizations.get('somethingWentWrong'));
+    } finally {
+      if (mounted) setState(() => _lifecycleMutating = false);
+    }
+  }
+
+  Future<void> _confirmDelete() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Delete event permanently?'),
+        content: const Text(
+          'This removes the event, its reminders, reviews, and moderation history. This cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: Text(AppLocalizations.get('cancel')),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text(
+              'Delete',
+              style: TextStyle(color: AppColors.error),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || _lifecycleMutating) return;
+
+    setState(() => _lifecycleMutating = true);
+    try {
+      await EventCache.instance.delete(_event.id);
+      if (mounted) Navigator.pop(context, true);
+    } on ApiException catch (error) {
+      _showMessage(error.message);
+    } catch (_) {
+      _showMessage(AppLocalizations.get('somethingWentWrong'));
+    } finally {
+      if (mounted) setState(() => _lifecycleMutating = false);
     }
   }
 
@@ -205,7 +313,7 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
                 Text(
                   _event.title,
                   style: theme.textTheme.headlineMedium?.copyWith(
-                    fontWeight: FontWeight.w800,
+                    fontWeight: FontWeight.w600,
                     height: 1.2,
                   ),
                 ),
@@ -237,7 +345,7 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
                           _event.statusLabel,
                           style: AppTextStyles.bodyMedium.copyWith(
                             color: _event.statusColor,
-                            fontWeight: FontWeight.w700,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                       ),
@@ -296,14 +404,17 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
   Widget _fact(AppIconData icon, String value) {
     final theme = Theme.of(context);
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: AppSpacing.md, horizontal: AppSpacing.xs),
+      padding: const EdgeInsets.symmetric(
+        vertical: AppSpacing.md,
+        horizontal: AppSpacing.xs,
+      ),
       child: Row(
         children: [
           Container(
-            padding: const EdgeInsets.all(10),
+            padding: const EdgeInsets.all(AppSpacing.md),
             decoration: BoxDecoration(
               color: AppColors.primary.withValues(alpha: 0.08),
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: AppSpacing.borderRadiusMd,
             ),
             child: AppIcon(icon, size: 22, color: AppColors.primary),
           ),
@@ -337,19 +448,23 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
               children: [
                 if (icon != null) ...[
                   Container(
-                    padding: const EdgeInsets.all(8),
+                    padding: const EdgeInsets.all(AppSpacing.sm),
                     decoration: BoxDecoration(
                       color: AppColors.fieldBackground,
-                      borderRadius: BorderRadius.circular(8),
+                      borderRadius: AppSpacing.borderRadiusSm,
                     ),
-                    child: AppIcon(icon, size: 18, color: AppColors.textSecondary),
+                    child: AppIcon(
+                      icon,
+                      size: 18,
+                      color: AppColors.textSecondary,
+                    ),
                   ),
                   const SizedBox(width: AppSpacing.sm),
                 ],
                 Text(
                   title,
                   style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
+                    fontWeight: FontWeight.w600,
                     color: AppColors.textPrimary,
                   ),
                 ),
@@ -424,10 +539,8 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
         ),
       ),
     );
-    const labelStyle = TextStyle(
-      fontSize: 14,
+    final labelStyle = AppTextStyles.labelLarge.copyWith(
       fontWeight: FontWeight.w600,
-      letterSpacing: -0.1,
     );
 
     // The button set always mirrors the current status so admins keep full,
@@ -447,7 +560,7 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
           backgroundColor: const WidgetStatePropertyAll(AppColors.success),
           foregroundColor: const WidgetStatePropertyAll(AppColors.white),
         ),
-        child: const Text('Approve', style: labelStyle),
+        child: Text('Approve', style: labelStyle),
       ),
     );
 
@@ -459,12 +572,12 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
           backgroundColor: WidgetStatePropertyAll(
             AppColors.warning.withValues(alpha: 0.15),
           ),
-          foregroundColor: const WidgetStatePropertyAll(Color(0xFFB87800)),
+          foregroundColor: const WidgetStatePropertyAll(AppColors.textPrimary),
           overlayColor: WidgetStatePropertyAll(
             AppColors.warning.withValues(alpha: 0.15),
           ),
         ),
-        child: const Text('Edits', style: labelStyle),
+        child: Text('Edits', style: labelStyle),
       ),
     );
 
@@ -481,7 +594,7 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
             AppColors.error.withValues(alpha: 0.10),
           ),
         ),
-        child: const Text('Reject', style: labelStyle),
+        child: Text('Reject', style: labelStyle),
       ),
     );
 
@@ -509,6 +622,7 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
       title: 'Approve event?',
       description: 'The event will be published and the organiser notified.',
       actionText: 'Approve',
+      commentRequired: false,
     );
   }
 
@@ -522,6 +636,7 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
           'The organiser will be notified that the request was declined.',
       actionText: 'Reject',
       isDestructive: true,
+      commentRequired: true,
     );
   }
 
@@ -533,6 +648,7 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
       title: 'Request changes?',
       description: 'Add a comment explaining what needs to be fixed.',
       actionText: 'Request changes',
+      commentRequired: true,
     );
   }
 
@@ -543,6 +659,7 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
     required String title,
     required String description,
     required String actionText,
+    required bool commentRequired,
     bool isDestructive = false,
   }) async {
     final comment = await _promptComment(
@@ -552,9 +669,14 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
       description: description,
       actionText: actionText,
       isDestructive: isDestructive,
+      commentRequired: commentRequired,
     );
     if (comment == null) return;
-    await _moderate(status, comment.isEmpty ? null : comment);
+    final normalizedComment = comment.trim();
+    await _moderate(
+      status,
+      normalizedComment.isEmpty ? null : normalizedComment,
+    );
   }
 
   Future<String?> _promptComment({
@@ -564,12 +686,13 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
     required String description,
     required String actionText,
     required bool isDestructive,
+    required bool commentRequired,
   }) {
     return showModalBottomSheet<String>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      barrierColor: Colors.black.withValues(alpha: 0.48),
+      backgroundColor: AppColors.transparent,
+      barrierColor: AppColors.black.withValues(alpha: 0.48),
       enableDrag: true,
       builder: (_) => _ModerationCommentSheet(
         icon: icon,
@@ -578,6 +701,7 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
         description: description,
         actionText: actionText,
         isDestructive: isDestructive,
+        commentRequired: commentRequired,
       ),
     );
   }
@@ -585,21 +709,27 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
   Future<void> _moderate(String status, String? comment) async {
     setState(() => _moderating = true);
     try {
-      final updated =
-          await EventCache.instance.updateStatus(_event.id, status, comment);
+      final updated = await EventCache.instance.updateStatus(
+        _event.id,
+        status,
+        comment,
+      );
       if (!mounted) return;
       setState(() => _event = updated);
     } on ApiException catch (e) {
       _showMessage(e.message);
+    } catch (_) {
+      _showMessage(AppLocalizations.get('somethingWentWrong'));
     } finally {
       if (mounted) setState(() => _moderating = false);
     }
   }
 
   void _showMessage(String message) {
-    ScaffoldMessenger.of(
+    if (!mounted) return;
+    ScaffoldMessenger.maybeOf(
       context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+    )?.showSnackBar(SnackBar(content: Text(message)));
   }
 }
 
@@ -611,6 +741,7 @@ class _ModerationCommentSheet extends StatefulWidget {
     required this.description,
     required this.actionText,
     required this.isDestructive,
+    required this.commentRequired,
   });
 
   final AppIconData icon;
@@ -619,6 +750,7 @@ class _ModerationCommentSheet extends StatefulWidget {
   final String description;
   final String actionText;
   final bool isDestructive;
+  final bool commentRequired;
 
   @override
   State<_ModerationCommentSheet> createState() =>
@@ -640,9 +772,11 @@ class _ModerationCommentSheetState extends State<_ModerationCommentSheet>
   Widget build(BuildContext context) {
     final mq = MediaQuery.of(context);
     final isLight = Theme.of(context).brightness == Brightness.light;
-    final surface = isLight ? Colors.white : const Color(0xFF1C1C1E);
-    final textPrimary = isLight ? const Color(0xFF0A0A1A) : Colors.white;
-    final textSub = isLight ? const Color(0xFF6B6B80) : const Color(0xFF8E8EA3);
+    final surface = isLight ? AppColors.surface : AppColors.surfaceDark;
+    final textPrimary = isLight
+        ? AppColors.textPrimary
+        : AppColors.textPrimaryDark;
+    final textSub = AppColors.textSecondary;
     final actionColor = widget.isDestructive
         ? AppColors.error
         : widget.iconColor;
@@ -654,9 +788,14 @@ class _ModerationCommentSheetState extends State<_ModerationCommentSheet>
       child: Container(
         decoration: BoxDecoration(
           color: surface,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+          borderRadius: AppSpacing.borderRadiusTopSheet,
         ),
-        padding: EdgeInsets.fromLTRB(20, 8, 20, mq.padding.bottom + 12),
+        padding: EdgeInsets.fromLTRB(
+          AppSpacing.lg,
+          AppSpacing.sm,
+          AppSpacing.lg,
+          mq.padding.bottom + AppSpacing.md,
+        ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -665,9 +804,7 @@ class _ModerationCommentSheetState extends State<_ModerationCommentSheet>
                 width: 32,
                 height: 4,
                 decoration: BoxDecoration(
-                  color: isLight
-                      ? const Color(0xFFD1D1D6)
-                      : const Color(0xFF48484A),
+                  color: isLight ? AppColors.borderGrey : AppColors.borderDark,
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
@@ -739,27 +876,21 @@ class _ModerationCommentSheetState extends State<_ModerationCommentSheet>
       children: [
         Text(
           widget.title,
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-            letterSpacing: -0.3,
-            color: textPrimary,
-            height: 1.2,
-          ),
+          style: AppTextStyles.titleMedium.copyWith(color: textPrimary),
           textAlign: TextAlign.center,
         ),
         const SizedBox(height: 4),
         Text(
           widget.description,
-          style: TextStyle(fontSize: 13, color: textSub, height: 1.4),
+          style: AppTextStyles.bodyMedium.copyWith(color: textSub),
           textAlign: TextAlign.center,
         ),
         const SizedBox(height: 16),
         _SheetActionRow(
           cancelColor: textSub,
           cancelBackground: isLight
-              ? const Color(0xFFF2F2F7)
-              : const Color(0xFF2C2C2E),
+              ? AppColors.fieldBackground
+              : AppColors.surfaceDark,
           actionColor: actionColor,
           actionText: 'Continue',
           onCancel: () => Navigator.pop(context),
@@ -784,27 +915,28 @@ class _ModerationCommentSheetState extends State<_ModerationCommentSheet>
         Center(
           child: Text(
             'Comment',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-              letterSpacing: -0.3,
-              color: textPrimary,
-              height: 1.2,
-            ),
+            style: AppTextStyles.titleMedium.copyWith(color: textPrimary),
           ),
         ),
         const SizedBox(height: 10),
-        AppTextField(controller: _controller, maxLines: 3, maxLength: 500),
+        AppTextField(
+          controller: _controller,
+          maxLines: 3,
+          maxLength: 500,
+          onChanged: (_) => setState(() {}),
+        ),
         const SizedBox(height: 12),
         _SheetActionRow(
           cancelColor: textSub,
           cancelBackground: isLight
-              ? const Color(0xFFF2F2F7)
-              : const Color(0xFF2C2C2E),
+              ? AppColors.fieldBackground
+              : AppColors.surfaceDark,
           actionColor: actionColor,
           actionText: widget.actionText,
           onCancel: () => Navigator.pop(context),
-          onAction: () => Navigator.pop(context, _controller.text),
+          onAction: widget.commentRequired && _controller.text.trim().isEmpty
+              ? null
+              : () => Navigator.pop(context, _controller.text),
         ),
       ],
     );
@@ -826,7 +958,7 @@ class _SheetActionRow extends StatelessWidget {
   final Color actionColor;
   final String actionText;
   final VoidCallback onCancel;
-  final VoidCallback onAction;
+  final VoidCallback? onAction;
 
   @override
   Widget build(BuildContext context) {
@@ -839,16 +971,12 @@ class _SheetActionRow extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 18),
             decoration: BoxDecoration(
               color: cancelBackground,
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: AppSpacing.borderRadiusMd,
             ),
             alignment: Alignment.center,
             child: Text(
               'Cancel',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-                color: cancelColor,
-              ),
+              style: AppTextStyles.labelLarge.copyWith(color: cancelColor),
             ),
           ),
         ),
@@ -859,19 +987,19 @@ class _SheetActionRow extends StatelessWidget {
             child: Container(
               height: 42,
               decoration: BoxDecoration(
-                color: actionColor,
-                borderRadius: BorderRadius.circular(12),
+                color: onAction == null
+                    ? actionColor.withValues(alpha: 0.45)
+                    : actionColor,
+                borderRadius: AppSpacing.borderRadiusMd,
               ),
               alignment: Alignment.center,
               child: Text(
                 actionText,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: Colors.white,
+                style: AppTextStyles.button.copyWith(
+                  color: AppColors.white,
                   fontSize: 15,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: -0.2,
                 ),
               ),
             ),

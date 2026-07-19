@@ -77,10 +77,10 @@ def make_user():
 
 @pytest.fixture
 def make_category():
-    async def _make(session, *, name="Tech", slug="tech"):
+    async def _make(session, *, name="Tech", slug="tech", is_active=True):
         from app.models.event import EventCategory
 
-        category = EventCategory(name=name, slug=slug)
+        category = EventCategory(name=name, slug=slug, is_active=is_active)
         session.add(category)
         await session.flush()
         return category
@@ -98,7 +98,12 @@ def make_event():
         status=None,
         title="Robotics Night",
         event_date=date(2099, 5, 1),
+        event_time=time(18, 0),
+        event_end_time=time(20, 0),
+        location="Block C",
         parent_event_id=None,
+        client_request_id=None,
+        client_request_fingerprint=None,
     ):
         from app.services.events import create_pending_event
 
@@ -107,11 +112,13 @@ def make_event():
             creator=creator,
             event_data={
                 "title": title,
+                "client_request_id": client_request_id,
+                "client_request_fingerprint": client_request_fingerprint,
                 "description": "Come build robots",
                 "event_date": event_date,
-                "event_time": time(18, 0),
-                "event_end_time": time(20, 0),
-                "location": "Block C",
+                "event_time": event_time,
+                "event_end_time": event_end_time,
+                "location": location,
                 "category_id": category.id,
                 "organizer": "Robotics Club",
             },

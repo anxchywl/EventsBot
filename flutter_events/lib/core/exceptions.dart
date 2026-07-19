@@ -23,3 +23,7 @@ class ForbiddenException extends ApiException {
 class ConflictException extends ApiException {
   const ConflictException(String message) : super(409, message);
 }
+
+class NetworkException extends ApiException {
+  const NetworkException(String message) : super(0, message);
+}

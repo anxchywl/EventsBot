@@ -1,8 +1,13 @@
+import hashlib
+import json
 import logging
+from collections.abc import Collection
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Sequence
 from uuid import uuid4
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from aiogram import Bot
@@ -30,9 +35,167 @@ async def get_category_by_id(
     session: AsyncSession, category_id: int
 ) -> EventCategory | None:
     result = await session.execute(
-        select(EventCategory).where(EventCategory.id == category_id)
+        select(EventCategory).where(
+            EventCategory.id == category_id,
+            EventCategory.is_active.is_(True),
+        )
     )
     return result.scalar_one_or_none()
+
+
+_SCHEDULED_EVENT_STATUSES = {
+    EventStatus.PENDING.value,
+    EventStatus.APPROVED.value,
+    EventStatus.NEEDS_CHANGES.value,
+    EventStatus.RESUBMITTED.value,
+}
+
+_MODERATION_STATUS_TRANSITIONS = {
+    EventStatus.PENDING.value: {
+        EventStatus.APPROVED,
+        EventStatus.REJECTED,
+        EventStatus.NEEDS_CHANGES,
+    },
+    EventStatus.RESUBMITTED.value: {
+        EventStatus.APPROVED,
+        EventStatus.REJECTED,
+        EventStatus.NEEDS_CHANGES,
+    },
+    EventStatus.NEEDS_CHANGES.value: {
+        EventStatus.APPROVED,
+        EventStatus.REJECTED,
+    },
+    EventStatus.APPROVED.value: {
+        EventStatus.REJECTED,
+        EventStatus.NEEDS_CHANGES,
+    },
+    EventStatus.REJECTED.value: {
+        EventStatus.APPROVED,
+        EventStatus.NEEDS_CHANGES,
+    },
+}
+
+CREATOR_CANCELLABLE_EVENT_STATUSES = frozenset(
+    {
+        EventStatus.PENDING.value,
+        EventStatus.APPROVED.value,
+        EventStatus.NEEDS_CHANGES.value,
+        EventStatus.RESUBMITTED.value,
+    }
+)
+DELETABLE_EVENT_STATUSES = frozenset(
+    {
+        EventStatus.REJECTED.value,
+        EventStatus.CANCELLED.value,
+    }
+)
+
+
+def normalize_event_location(value: str) -> str:
+    return " ".join(value.split()).casefold()
+
+
+def event_submission_fingerprint(payload: dict) -> str:
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+async def acquire_event_submission_lock(
+    session: AsyncSession,
+    lock_key: str,
+) -> None:
+    await session.execute(
+        select(func.pg_advisory_xact_lock(func.hashtextextended(lock_key, 0)))
+    )
+
+
+async def get_event_by_client_request_id(
+    session: AsyncSession,
+    client_request_id: str,
+) -> Event | None:
+    result = await session.execute(
+        select(Event)
+        .where(Event.client_request_id == client_request_id)
+        .options(selectinload(Event.category), selectinload(Event.creator))
+    )
+    return result.scalar_one_or_none()
+
+
+def _legacy_event_end(event_date: date, start_time: time) -> time:
+    start = datetime.combine(event_date, start_time)
+    end = min(start + timedelta(hours=1), datetime.combine(event_date, time.max))
+    return end.time()
+
+
+async def find_event_schedule_conflict(
+    session: AsyncSession,
+    *,
+    event_date: date,
+    event_time: time,
+    event_end_time: time,
+    location: str,
+    exclude_event_id: int | None = None,
+    exclude_event_ids: Collection[int] | None = None,
+) -> Event | None:
+    result = await session.execute(
+        select(Event).where(
+            Event.event_date == event_date,
+            Event.status.in_(_SCHEDULED_EVENT_STATUSES),
+        )
+    )
+    excluded_ids = set(exclude_event_ids or ())
+    if exclude_event_id is not None:
+        excluded_ids.add(exclude_event_id)
+    normalized_location = normalize_event_location(location)
+    for candidate in result.scalars().all():
+        if candidate.id in excluded_ids:
+            continue
+        if normalize_event_location(candidate.location) != normalized_location:
+            continue
+        candidate_end = candidate.event_end_time or _legacy_event_end(
+            candidate.event_date,
+            candidate.event_time,
+        )
+        if event_time < candidate_end and event_end_time > candidate.event_time:
+            return candidate
+    return None
+
+
+def can_moderate_event_status(current_status: str, new_status: EventStatus) -> bool:
+    return new_status in _MODERATION_STATUS_TRANSITIONS.get(current_status, set())
+
+
+def event_has_ended(event: Event, *, now: datetime | None = None) -> bool:
+    try:
+        event_timezone = ZoneInfo(event.timezone or "Asia/Almaty")
+    except ZoneInfoNotFoundError:
+        event_timezone = ZoneInfo("Asia/Almaty")
+
+    current = now or datetime.now(event_timezone)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=event_timezone)
+    else:
+        current = current.astimezone(event_timezone)
+
+    end_time = event_effective_end_time(event)
+    event_end = datetime.combine(event.event_date, end_time, event_timezone)
+    return event_end <= current
+
+
+def event_effective_end_time(event: Event) -> time:
+    return event.event_end_time or _legacy_event_end(
+        event.event_date,
+        event.event_time,
+    )
+
+
+def event_belongs_to_telegram_user(event: Event, telegram_id: int) -> bool:
+    return event.creator is not None and event.creator.telegram_id == telegram_id
 
 
 # create a pending event with initial moderation history
@@ -44,6 +207,8 @@ async def create_pending_event(
     event = Event(
         creator_user_id=creator.id,
         public_token=str(uuid4()),
+        client_request_id=event_data.get("client_request_id"),
+        client_request_fingerprint=event_data.get("client_request_fingerprint"),
         title=event_data["title"],
         description=event_data["description"],
         event_date=event_data["event_date"],
@@ -69,6 +234,26 @@ async def create_pending_event(
 
     await session.flush()
     return event
+
+
+async def create_event_update_draft(
+    session: AsyncSession,
+    *,
+    parent: Event,
+    creator: User,
+    event_data: dict,
+) -> Event:
+    draft = await create_pending_event(
+        session,
+        creator=creator,
+        event_data=event_data,
+    )
+    draft.parent_event_id = parent.id
+    draft.club_id = parent.club_id
+    draft.timezone = parent.timezone
+    await replace_pending_drafts_for_parent(session, parent.id, draft.id)
+    await session.flush()
+    return draft
 
 
 # load one event with relationships needed by handlers
@@ -214,7 +399,11 @@ async def get_user_events(session: AsyncSession, user_id: int) -> Sequence[Event
 
 # deletes an event and enqueues centralized sync cleanup
 async def delete_event_completely(
-    session: AsyncSession, bot: Bot, event_id: int
+    session: AsyncSession,
+    bot: Bot | None,
+    event_id: int,
+    *,
+    allowed_statuses: Collection[str] | None = None,
 ) -> bool:
     """delete an event row after queuing system-wide sync cleanup."""
     from app.services.event_sync import (
@@ -227,6 +416,8 @@ async def delete_event_completely(
     snapshot = await capture_event_snapshot(session, event_id)
     event = await session.get(Event, event_id)
     if not event:
+        return False
+    if allowed_statuses is not None and event.status not in allowed_statuses:
         return False
 
     await session.delete(event)
@@ -257,16 +448,14 @@ async def update_event_status(
 
     event.status = status.value
     if status == EventStatus.APPROVED:
-        from datetime import datetime, timezone
-
         event.approved_by_user_id = admin.id
         event.approved_at = datetime.now(timezone.utc)
         if previous_status == EventStatus.ARCHIVED.value:
             event.restored_at = event.approved_at
     elif status == EventStatus.ARCHIVED:
-        from datetime import datetime, timezone
-
         event.archived_at = datetime.now(timezone.utc)
+    elif status == EventStatus.CANCELLED:
+        event.cancelled_at = datetime.now(timezone.utc)
 
     event.moderation_note = comment
 
@@ -293,6 +482,68 @@ async def update_event_status(
 
     await session.flush()
     return await get_event_by_id(session, event.id)
+
+
+async def apply_moderation_transition(
+    session: AsyncSession,
+    event: Event,
+    new_status: EventStatus,
+    admin: User,
+    comment: str | None = None,
+) -> Event:
+    if not can_moderate_event_status(event.status, new_status):
+        raise ValueError("This event cannot move to that status.")
+
+    if new_status != EventStatus.APPROVED or event.parent_event_id is None:
+        updated = await update_event_status(
+            session,
+            event.id,
+            new_status,
+            admin,
+            comment,
+        )
+        if updated is None:
+            raise ValueError("Event not found.")
+        return updated
+
+    parent = await get_event_by_id(session, event.parent_event_id)
+    if parent is None or parent.status != EventStatus.APPROVED.value:
+        raise ValueError("The original published event is not available.")
+
+    for field_name in (
+        "title",
+        "description",
+        "event_date",
+        "event_time",
+        "event_end_time",
+        "timezone",
+        "location",
+        "category_id",
+        "organizer_name",
+        "poster_file_id",
+        "registration_url",
+        "it_equipment",
+        "materials",
+    ):
+        setattr(parent, field_name, getattr(event, field_name))
+
+    parent.approved_by_user_id = admin.id
+    parent.approved_at = datetime.now(timezone.utc)
+    parent.moderation_note = comment
+    session.add(
+        ModerationLog(
+            event_id=parent.id,
+            actor_user_id=admin.id,
+            action=ModerationAction.EDITED.value,
+            comment=comment,
+        )
+    )
+    await session.delete(event)
+    await session.flush()
+    updated_parent = await get_event_by_id(session, parent.id)
+    if updated_parent is None:
+        raise ValueError("Event not found.")
+    return updated_parent
 
 
 # replace a pending parent with its newest submitted draft

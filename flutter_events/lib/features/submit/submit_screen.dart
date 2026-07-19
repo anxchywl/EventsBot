@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:app_ui/app_ui.dart';
@@ -9,10 +11,12 @@ import 'package:intl/intl.dart';
 import '../../core/api_client.dart';
 import '../../core/auth_store.dart';
 import '../../core/cache_store.dart';
+import '../../core/event_draft_store.dart';
 import '../../core/exceptions.dart';
 import '../../core/localization.dart';
 import '../../models/category_model.dart';
 import '../../models/event_model.dart';
+import 'event_form_validation.dart';
 
 enum _SubmitViewMode {
   form,
@@ -45,7 +49,8 @@ class SubmitScreen extends StatefulWidget {
   State<SubmitScreen> createState() => _SubmitScreenState();
 }
 
-class _SubmitScreenState extends State<SubmitScreen> {
+class _SubmitScreenState extends State<SubmitScreen>
+    with WidgetsBindingObserver {
   final _formKeys = [
     GlobalKey<FormState>(),
     GlobalKey<FormState>(),
@@ -87,6 +92,11 @@ class _SubmitScreenState extends State<SubmitScreen> {
   List<EventModel> _existingEvents = [];
 
   bool _submitting = false;
+  bool _allowPop = false;
+  bool _restoringDraft = false;
+  bool _suppressDraftSave = false;
+  Timer? _draftSaveTimer;
+  Future<void> _draftWrite = Future<void>.value();
 
   Uint8List? _coverBytes;
   String? _coverFilename;
@@ -97,10 +107,15 @@ class _SubmitScreenState extends State<SubmitScreen> {
   String? _coverError;
 
   final _picker = ImagePicker();
+  late String _clientRequestId;
+  late final String _initialOrganizer;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _clientRequestId = createEventRequestId();
+    _initialOrganizer = AuthStore.firstName ?? '';
     final initial = widget.initialDate;
     if (initial != null) {
       _date = initial;
@@ -109,17 +124,277 @@ class _SubmitScreenState extends State<SubmitScreen> {
     if (widget.initialEvent != null) {
       _prefillFromEvent(widget.initialEvent!);
     } else {
-      final name = AuthStore.firstName;
-      if (name != null && name.isNotEmpty) {
-        _organizerController.text = name;
+      if (_initialOrganizer.isNotEmpty) {
+        _organizerController.text = _initialOrganizer;
       }
     }
     _setupFocusTracking();
+    _setupDraftAutosave();
     _loadCategories();
     _loadExistingEvents();
+    if (!_isResubmit) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        unawaited(_offerDraftRecovery());
+      });
+    }
   }
 
   bool get _isResubmit => widget.initialEvent != null;
+
+  bool get _hasUnsavedChanges {
+    if (_viewMode == _SubmitViewMode.success) return false;
+    if (_coverBytes != null ||
+        _coverRef != null ||
+        _coverRemoved ||
+        _coverUploading) {
+      return true;
+    }
+
+    final initialEvent = widget.initialEvent;
+    if (initialEvent == null) {
+      return _titleController.text.isNotEmpty ||
+          _descriptionController.text.isNotEmpty ||
+          _organizerController.text != _initialOrganizer ||
+          _locationController.text.isNotEmpty ||
+          _registrationController.text.isNotEmpty ||
+          _itEquipmentController.text.isNotEmpty ||
+          _materialsController.text.isNotEmpty ||
+          !_sameDate(_date, widget.initialDate) ||
+          _time != null ||
+          _endTime != null ||
+          _categoryId != null;
+    }
+
+    final categoryChanged =
+        _categoryController.text.isNotEmpty &&
+        _categoryController.text != initialEvent.category;
+    return _titleController.text != initialEvent.title ||
+        _descriptionController.text != initialEvent.description ||
+        _organizerController.text != initialEvent.organizerName ||
+        _locationController.text != initialEvent.location ||
+        _registrationController.text != (initialEvent.registrationUrl ?? '') ||
+        _itEquipmentController.text != (initialEvent.itEquipment ?? '') ||
+        _materialsController.text != (initialEvent.materials ?? '') ||
+        _dateKey(_date) != initialEvent.eventDate ||
+        _timeKey(_time) != _normalizedTime(initialEvent.eventTime) ||
+        _timeKey(_endTime) != _normalizedTime(initialEvent.eventEndTime) ||
+        categoryChanged;
+  }
+
+  bool get _canPop {
+    if (_allowPop || _viewMode == _SubmitViewMode.success) return true;
+    if (_submitting || _viewMode != _SubmitViewMode.form) return false;
+    return !_hasUnsavedChanges;
+  }
+
+  bool _sameDate(DateTime? first, DateTime? second) {
+    if (first == null || second == null) return first == second;
+    return first.year == second.year &&
+        first.month == second.month &&
+        first.day == second.day;
+  }
+
+  String? _dateKey(DateTime? date) => date == null
+      ? null
+      : '${date.year.toString().padLeft(4, '0')}-'
+            '${date.month.toString().padLeft(2, '0')}-'
+            '${date.day.toString().padLeft(2, '0')}';
+
+  String? _timeKey(TimeOfDay? time) => time == null
+      ? null
+      : '${time.hour.toString().padLeft(2, '0')}:'
+            '${time.minute.toString().padLeft(2, '0')}';
+
+  String? _normalizedTime(String? value) {
+    if (value == null || value.length < 5) return value;
+    return value.substring(0, 5);
+  }
+
+  Future<void> _handlePop(bool didPop, bool? result) async {
+    if (didPop || !mounted) return;
+    if (_submitting) {
+      _showMessage(AppLocalizations.get('submissionInProgress'));
+      return;
+    }
+    if (_viewMode != _SubmitViewMode.form) {
+      setState(() => _viewMode = _SubmitViewMode.form);
+      return;
+    }
+
+    final discard = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(AppLocalizations.get('unsavedChanges')),
+        content: Text(AppLocalizations.get('unsavedChangesMessage')),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: Text(AppLocalizations.get('keepEditing')),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: Text(AppLocalizations.get('discard')),
+          ),
+        ],
+      ),
+    );
+    if (discard != true || !mounted) return;
+    _suppressDraftSave = true;
+    _draftSaveTimer?.cancel();
+    final userId = AuthStore.userId;
+    if (userId != null) await _clearDraft(userId);
+    if (!mounted) return;
+    setState(() => _allowPop = true);
+    Navigator.pop(context, result);
+  }
+
+  void _setupDraftAutosave() {
+    if (_isResubmit) return;
+    for (final controller in [
+      _titleController,
+      _descriptionController,
+      _organizerController,
+      _locationController,
+      _registrationController,
+      _dateController,
+      _timeController,
+      _endTimeController,
+      _itEquipmentController,
+      _materialsController,
+      _categoryController,
+    ]) {
+      controller.addListener(_scheduleDraftSave);
+    }
+  }
+
+  void _scheduleDraftSave() {
+    if (_isResubmit || _restoringDraft || _suppressDraftSave) return;
+    _draftSaveTimer?.cancel();
+    _draftSaveTimer = Timer(
+      const Duration(milliseconds: 400),
+      () => unawaited(_saveDraftNow()),
+    );
+  }
+
+  Future<void> _saveDraftNow() async {
+    _draftSaveTimer?.cancel();
+    final userId = AuthStore.userId;
+    if (_isResubmit || _suppressDraftSave || userId == null) return;
+    if (!_hasUnsavedChanges) {
+      await _clearDraft(userId);
+      return;
+    }
+
+    final draft = EventDraft(
+      userId: userId,
+      clientRequestId: _clientRequestId,
+      updatedAt: DateTime.now(),
+      currentStep: _currentStep,
+      title: _titleController.text,
+      description: _descriptionController.text,
+      organizer: _organizerController.text,
+      location: _locationController.text,
+      registrationUrl: _registrationController.text,
+      itEquipment: _itEquipmentController.text,
+      materials: _materialsController.text,
+      eventDate: _dateKey(_date),
+      startTime: _timeKey(_time),
+      endTime: _timeKey(_endTime),
+      categoryId: _categoryId,
+      categoryName: _categoryController.text.isEmpty
+          ? null
+          : _categoryController.text,
+    );
+    await _queueDraftWrite(() => EventDraftStore.save(draft));
+  }
+
+  Future<void> _clearDraft(int userId) {
+    return _queueDraftWrite(() => EventDraftStore.clear(userId));
+  }
+
+  Future<void> _queueDraftWrite(Future<void> Function() write) {
+    _draftWrite = _draftWrite.then((_) async {
+      try {
+        await write();
+      } catch (_) {}
+    });
+    return _draftWrite;
+  }
+
+  Future<void> _offerDraftRecovery() async {
+    final userId = AuthStore.userId;
+    if (userId == null) return;
+    final draft = await EventDraftStore.load(userId);
+    if (draft == null || !mounted) return;
+
+    final restore = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(AppLocalizations.get('restoreDraft')),
+        content: Text(AppLocalizations.get('restoreDraftMessage')),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: Text(AppLocalizations.get('startFresh')),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: Text(AppLocalizations.get('restore')),
+          ),
+        ],
+      ),
+    );
+    if (!mounted) return;
+    if (restore != true) {
+      await _clearDraft(userId);
+      return;
+    }
+
+    _restoringDraft = true;
+    setState(() => _applyDraft(draft));
+    _restoringDraft = false;
+  }
+
+  void _applyDraft(EventDraft draft) {
+    _clientRequestId = draft.clientRequestId;
+    _currentStep = draft.currentStep;
+    _titleController.text = draft.title;
+    _descriptionController.text = draft.description;
+    _organizerController.text = draft.organizer;
+    _locationController.text = draft.location;
+    _registrationController.text = draft.registrationUrl;
+    _itEquipmentController.text = draft.itEquipment;
+    _materialsController.text = draft.materials;
+    _categoryId = draft.categoryId;
+    _categoryController.text = draft.categoryName ?? '';
+
+    final dateParts = draft.eventDate?.split('-');
+    if (dateParts != null && dateParts.length == 3) {
+      final year = int.tryParse(dateParts[0]);
+      final month = int.tryParse(dateParts[1]);
+      final day = int.tryParse(dateParts[2]);
+      if (year != null && month != null && day != null) {
+        _date = DateTime(year, month, day);
+        _dateController.text = DateFormat('dd.MM.yyyy').format(_date!);
+      }
+    }
+    _time = draft.startTime == null ? null : _parseTimeOfDay(draft.startTime!);
+    _timeController.text = _time == null ? '' : _formatTime(_time!);
+    _endTime = draft.endTime == null ? null : _parseTimeOfDay(draft.endTime!);
+    _endTimeController.text = _endTime == null ? '' : _formatTime(_endTime!);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached ||
+        state == AppLifecycleState.hidden) {
+      unawaited(_saveDraftNow());
+    }
+  }
 
   void _prefillFromEvent(EventModel e) {
     _titleController.text = e.title;
@@ -217,6 +492,9 @@ class _SubmitScreenState extends State<SubmitScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _draftSaveTimer?.cancel();
+    unawaited(_saveDraftNow());
     _titleController.dispose();
     _descriptionController.dispose();
     _organizerController.dispose();
@@ -329,77 +607,107 @@ class _SubmitScreenState extends State<SubmitScreen> {
     return h * 60 + m;
   }
 
-  String? _required(String? value) {
-    if (value == null || value.trim().isEmpty) {
-      return AppLocalizations.get('required');
-    }
-    return null;
-  }
+  String? _validateTitle(String? value) => validateRequiredEventText(
+    value,
+    maxLength: EventFormLimits.title,
+    emptyMessage: AppLocalizations.get('required'),
+    fieldName: 'Title',
+  );
+
+  String? _validateDescription(String? value) => validateRequiredEventText(
+    value,
+    maxLength: EventFormLimits.description,
+    emptyMessage: AppLocalizations.get('required'),
+    fieldName: 'Description',
+    allowLineBreaks: true,
+  );
+
+  String? _validateOrganizer(String? value) => validateRequiredEventText(
+    value,
+    maxLength: EventFormLimits.organizer,
+    emptyMessage: AppLocalizations.get('required'),
+    fieldName: 'Organizer',
+  );
+
+  String? _validateLocation(String? value) => validateRequiredEventText(
+    value,
+    maxLength: EventFormLimits.location,
+    emptyMessage: AppLocalizations.get('required'),
+    fieldName: 'Location',
+  );
 
   String? _validateDate(String? value) {
-    if (_date == null) return AppLocalizations.get('specifyDate');
-    return null;
+    return validateEventDate(
+      _date,
+      now: DateTime.now(),
+      missingMessage: AppLocalizations.get('specifyDate'),
+    );
   }
 
   String? _validateTime(String? value) {
-    if (_time == null) return AppLocalizations.get('specifyTime');
-    if (_date != null) {
-      final now = DateTime.now();
-      if (_date!.year == now.year &&
-          _date!.month == now.month &&
-          _date!.day == now.day) {
-        if (_toMinutes(_time!) < now.hour * 60 + now.minute) {
-          return 'Time has already passed today';
-        }
-      }
-    }
-    return null;
+    return validateEventStartTime(
+      date: _date,
+      startTime: _time,
+      now: DateTime.now(),
+      missingMessage: AppLocalizations.get('specifyTime'),
+    );
   }
 
   String? _validateEndTime(String? value) {
-    if (_endTime == null) return AppLocalizations.get('specifyEndTime');
-    if (_time != null) {
-      if (_toMinutes(_endTime!) <= _toMinutes(_time!)) {
-        return 'End time must be after start time';
-      }
-    }
-    return null;
+    return validateEventEndTime(
+      startTime: _time,
+      endTime: _endTime,
+      missingMessage: AppLocalizations.get('specifyEndTime'),
+    );
   }
 
   String? _validateRegistrationUrl(String? value) {
-    if (value == null || value.trim().isEmpty) return null;
-    final text = value.trim();
-    final uri = Uri.tryParse(text);
-    final hasScheme = text.startsWith('http://') || text.startsWith('https://');
-    if (uri == null ||
-        !hasScheme ||
-        uri.host.isEmpty ||
-        !uri.host.contains('.')) {
-      return 'Please enter a valid URL';
-    }
-    return null;
+    return validateEventRegistrationUrl(value);
   }
 
   bool _isStepValid(int step) {
     if (step == 0) {
-      if (_date == null) return false;
-      if (_time == null) return false;
-      if (_endTime == null) return false;
-      if (_locationController.text.trim().isEmpty) return false;
+      if (_validateDate(_dateController.text) != null) return false;
+      if (_validateTime(_timeController.text) != null) return false;
+      if (_validateEndTime(_endTimeController.text) != null) return false;
+      if (_validateLocation(_locationController.text) != null) return false;
       if (_validateRegistrationUrl(_registrationController.text) != null) {
         return false;
       }
       return true;
     }
     if (step == 1) {
-      if (_required(_titleController.text) != null) return false;
-      if (_required(_descriptionController.text) != null) return false;
-      if (_required(_organizerController.text) != null) return false;
+      if (_validateTitle(_titleController.text) != null) return false;
+      if (_validateDescription(_descriptionController.text) != null) {
+        return false;
+      }
+      if (_validateOrganizer(_organizerController.text) != null) return false;
       if (_categoryId == null) return false;
       return true;
     }
     // wait for cover upload before submit
-    if (step == 2) return !_coverUploading;
+    if (step == 2) {
+      if (_coverUploading) return false;
+      if (validateOptionalEventText(
+            _itEquipmentController.text,
+            maxLength: EventFormLimits.resource,
+            fieldName: 'IT equipment',
+            allowLineBreaks: true,
+          ) !=
+          null) {
+        return false;
+      }
+      if (validateOptionalEventText(
+            _materialsController.text,
+            maxLength: EventFormLimits.resource,
+            fieldName: 'Materials',
+            allowLineBreaks: true,
+          ) !=
+          null) {
+        return false;
+      }
+      return true;
+    }
     return true;
   }
 
@@ -417,6 +725,7 @@ class _SubmitScreenState extends State<SubmitScreen> {
 
     if (_currentStep < 2) {
       setState(() => _currentStep++);
+      _scheduleDraftSave();
     } else {
       _submit();
     }
@@ -479,6 +788,22 @@ class _SubmitScreenState extends State<SubmitScreen> {
       _showMessage(AppLocalizations.get('coverStillUploading'));
       return;
     }
+    int? invalidStep;
+    for (var step = 0; step < _formKeys.length; step++) {
+      if (!_isStepValid(step)) {
+        invalidStep = step;
+        break;
+      }
+    }
+    if (invalidStep != null) {
+      final stepToReview = invalidStep;
+      setState(() => _currentStep = stepToReview);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _formKeys[stepToReview].currentState?.validate();
+      });
+      _showMessage('Please review the highlighted fields');
+      return;
+    }
     setState(() => _submitting = true);
     try {
       final fields = {
@@ -494,6 +819,7 @@ class _SubmitScreenState extends State<SubmitScreen> {
         'materials': _nullIfEmpty(_materialsController.text),
         'registration_url': _nullIfEmpty(_registrationController.text),
       };
+      fields['client_request_id'] = _clientRequestId;
       if (_coverRef != null) {
         fields['cover_ref'] = _coverRef;
       }
@@ -506,11 +832,17 @@ class _SubmitScreenState extends State<SubmitScreen> {
         await EventCache.instance.submit(fields);
       }
       if (!mounted) return;
+      _suppressDraftSave = true;
+      final userId = AuthStore.userId;
+      if (userId != null) await _clearDraft(userId);
+      if (!mounted) return;
       setState(() => _viewMode = _SubmitViewMode.success);
     } on ConflictException catch (e) {
       _showMessage(e.message);
     } on ApiException catch (e) {
       _showMessage(e.message);
+    } catch (_) {
+      _showMessage(AppLocalizations.get('somethingWentWrong'));
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
@@ -542,7 +874,7 @@ class _SubmitScreenState extends State<SubmitScreen> {
               Text(
                 AppLocalizations.get('moderationTimeframe'),
                 textAlign: TextAlign.center,
-                style: TextStyle(color: AppColors.grey, fontSize: 14),
+                style: AppTextStyles.bodyMedium.copyWith(color: AppColors.grey),
               ),
               const SizedBox(height: AppSpacing.xl),
               AppPrimaryButton(
@@ -558,9 +890,10 @@ class _SubmitScreenState extends State<SubmitScreen> {
   }
 
   void _showMessage(String message) {
-    ScaffoldMessenger.of(
+    if (!mounted) return;
+    ScaffoldMessenger.maybeOf(
       context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+    )?.showSnackBar(SnackBar(content: Text(message)));
   }
 
   String get _currentTitle {
@@ -582,13 +915,14 @@ class _SubmitScreenState extends State<SubmitScreen> {
 
   @override
   Widget build(BuildContext context) {
+    late final Widget content;
     if (widget.asSheet) {
-      return Padding(
+      content = Padding(
         padding: EdgeInsets.only(
           bottom: MediaQuery.of(context).viewInsets.bottom,
         ),
         child: ClipRRect(
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
+          borderRadius: AppSpacing.borderRadiusTopSheet,
           child: Material(
             color: Theme.of(context).scaffoldBackgroundColor,
             child: SafeArea(
@@ -602,7 +936,7 @@ class _SubmitScreenState extends State<SubmitScreen> {
                     height: 4,
                     decoration: BoxDecoration(
                       color: AppColors.grey.withValues(alpha: 0.35),
-                      borderRadius: BorderRadius.circular(999),
+                      borderRadius: AppSpacing.borderRadiusRound,
                     ),
                   ),
                   _buildFocusAnim(
@@ -611,10 +945,7 @@ class _SubmitScreenState extends State<SubmitScreen> {
                       child: Center(
                         child: Text(
                           _currentTitle,
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700,
-                          ),
+                          style: AppTextStyles.titleMedium,
                         ),
                       ),
                     ),
@@ -627,10 +958,17 @@ class _SubmitScreenState extends State<SubmitScreen> {
           ),
         ),
       );
+    } else {
+      content = Scaffold(
+        appBar: AppAppBar(showBackButton: true, title: _currentTitle),
+        body: _buildBodyContainer(),
+      );
     }
-    return Scaffold(
-      appBar: AppAppBar(showBackButton: true, title: _currentTitle),
-      body: _buildBodyContainer(),
+
+    return PopScope<bool>(
+      canPop: _canPop,
+      onPopInvokedWithResult: _handlePop,
+      child: content,
     );
   }
 
@@ -721,10 +1059,22 @@ class _SubmitScreenState extends State<SubmitScreen> {
   }
 
   Widget _buildDatePickerView({Key? key}) {
-    final now = DateTime.now();
+    final now = DateUtils.dateOnly(DateTime.now());
+    final defaultLastDate = now.add(const Duration(days: 365));
+    final selectedDate = DateUtils.dateOnly(_date ?? now);
+    final lastDate = selectedDate.isAfter(defaultLastDate)
+        ? selectedDate
+        : defaultLastDate;
+    final pickerDate = clampEventPickerDate(
+      _date ?? now,
+      firstDate: now,
+      lastDate: lastDate,
+    );
     final isLight = Theme.of(context).brightness == Brightness.light;
-    final textPrimary = isLight ? const Color(0xFF0A0A1A) : Colors.white;
-    final textSub = isLight ? const Color(0xFF6B6B80) : const Color(0xFF8E8EA3);
+    final textPrimary = isLight
+        ? AppColors.textPrimary
+        : AppColors.textPrimaryDark;
+    final textSub = AppColors.textSecondary;
     return KeyedSubtree(
       key: key,
       child: Padding(
@@ -737,15 +1087,15 @@ class _SubmitScreenState extends State<SubmitScreen> {
               data: Theme.of(context).copyWith(
                 colorScheme: Theme.of(context).colorScheme.copyWith(
                   primary: AppColors.primary,
-                  onPrimary: Colors.white,
+                  onPrimary: AppColors.white,
                   onSurface: textPrimary,
                   onSurfaceVariant: textSub,
                 ),
               ),
               child: CalendarDatePicker(
-                initialDate: _date ?? now,
+                initialDate: pickerDate,
                 firstDate: now,
-                lastDate: now.add(const Duration(days: 365)),
+                lastDate: lastDate,
                 onDateChanged: (date) {
                   setState(() {
                     _date = date;
@@ -763,7 +1113,7 @@ class _SubmitScreenState extends State<SubmitScreen> {
               text: 'OK',
               onPressed: () {
                 setState(() {
-                  _date ??= now;
+                  _date = pickerDate;
                   _dateController.text = DateFormat(
                     'dd.MM.yyyy',
                   ).format(_date!);
@@ -778,10 +1128,10 @@ class _SubmitScreenState extends State<SubmitScreen> {
   }
 
   Widget _buildTimePickerView({Key? key, required bool isEnd}) {
-    final defaultHour = isEnd
-        ? (_time != null ? (_time!.hour + 1) % 24 : TimeOfDay.now().hour)
-        : 15;
-    final defaultMinute = isEnd ? (_time != null ? _time!.minute : 0) : 0;
+    final startMinutes = _time == null ? null : _toMinutes(_time!);
+    final defaultEndMinutes = min((startMinutes ?? 14 * 60) + 60, 23 * 60 + 59);
+    final defaultHour = isEnd ? defaultEndMinutes ~/ 60 : 15;
+    final defaultMinute = isEnd ? defaultEndMinutes % 60 : 0;
 
     return KeyedSubtree(
       key: key,
@@ -817,15 +1167,10 @@ class _SubmitScreenState extends State<SubmitScreen> {
                       } else {
                         _time = t;
                         _timeController.text = _formatTime(t);
-                        // Auto-adjust end time if it becomes invalid
                         if (_endTime != null) {
                           if (_toMinutes(_endTime!) <= _toMinutes(_time!)) {
-                            final newEnd = TimeOfDay(
-                              hour: (t.hour + 1) % 24,
-                              minute: t.minute,
-                            );
-                            _endTime = newEnd;
-                            _endTimeController.text = _formatTime(newEnd);
+                            _endTime = null;
+                            _endTimeController.clear();
                           }
                         }
                       }
@@ -891,7 +1236,9 @@ class _SubmitScreenState extends State<SubmitScreen> {
               Center(
                 child: Text(
                   _categoriesError!,
-                  style: const TextStyle(color: AppColors.error),
+                  style: AppTextStyles.bodyMedium.copyWith(
+                    color: AppColors.error,
+                  ),
                 ),
               )
             else
@@ -922,22 +1269,22 @@ class _SubmitScreenState extends State<SubmitScreen> {
                         backgroundColor: isLight
                             ? AppColors.fieldBackground
                             : AppColors.surfaceDark,
-                        labelStyle: TextStyle(
+                        labelStyle: AppTextStyles.labelLarge.copyWith(
                           color: _categoryId == category.id
                               ? AppColors.primary
                               : (isLight
                                     ? AppColors.textPrimary
                                     : AppColors.textPrimaryDark),
                           fontWeight: _categoryId == category.id
-                              ? FontWeight.bold
-                              : FontWeight.normal,
+                              ? FontWeight.w600
+                              : FontWeight.w400,
                         ),
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8.0),
+                          borderRadius: AppSpacing.borderRadiusSm,
                           side: BorderSide(
                             color: _categoryId == category.id
                                 ? AppColors.primary
-                                : Colors.transparent,
+                                : AppColors.transparent,
                             width: 1,
                           ),
                         ),
@@ -993,7 +1340,7 @@ class _SubmitScreenState extends State<SubmitScreen> {
             height: 4,
             margin: const EdgeInsets.symmetric(horizontal: AppSpacing.df),
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(999),
+              borderRadius: AppSpacing.borderRadiusRound,
               color: AppColors.fieldBackground,
             ),
             child: Row(
@@ -1002,7 +1349,7 @@ class _SubmitScreenState extends State<SubmitScreen> {
                   flex: _currentStep + 1,
                   child: Container(
                     decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(999),
+                      borderRadius: AppSpacing.borderRadiusRound,
                       color: AppColors.primary,
                     ),
                   ),
@@ -1063,8 +1410,9 @@ class _SubmitScreenState extends State<SubmitScreen> {
               controller: _titleController,
               focusNode: _titleFocus,
               label: AppLocalizations.get('title'),
-              maxLength: 100,
-              validator: _required,
+              maxLength: EventFormLimits.title,
+              validator: _validateTitle,
+              textCapitalization: TextCapitalization.sentences,
             ),
             !_isEditing || _titleFocus.hasFocus,
             focusNode: _titleFocus,
@@ -1076,8 +1424,9 @@ class _SubmitScreenState extends State<SubmitScreen> {
               focusNode: _descriptionFocus,
               label: AppLocalizations.get('description'),
               maxLines: 4,
-              maxLength: 1000,
-              validator: _required,
+              maxLength: EventFormLimits.description,
+              validator: _validateDescription,
+              textCapitalization: TextCapitalization.sentences,
             ),
             !_isEditing || _descriptionFocus.hasFocus,
             focusNode: _descriptionFocus,
@@ -1088,8 +1437,9 @@ class _SubmitScreenState extends State<SubmitScreen> {
               controller: _organizerController,
               focusNode: _organizerFocus,
               label: AppLocalizations.get('organizer'),
-              maxLength: 100,
-              validator: _required,
+              maxLength: EventFormLimits.organizer,
+              validator: _validateOrganizer,
+              textCapitalization: TextCapitalization.words,
             ),
             !_isEditing || _organizerFocus.hasFocus,
             focusNode: _organizerFocus,
@@ -1143,7 +1493,7 @@ class _SubmitScreenState extends State<SubmitScreen> {
           const SizedBox(height: AppSpacing.sm),
           Text(
             _coverError!,
-            style: const TextStyle(color: AppColors.error, fontSize: 13),
+            style: AppTextStyles.bodySmall.copyWith(color: AppColors.error),
           ),
         ],
         const SizedBox(height: AppSpacing.sm),
@@ -1169,7 +1519,7 @@ class _SubmitScreenState extends State<SubmitScreen> {
         ),
         if (_coverUploading)
           Container(
-            color: Colors.black.withValues(alpha: 0.45),
+            color: AppColors.black.withValues(alpha: 0.45),
             alignment: Alignment.center,
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -1178,7 +1528,9 @@ class _SubmitScreenState extends State<SubmitScreen> {
                 const SizedBox(height: AppSpacing.sm),
                 Text(
                   AppLocalizations.get('uploading'),
-                  style: const TextStyle(color: Colors.white, fontSize: 13),
+                  style: AppTextStyles.bodySmall.copyWith(
+                    color: AppColors.white,
+                  ),
                 ),
               ],
             ),
@@ -1201,7 +1553,7 @@ class _SubmitScreenState extends State<SubmitScreen> {
             const SizedBox(height: AppSpacing.sm),
             Text(
               AppLocalizations.get('addCover'),
-              style: const TextStyle(color: AppColors.grey, fontSize: 13),
+              style: AppTextStyles.bodySmall.copyWith(color: AppColors.grey),
             ),
           ],
         ),
@@ -1399,7 +1751,7 @@ class _SubmitScreenState extends State<SubmitScreen> {
         : Image.network(widget.initialEvent!.coverUrl!, fit: BoxFit.contain);
     showDialog<void>(
       context: context,
-      barrierColor: Colors.black.withValues(alpha: 0.9),
+      barrierColor: AppColors.black.withValues(alpha: 0.9),
       builder: (ctx) => GestureDetector(
         onTap: () => Navigator.pop(ctx),
         child: Center(
@@ -1513,8 +1865,9 @@ class _SubmitScreenState extends State<SubmitScreen> {
               controller: _locationController,
               focusNode: _locationFocus,
               label: AppLocalizations.get('place'),
-              maxLength: 200,
-              validator: _required,
+              maxLength: EventFormLimits.location,
+              validator: _validateLocation,
+              textCapitalization: TextCapitalization.words,
             ),
             !_isEditing || _locationFocus.hasFocus,
             focusNode: _locationFocus,
@@ -1526,7 +1879,7 @@ class _SubmitScreenState extends State<SubmitScreen> {
               focusNode: _registrationFocus,
               label: AppLocalizations.get('registrationUrl'),
               keyboardType: TextInputType.url,
-              maxLength: 500,
+              maxLength: EventFormLimits.registrationUrl,
               errorText: _validateRegistrationUrl(_registrationController.text),
               onChanged: (_) => setState(() {}),
               validator: _validateRegistrationUrl,
@@ -1552,7 +1905,14 @@ class _SubmitScreenState extends State<SubmitScreen> {
               label: AppLocalizations.get('itEquipment'),
               hint: AppLocalizations.get('itEquipmentHint'),
               maxLines: 3,
-              maxLength: 500,
+              maxLength: EventFormLimits.resource,
+              validator: (value) => validateOptionalEventText(
+                value,
+                maxLength: EventFormLimits.resource,
+                fieldName: 'IT equipment',
+                allowLineBreaks: true,
+              ),
+              textCapitalization: TextCapitalization.sentences,
             ),
             !_isEditing || _itEquipmentFocus.hasFocus,
             focusNode: _itEquipmentFocus,
@@ -1565,7 +1925,14 @@ class _SubmitScreenState extends State<SubmitScreen> {
               label: AppLocalizations.get('materials'),
               hint: AppLocalizations.get('materialsHint'),
               maxLines: 3,
-              maxLength: 500,
+              maxLength: EventFormLimits.resource,
+              validator: (value) => validateOptionalEventText(
+                value,
+                maxLength: EventFormLimits.resource,
+                fieldName: 'Materials',
+                allowLineBreaks: true,
+              ),
+              textCapitalization: TextCapitalization.sentences,
             ),
             !_isEditing || _materialsFocus.hasFocus,
             focusNode: _materialsFocus,
@@ -1586,6 +1953,8 @@ class _SubmitScreenState extends State<SubmitScreen> {
             _titleController,
             _descriptionController,
             _organizerController,
+            _itEquipmentController,
+            _materialsController,
           ]),
           builder: (context, child) {
             final isValid = _isStepValid(_currentStep);
@@ -1600,7 +1969,10 @@ class _SubmitScreenState extends State<SubmitScreen> {
                         text: AppLocalizations.get('back'),
                         onPressed: _submitting
                             ? null
-                            : () => setState(() => _currentStep--),
+                            : () {
+                                setState(() => _currentStep--);
+                                _scheduleDraftSave();
+                              },
                       ),
                     ),
                     const SizedBox(width: AppSpacing.md),

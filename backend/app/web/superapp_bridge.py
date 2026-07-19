@@ -1,15 +1,13 @@
 """University superapp identity bridge.
 
 This is the single seam for migrating the Flutter coordinator app into the
-university superapp. It is **inert by default**: with no `SUPERAPP_*` settings
-configured, `try_superapp_user()` returns ``None`` and every surface keeps using
-its existing auth (Telegram initData for the bot/mini app, native PyJWT tokens
-for Flutter).
+university superapp. It is inert by default: with no `SUPERAPP_*` settings
+configured, `try_superapp_user()` returns ``None``. Native Flutter tokens are
+accepted separately only in an explicitly enabled debug backend.
 
 When the superapp is ready, set the `SUPERAPP_JWT_*` env vars (see config.py).
-Flutter endpoints then ALSO accept a superapp-issued JWT — a dual-mode window so
-the app can be moved into the superapp without a flag-day cutover. Once every
-client sends superapp tokens, the native Flutter login can be removed.
+Flutter endpoints then accept a superapp-issued JWT without changing endpoint
+authorization or trusting identity and role data from the Flutter client.
 
 No assumption is made about the superapp's internals beyond "it can hand the
 webview a signed JWT" — the standard OIDC/JWT shape. If the superapp instead
@@ -25,7 +23,7 @@ from datetime import datetime, UTC
 
 import jwt
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
@@ -73,7 +71,9 @@ def _extract_subject(claims: dict) -> str | None:
     if raw is None:
         return None
     subject = str(raw).strip()
-    return subject or None
+    if not subject or len(subject) > 255:
+        return None
+    return subject
 
 
 # never trust an unverified role: default everyone to "user" and only elevate to
@@ -96,6 +96,14 @@ async def resolve_or_create_superapp_user(
     subject = _extract_subject(claims)
     if subject is None:
         return None
+
+    await session.execute(
+        select(
+            func.pg_advisory_xact_lock(
+                func.hashtextextended(f"superapp-user:{subject}", 0)
+            )
+        )
+    )
 
     user = await session.scalar(select(User).where(User.superapp_user_id == subject))
     if user is None:
@@ -120,10 +128,22 @@ async def resolve_or_create_superapp_user(
     # opportunistically refresh display fields when present
     first_name = claims.get("given_name") or claims.get("first_name")
     if isinstance(first_name, str) and first_name.strip():
-        user.first_name = first_name.strip()[:255]
+        user.first_name = " ".join(first_name.split())[:255]
     email = claims.get("email")
-    if isinstance(email, str) and email.strip():
-        user.email = email.strip().lower()[:255]
+    if (
+        claims.get("email_verified") is True
+        and isinstance(email, str)
+        and email.strip()
+    ):
+        normalized_email = email.strip().lower()[:255]
+        email_owner_id = await session.scalar(
+            select(User.id).where(
+                func.lower(User.email) == normalized_email,
+                User.id != user.id,
+            )
+        )
+        if email_owner_id is None:
+            user.email = normalized_email
 
     user.last_active_at = datetime.now(UTC)
     await session.flush()

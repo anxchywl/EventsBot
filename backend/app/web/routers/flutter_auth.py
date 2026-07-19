@@ -5,13 +5,15 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.db.session import get_session
 from app.models.user import User
-from app.web.flutter_auth import create_flutter_token
+from app.web.flutter_auth import create_flutter_token, require_flutter_user
 from app.web.schemas import (
     FlutterAuthResponse,
     FlutterLoginRequest,
     FlutterRegisterRequest,
+    FlutterSessionResponse,
 )
 
 router = APIRouter(prefix="/api/flutter/auth", tags=["flutter-auth"])
@@ -22,6 +24,11 @@ _INVALID_CREDENTIALS = "Invalid email or password"
 
 def _normalize_email(email: str) -> str:
     return email.strip().lower()
+
+
+def require_native_flutter_auth() -> None:
+    if not get_settings().flutter_native_auth_enabled:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
 
 
 def _auth_response(user: User) -> FlutterAuthResponse:
@@ -35,7 +42,28 @@ def _auth_response(user: User) -> FlutterAuthResponse:
     )
 
 
-@router.post("/register", response_model=FlutterAuthResponse, status_code=201)
+def _session_response(user: User) -> FlutterSessionResponse:
+    return FlutterSessionResponse(
+        user_id=user.id,
+        role="admin" if user.role == "admin" else "user",
+        first_name=user.first_name,
+        is_verified=user.is_verified,
+    )
+
+
+@router.get("/session", response_model=FlutterSessionResponse)
+async def session_profile(
+    user: User = Depends(require_flutter_user),
+) -> FlutterSessionResponse:
+    return _session_response(user)
+
+
+@router.post(
+    "/register",
+    response_model=FlutterAuthResponse,
+    status_code=201,
+    dependencies=[Depends(require_native_flutter_auth)],
+)
 async def register(
     payload: FlutterRegisterRequest,
     session: AsyncSession = Depends(get_session),
@@ -69,7 +97,11 @@ async def register(
     return _auth_response(user)
 
 
-@router.post("/login", response_model=FlutterAuthResponse)
+@router.post(
+    "/login",
+    response_model=FlutterAuthResponse,
+    dependencies=[Depends(require_native_flutter_auth)],
+)
 async def login(
     payload: FlutterLoginRequest,
     session: AsyncSession = Depends(get_session),

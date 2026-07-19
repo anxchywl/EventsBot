@@ -59,9 +59,7 @@ def decode_flutter_token(token: str) -> dict:
 #   1. University superapp bridge — inert unless SUPERAPP_JWT_* is configured.
 #      When enabled, a valid superapp-issued JWT resolves here first, so the
 #      Flutter app can be embedded in the superapp with no per-endpoint changes.
-#   2. Native Flutter PyJWT token — the current mechanism, unchanged.
-# This dual-mode is the migration seam: run both during the move, then drop the
-# native path once every client sends superapp tokens.
+#   2. Native Flutter PyJWT token — available only in an explicit debug backend.
 async def require_flutter_user(
     authorization: str | None = Header(default=None),
     session: AsyncSession = Depends(get_session),
@@ -71,6 +69,9 @@ async def require_flutter_user(
         # persist first-sight provisioning and last_active before the endpoint runs
         await session.commit()
         return bridged
+
+    if not get_settings().flutter_native_auth_enabled:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid session")
 
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Missing authentication")

@@ -246,151 +246,159 @@ class _EventManagerScreenState extends State<EventManagerScreen> {
                 ),
                 sliver: SliverList(
                   delegate: SliverChildListDelegate([
-            _FilterBar(
-              period: _period,
-              selectedEvent: _selectedEvent,
-              categoryName: _categoryName,
-              organizer: _organizer,
-              onPickPeriod: _onPickPeriod,
-              onPickEvent: _onPickEvent,
-              onClearEvent: _clearEvent,
-              onPickCategory: _onPickCategory,
-              onPickOrganizer: _onPickOrganizer,
-            ),
+                    _FilterBar(
+                      period: _period,
+                      selectedEvent: _selectedEvent,
+                      categoryName: _categoryName,
+                      organizer: _organizer,
+                      onPickPeriod: _onPickPeriod,
+                      onPickEvent: _onPickEvent,
+                      onClearEvent: _clearEvent,
+                      onPickCategory: _onPickCategory,
+                      onPickOrganizer: _onPickOrganizer,
+                    ),
 
-            // Summary is portfolio-level (donut, weekly counts, totals). When a
-            // single event is pinned the engagement + ratings panels already
-            // cover all relevant data, so hide this panel to reduce noise.
-            if (!_eventPinned) ...[
-              const SizedBox(height: AppSpacing.lg),
-              _AnalyticsPanel<AnalyticsSummary>(
-                title: AppLocalizations.get('overview'),
-                reloadKey: reloadKey,
-                refreshListenable: _refreshSignal,
-                scrollingListenable: _scrollController,
-                centerTitle: true,
-                loader: () => AnalyticsCache.instance.get(
-                  'summary|$reloadKey',
-                  () => fetchAnalyticsSummary(filters),
-                ),
-                builder: (s) => _SummaryBody(summary: s),
-                skeletonLines: 4,
-              ),
-            ],
-            const SizedBox(height: AppSpacing.lg),
-            if (_eventPinned)
-              _AnalyticsPanel<EventModerationDetail>(
-                title: AppLocalizations.get('moderationHealth'),
-                reloadKey: reloadKey,
-                refreshListenable: _refreshSignal,
-                scrollingListenable: _scrollController,
-                centerTitle: true,
-                loader: () => AnalyticsCache.instance.get(
-                  'modevent|$reloadKey',
-                  () => fetchEventModerationDetail(_selectedEvent!.id),
-                ),
-                builder: (m) => _EventModerationDetailBody(data: m),
-                skeletonLines: 6,
-              )
-            else
-              _AnalyticsPanel<AnalyticsModeration>(
-                title: AppLocalizations.get('moderationHealth'),
-                reloadKey: reloadKey,
-                refreshListenable: _refreshSignal,
-                scrollingListenable: _scrollController,
-                centerTitle: true,
-                loader: () => AnalyticsCache.instance.get(
-                  'moderation|$reloadKey',
-                  () => fetchAnalyticsModeration(filters),
-                ),
-                builder: (m) => _ModerationBody(data: m, eventPinned: false),
-                skeletonLines: 5,
-              ),
-            const SizedBox(height: AppSpacing.lg),
-            _AnalyticsPanel<AnalyticsEngagement>(
-              title: AppLocalizations.get('engagement'),
-              reloadKey: reloadKey,
-              refreshListenable: _refreshSignal,
-              scrollingListenable: _scrollController,
-              centerTitle: true,
-              loader: () => AnalyticsCache.instance.get(
-                'engagement|$_trendDays|$reloadKey',
-                () => fetchAnalyticsEngagement(filters, trendDays: _trendDays),
-              ),
-              builder: (e) => _EngagementBody(data: e),
-              skeletonLines: 4,
-            ),
-            // cross-event ranking is meaningless for a single pinned event
-            if (!_eventPinned) ...[
-              const SizedBox(height: AppSpacing.lg),
-              _AnalyticsPanel<List<RankedEvent>>(
-                title: AppLocalizations.get('mostViewed'),
-                reloadKey: reloadKey,
-                refreshListenable: _refreshSignal,
-                scrollingListenable: _scrollController,
-                centerTitle: true,
-                loader: () => AnalyticsCache.instance.get(
-                  'top|views|3|$reloadKey',
-                  () => fetchAnalyticsTop(filters, metric: 'views', limit: 3),
-                ),
-                builder: (rows) =>
-                    _TopViewedBody(rows: rows, filters: filters),
-                skeletonLines: 3,
-              ),
-            ],
-            const SizedBox(height: AppSpacing.lg),
-            _AnalyticsPanel<AnalyticsRatings>(
-              title: AppLocalizations.get('ratings'),
-              reloadKey: reloadKey,
-              refreshListenable: _refreshSignal,
-              scrollingListenable: _scrollController,
-              centerTitle: true,
-              loader: () => AnalyticsCache.instance.get(
-                'ratings|3|$reloadKey',
-                () => fetchAnalyticsRatings(filters, topLimit: 3),
-              ),
-              builder: (r) => _RatingsBody(
-                data: r,
-                filters: filters,
-                showRankings: !_eventPinned,
-                eventId: _eventPinned ? _selectedEvent!.id : null,
-              ),
-              skeletonLines: 5,
-            ),
-            // per-category / per-organizer breakdowns are cross-event and hidden
-            // while a single event is pinned
-            if (!_eventPinned) ...[
-              const SizedBox(height: AppSpacing.lg),
-              _AnalyticsPanel<List<AnalyticsCategory>>(
-                title: AppLocalizations.get('categories'),
-                reloadKey: reloadKey,
-                refreshListenable: _refreshSignal,
-                scrollingListenable: _scrollController,
-                centerTitle: true,
-                loader: () => AnalyticsCache.instance.get(
-                  'categories|$reloadKey',
-                  () => fetchAnalyticsCategories(filters),
-                ),
-                builder: (rows) => _CategoriesBody(rows: rows),
-                skeletonLines: 4,
-              ),
-              const SizedBox(height: AppSpacing.lg),
-              _AnalyticsPanel<List<AnalyticsOrganizer>>(
-                title: AppLocalizations.get('organizers'),
-                reloadKey: reloadKey,
-                refreshListenable: _refreshSignal,
-                scrollingListenable: _scrollController,
-                centerTitle: true,
-                loader: () => AnalyticsCache.instance.get(
-                  'organizers|3|$reloadKey',
-                  () => fetchAnalyticsOrganizers(filters, limit: 3),
-                ),
-                builder: (rows) =>
-                    _OrganizersBody(rows: rows, filters: filters),
-                skeletonLines: 4,
-              ),
-            ],
-            const SizedBox.shrink(),
+                    // Summary is portfolio-level (donut, weekly counts, totals). When a
+                    // single event is pinned the engagement + ratings panels already
+                    // cover all relevant data, so hide this panel to reduce noise.
+                    if (!_eventPinned) ...[
+                      const SizedBox(height: AppSpacing.lg),
+                      _AnalyticsPanel<AnalyticsSummary>(
+                        title: AppLocalizations.get('overview'),
+                        reloadKey: reloadKey,
+                        refreshListenable: _refreshSignal,
+                        scrollingListenable: _scrollController,
+                        centerTitle: true,
+                        loader: () => AnalyticsCache.instance.get(
+                          'summary|$reloadKey',
+                          () => fetchAnalyticsSummary(filters),
+                        ),
+                        builder: (s) => _SummaryBody(summary: s),
+                        skeletonLines: 4,
+                      ),
+                    ],
+                    const SizedBox(height: AppSpacing.lg),
+                    if (_eventPinned)
+                      _AnalyticsPanel<EventModerationDetail>(
+                        title: AppLocalizations.get('moderationHealth'),
+                        reloadKey: reloadKey,
+                        refreshListenable: _refreshSignal,
+                        scrollingListenable: _scrollController,
+                        centerTitle: true,
+                        loader: () => AnalyticsCache.instance.get(
+                          'modevent|$reloadKey',
+                          () => fetchEventModerationDetail(_selectedEvent!.id),
+                        ),
+                        builder: (m) => _EventModerationDetailBody(data: m),
+                        skeletonLines: 6,
+                      )
+                    else
+                      _AnalyticsPanel<AnalyticsModeration>(
+                        title: AppLocalizations.get('moderationHealth'),
+                        reloadKey: reloadKey,
+                        refreshListenable: _refreshSignal,
+                        scrollingListenable: _scrollController,
+                        centerTitle: true,
+                        loader: () => AnalyticsCache.instance.get(
+                          'moderation|$reloadKey',
+                          () => fetchAnalyticsModeration(filters),
+                        ),
+                        builder: (m) =>
+                            _ModerationBody(data: m, eventPinned: false),
+                        skeletonLines: 5,
+                      ),
+                    const SizedBox(height: AppSpacing.lg),
+                    _AnalyticsPanel<AnalyticsEngagement>(
+                      title: AppLocalizations.get('engagement'),
+                      reloadKey: reloadKey,
+                      refreshListenable: _refreshSignal,
+                      scrollingListenable: _scrollController,
+                      centerTitle: true,
+                      loader: () => AnalyticsCache.instance.get(
+                        'engagement|$_trendDays|$reloadKey',
+                        () => fetchAnalyticsEngagement(
+                          filters,
+                          trendDays: _trendDays,
+                        ),
+                      ),
+                      builder: (e) => _EngagementBody(data: e),
+                      skeletonLines: 4,
+                    ),
+                    // cross-event ranking is meaningless for a single pinned event
+                    if (!_eventPinned) ...[
+                      const SizedBox(height: AppSpacing.lg),
+                      _AnalyticsPanel<List<RankedEvent>>(
+                        title: AppLocalizations.get('mostViewed'),
+                        reloadKey: reloadKey,
+                        refreshListenable: _refreshSignal,
+                        scrollingListenable: _scrollController,
+                        centerTitle: true,
+                        loader: () => AnalyticsCache.instance.get(
+                          'top|views|3|$reloadKey',
+                          () => fetchAnalyticsTop(
+                            filters,
+                            metric: 'views',
+                            limit: 3,
+                          ),
+                        ),
+                        builder: (rows) =>
+                            _TopViewedBody(rows: rows, filters: filters),
+                        skeletonLines: 3,
+                      ),
+                    ],
+                    const SizedBox(height: AppSpacing.lg),
+                    _AnalyticsPanel<AnalyticsRatings>(
+                      title: AppLocalizations.get('ratings'),
+                      reloadKey: reloadKey,
+                      refreshListenable: _refreshSignal,
+                      scrollingListenable: _scrollController,
+                      centerTitle: true,
+                      loader: () => AnalyticsCache.instance.get(
+                        'ratings|3|$reloadKey',
+                        () => fetchAnalyticsRatings(filters, topLimit: 3),
+                      ),
+                      builder: (r) => _RatingsBody(
+                        data: r,
+                        filters: filters,
+                        showRankings: !_eventPinned,
+                        eventId: _eventPinned ? _selectedEvent!.id : null,
+                      ),
+                      skeletonLines: 5,
+                    ),
+                    // per-category / per-organizer breakdowns are cross-event and hidden
+                    // while a single event is pinned
+                    if (!_eventPinned) ...[
+                      const SizedBox(height: AppSpacing.lg),
+                      _AnalyticsPanel<List<AnalyticsCategory>>(
+                        title: AppLocalizations.get('categories'),
+                        reloadKey: reloadKey,
+                        refreshListenable: _refreshSignal,
+                        scrollingListenable: _scrollController,
+                        centerTitle: true,
+                        loader: () => AnalyticsCache.instance.get(
+                          'categories|$reloadKey',
+                          () => fetchAnalyticsCategories(filters),
+                        ),
+                        builder: (rows) => _CategoriesBody(rows: rows),
+                        skeletonLines: 4,
+                      ),
+                      const SizedBox(height: AppSpacing.lg),
+                      _AnalyticsPanel<List<AnalyticsOrganizer>>(
+                        title: AppLocalizations.get('organizers'),
+                        reloadKey: reloadKey,
+                        refreshListenable: _refreshSignal,
+                        scrollingListenable: _scrollController,
+                        centerTitle: true,
+                        loader: () => AnalyticsCache.instance.get(
+                          'organizers|3|$reloadKey',
+                          () => fetchAnalyticsOrganizers(filters, limit: 3),
+                        ),
+                        builder: (rows) =>
+                            _OrganizersBody(rows: rows, filters: filters),
+                        skeletonLines: 4,
+                      ),
+                    ],
+                    const SizedBox.shrink(),
                   ]),
                 ),
               ),
@@ -526,7 +534,7 @@ class _FilterPill extends StatelessWidget {
         ? AppSpacing.borderRadiusLg
         : AppSpacing.borderRadiusMd;
     return Material(
-      color: highlighted ? AppColors.primaryLight : Colors.white,
+      color: highlighted ? AppColors.primaryLight : AppColors.white,
       borderRadius: radius,
       child: InkWell(
         onTap: onTap,
@@ -711,7 +719,7 @@ class _PanelCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(AppSpacing.lg),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppColors.white,
         borderRadius: AppSpacing.borderRadiusMd,
       ),
       child: Column(
@@ -864,7 +872,7 @@ class _SummaryBody extends StatelessWidget {
                   child: Text(
                     '$total',
                     style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w800,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
                 ),
@@ -1285,7 +1293,7 @@ class _ReviewsSheetState extends State<_ReviewsSheet> {
       builder: (context, scrollController) {
         return Container(
           decoration: const BoxDecoration(
-            color: Colors.white,
+            color: AppColors.white,
             borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
           ),
           child: Column(
@@ -1511,13 +1519,10 @@ class _ReviewCardState extends State<_ReviewCard>
                     vertical: AppSpacing.sm,
                   ),
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    color: AppColors.white,
                     borderRadius: BorderRadius.circular(AppSpacing.sm),
                   ),
-                  child: Text(
-                    review.content!,
-                    style: AppTextStyles.bodyMedium,
-                  ),
+                  child: Text(review.content!, style: AppTextStyles.bodyMedium),
                 ),
               ],
               // ── Date ──────────────────────────────────────────────────
@@ -1587,12 +1592,12 @@ class _Avatar extends StatelessWidget {
     final initials = name.trim().isEmpty
         ? '?'
         : name
-            .trim()
-            .split(RegExp(r'\s+'))
-            .where((w) => w.isNotEmpty)
-            .take(2)
-            .map((w) => w[0].toUpperCase())
-            .join();
+              .trim()
+              .split(RegExp(r'\s+'))
+              .where((w) => w.isNotEmpty)
+              .take(2)
+              .map((w) => w[0].toUpperCase())
+              .join();
     final hasPhoto = photoUrl != null && photoUrl!.isNotEmpty;
     return CircleAvatar(
       radius: 22,
@@ -1611,7 +1616,6 @@ class _Avatar extends StatelessWidget {
     );
   }
 }
-
 
 class _EngagementBody extends StatelessWidget {
   const _EngagementBody({required this.data});
@@ -1741,7 +1745,7 @@ class _RatingsBody extends StatelessWidget {
               data.average?.toStringAsFixed(1) ?? '—',
               style: Theme.of(
                 context,
-              ).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w800),
+              ).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w700),
             ),
             const SizedBox(width: AppSpacing.sm),
             const Icon(Icons.star, color: AppColors.primary, size: 20),
@@ -1828,7 +1832,7 @@ class _RatingsBody extends StatelessWidget {
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      backgroundColor: Colors.transparent,
+      backgroundColor: AppColors.transparent,
       builder: (_) => _ReviewsSheet(eventId: id),
     );
   }
@@ -2004,7 +2008,7 @@ class _BreakdownRow extends StatelessWidget {
             Text(
               '$value',
               style: AppTextStyles.bodyMedium.copyWith(
-                fontWeight: FontWeight.w800,
+                fontWeight: FontWeight.w700,
               ),
             ),
             if (valueLabel != null) ...[
@@ -2149,7 +2153,7 @@ class _RankedList extends StatelessWidget {
                     ? rows[i].value.toStringAsFixed(1)
                     : _compact(rows[i].value.toInt()),
                 style: AppTextStyles.bodyMedium.copyWith(
-                  fontWeight: FontWeight.w800,
+                  fontWeight: FontWeight.w700,
                   color: AppColors.primary,
                 ),
               ),
@@ -2190,7 +2194,7 @@ class _RateRow extends StatelessWidget {
             Text(
               '${(rate * 100).toStringAsFixed(0)}%',
               style: AppTextStyles.bodyMedium.copyWith(
-                fontWeight: FontWeight.w800,
+                fontWeight: FontWeight.w700,
               ),
             ),
           ],
@@ -2211,18 +2215,10 @@ class _RateRow extends StatelessWidget {
 }
 
 class _Stat {
-  const _Stat(
-    this.label,
-    this.value, {
-    this.caption,
-    this.span = 1,
-    this.centered = true,
-  });
+  const _Stat(this.label, this.value, {this.span = 1});
   final String label;
   final String value;
-  final String? caption;
   final int span;
-  final bool centered;
 }
 
 class _StatGrid extends StatelessWidget {
@@ -2265,7 +2261,6 @@ class _StatTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final centered = stat.centered || stat.span > 1;
     final content = Container(
       constraints: const BoxConstraints(minHeight: 82),
       padding: const EdgeInsets.symmetric(
@@ -2277,30 +2272,24 @@ class _StatTile extends StatelessWidget {
         borderRadius: AppSpacing.borderRadiusMd,
       ),
       child: Column(
-        crossAxisAlignment: centered
-            ? CrossAxisAlignment.center
-            : CrossAxisAlignment.start,
-        mainAxisAlignment: centered
-            ? MainAxisAlignment.center
-            : MainAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
           _AnimatedValue(
             value: stat.value,
             style: AppTextStyles.bodyLarge.copyWith(
-              fontWeight: FontWeight.w800,
+              fontWeight: FontWeight.w700,
             ),
-            textAlign: centered ? TextAlign.center : TextAlign.start,
+            textAlign: TextAlign.center,
           ),
           const SizedBox(height: 2),
           Row(
-            mainAxisAlignment: centered
-                ? MainAxisAlignment.center
-                : MainAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Flexible(
                 child: Text(
                   stat.label,
-                  textAlign: centered ? TextAlign.center : TextAlign.start,
+                  textAlign: TextAlign.center,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: AppTextStyles.bodySmall.copyWith(
@@ -2310,16 +2299,6 @@ class _StatTile extends StatelessWidget {
               ),
             ],
           ),
-          if (stat.caption != null) ...[
-            const SizedBox(height: 2),
-            Text(
-              stat.caption!,
-              textAlign: centered ? TextAlign.center : TextAlign.start,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: AppTextStyles.bodySmall.copyWith(color: AppColors.grey),
-            ),
-          ],
         ],
       ),
     );
@@ -2362,25 +2341,17 @@ class _InlineFact extends StatelessWidget {
   const _InlineFact({
     required this.label,
     required this.value,
-    this.icon,
-    this.color,
     this.boldValue = true,
   });
 
-  final IconData? icon;
   final String label;
   final String value;
-  final Color? color;
   final bool boldValue;
 
   @override
   Widget build(BuildContext context) {
     return Row(
       children: [
-        if (icon != null) ...[
-          Icon(icon, size: AppSpacing.iconSm, color: color ?? AppColors.grey),
-          const SizedBox(width: AppSpacing.sm),
-        ],
         Expanded(
           child: Text(
             label,
@@ -2390,8 +2361,8 @@ class _InlineFact extends StatelessWidget {
         Text(
           value,
           style: AppTextStyles.bodyMedium.copyWith(
-            fontWeight: boldValue ? FontWeight.w800 : FontWeight.w400,
-            color: color ?? AppColors.textPrimary,
+            fontWeight: boldValue ? FontWeight.w700 : FontWeight.w400,
+            color: AppColors.textPrimary,
           ),
         ),
       ],
@@ -2423,7 +2394,7 @@ class _MetricRow extends StatelessWidget {
         Expanded(child: Text(label, style: AppTextStyles.bodyMedium)),
         Text(
           '$value',
-          style: AppTextStyles.bodyMedium.copyWith(fontWeight: FontWeight.w800),
+          style: AppTextStyles.bodyMedium.copyWith(fontWeight: FontWeight.w700),
         ),
       ],
     );

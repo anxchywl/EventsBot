@@ -238,7 +238,9 @@ class _EventPickerSheetState extends State<_EventPickerSheet> {
     final mq = MediaQuery.of(context);
     final maxListHeight = mq.size.height * 0.65;
     final isLight = Theme.of(context).brightness == Brightness.light;
-    final textPrimary = isLight ? const Color(0xFF0A0A1A) : Colors.white;
+    final textPrimary = isLight
+        ? AppColors.textPrimary
+        : AppColors.textPrimaryDark;
     // Mirror submit_screen's _isEditing: keyboard is actually up.
     final keyboardUp = mq.viewInsets.bottom > 0;
 

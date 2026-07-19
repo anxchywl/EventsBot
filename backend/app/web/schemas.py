@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import unicodedata
 from datetime import date, datetime, time
 from typing import Literal
 from zoneinfo import ZoneInfo
@@ -294,6 +295,78 @@ class FriendActionResponse(BaseModel):
 # flutter app: separate auth and event schemas for the mobile client
 
 _TIME_PATTERN = r"^([01]\d|2[0-3]):[0-5]\d$"
+_CLIENT_REQUEST_ID_PATTERN = r"^[a-zA-Z0-9_-]{16,64}$"
+
+
+def _normalize_single_line(value: object) -> object:
+    if not isinstance(value, str):
+        return value
+    value = unicodedata.normalize("NFC", value)
+    if any(unicodedata.category(char) == "Cc" for char in value):
+        raise ValueError("Control characters are not allowed.")
+    return " ".join(value.split())
+
+
+def _normalize_required_multiline(value: object) -> object:
+    if not isinstance(value, str):
+        return value
+    value = (
+        unicodedata.normalize("NFC", value).replace("\r\n", "\n").replace("\r", "\n")
+    )
+    if any(
+        unicodedata.category(char) == "Cc" and char not in {"\n", "\t"}
+        for char in value
+    ):
+        raise ValueError("Control characters are not allowed.")
+    return value.strip()
+
+
+def _normalize_optional_multiline(value: object) -> object:
+    if value is None:
+        return None
+    normalized = _normalize_required_multiline(value)
+    return normalized or None
+
+
+def _normalize_optional_single_line(value: object) -> object:
+    if value is None:
+        return None
+    normalized = _normalize_single_line(value)
+    return normalized or None
+
+
+def _parse_event_time(value: str) -> time:
+    return datetime.strptime(value, "%H:%M").time()
+
+
+def validate_event_time_range(
+    event_time: str,
+    event_end_time: str,
+) -> tuple[time, time]:
+    start_time = _parse_event_time(event_time)
+    end_time = _parse_event_time(event_end_time)
+    if end_time <= start_time:
+        raise ValueError("End time must be strictly later than start time.")
+    return start_time, end_time
+
+
+def validate_event_schedule(
+    event_date: date,
+    event_time: str,
+    event_end_time: str,
+) -> tuple[time, time]:
+    settings = get_settings()
+    now = datetime.now(ZoneInfo(settings.app_timezone))
+    start_time, end_time = validate_event_time_range(event_time, event_end_time)
+
+    if event_date < now.date():
+        raise ValueError("Event date cannot be in the past.")
+
+    current_minute = now.time().replace(second=0, microsecond=0)
+    if event_date == now.date() and start_time <= current_minute:
+        raise ValueError("Event start time has already passed today.")
+
+    return start_time, end_time
 
 
 # registration_url is stored and rendered as a tappable link by every client;
@@ -306,8 +379,10 @@ def _validate_registration_url(value: str | None) -> str | None:
     value = value.strip()
     if not value:
         return None
+    if any(char.isspace() for char in value):
+        raise ValueError("Registration link must be a full http(s):// URL.")
     parsed = urlparse(value)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
         raise ValueError("Registration link must be a full http(s):// URL.")
     return value
 
@@ -325,6 +400,13 @@ class FlutterLoginRequest(BaseModel):
 
 class FlutterAuthResponse(BaseModel):
     token: str
+    user_id: int
+    role: Literal["user", "admin"]
+    first_name: str | None = None
+    is_verified: bool
+
+
+class FlutterSessionResponse(BaseModel):
     user_id: int
     role: Literal["user", "admin"]
     first_name: str | None = None
@@ -358,46 +440,45 @@ class FlutterEventItem(BaseModel):
 
 
 class FlutterEventCreate(BaseModel):
-    title: str = Field(min_length=1, max_length=255)
+    title: str = Field(min_length=1, max_length=100)
     description: str = Field(min_length=1, max_length=1000)
     event_date: date
     event_time: str = Field(pattern=_TIME_PATTERN)
     event_end_time: str = Field(pattern=_TIME_PATTERN)
-    location: str = Field(min_length=1, max_length=255)
-    category_id: int
-    organizer_name: str = Field(min_length=1, max_length=255)
+    location: str = Field(min_length=1, max_length=100)
+    category_id: int = Field(ge=1)
+    organizer_name: str = Field(min_length=1, max_length=100)
     it_equipment: str | None = Field(default=None, max_length=500)
     materials: str | None = Field(default=None, max_length=500)
-    registration_url: str | None = Field(default=None, max_length=1024)
+    registration_url: str | None = Field(default=None, max_length=500)
+    client_request_id: str | None = Field(
+        default=None,
+        min_length=16,
+        max_length=64,
+        pattern=_CLIENT_REQUEST_ID_PATTERN,
+    )
     # opaque token resolved server side
     cover_ref: str | None = Field(default=None, max_length=256)
 
+    _normalize_single_line_fields = field_validator(
+        "title", "location", "organizer_name", mode="before"
+    )(_normalize_single_line)
+    _normalize_description = field_validator("description", mode="before")(
+        _normalize_required_multiline
+    )
+    _normalize_optional_multiline_fields = field_validator(
+        "it_equipment", "materials", mode="before"
+    )(_normalize_optional_multiline)
+    _normalize_registration_link = field_validator("registration_url", mode="before")(
+        _normalize_optional_single_line
+    )
     _check_registration_url = field_validator("registration_url")(
         _validate_registration_url
     )
 
     @model_validator(mode="after")
     def validate_dates_and_times(self) -> FlutterEventCreate:
-        settings = get_settings()
-        tz = ZoneInfo(settings.app_timezone)
-        now = datetime.now(tz)
-        today = now.date()
-
-        if self.event_date < today:
-            raise ValueError("Event date cannot be in the past.")
-
-        try:
-            start_t = datetime.strptime(self.event_time, "%H:%M").time()
-            end_t = datetime.strptime(self.event_end_time, "%H:%M").time()
-        except ValueError:
-            raise ValueError("Invalid time format. Use HH:MM.")
-
-        if self.event_date == today and start_t < now.time():
-            raise ValueError("Event start time has already passed today.")
-
-        if end_t <= start_t:
-            raise ValueError("End time must be strictly later than start time.")
-
+        validate_event_schedule(self.event_date, self.event_time, self.event_end_time)
         return self
 
 
@@ -411,19 +492,31 @@ class FlutterEventPatch(BaseModel):
     @model_validator(mode="after")
     def validate_patch_times(self) -> FlutterEventPatch:
         if self.event_time and self.event_end_time:
-            try:
-                start_t = datetime.strptime(self.event_time, "%H:%M").time()
-                end_t = datetime.strptime(self.event_end_time, "%H:%M").time()
-                if end_t <= start_t:
-                    raise ValueError("End time must be strictly later than start time.")
-            except ValueError:
-                pass
+            validate_event_time_range(self.event_time, self.event_end_time)
         return self
 
 
 class FlutterEventStatusUpdate(BaseModel):
-    status: Literal["approved", "rejected", "needs_changes", "resubmitted", "cancelled"]
+    status: Literal["approved", "rejected", "needs_changes"]
     comment: str | None = Field(default=None, max_length=500)
+
+    _normalize_comment = field_validator("comment", mode="before")(
+        _normalize_optional_multiline
+    )
+
+    @model_validator(mode="after")
+    def validate_decision_comment(self) -> FlutterEventStatusUpdate:
+        if self.status in {"rejected", "needs_changes"} and self.comment is None:
+            raise ValueError("A comment is required for this decision.")
+        return self
+
+
+class FlutterEventCancel(BaseModel):
+    comment: str | None = Field(default=None, max_length=500)
+
+    _normalize_comment = field_validator("comment", mode="before")(
+        _normalize_optional_multiline
+    )
 
 
 class FlutterEventResubmit(BaseModel):
@@ -434,28 +527,58 @@ class FlutterEventResubmit(BaseModel):
     optional message stored on the moderation log.
     """
 
-    title: str | None = Field(default=None, min_length=1, max_length=255)
+    title: str | None = Field(default=None, min_length=1, max_length=100)
     description: str | None = Field(default=None, min_length=1, max_length=1000)
     event_date: date | None = None
     event_time: str | None = Field(default=None, pattern=_TIME_PATTERN)
     event_end_time: str | None = Field(default=None, pattern=_TIME_PATTERN)
-    location: str | None = Field(default=None, min_length=1, max_length=255)
-    category_id: int | None = None
-    organizer_name: str | None = Field(default=None, min_length=1, max_length=255)
+    location: str | None = Field(default=None, min_length=1, max_length=100)
+    category_id: int | None = Field(default=None, ge=1)
+    organizer_name: str | None = Field(default=None, min_length=1, max_length=100)
     it_equipment: str | None = Field(default=None, max_length=500)
     materials: str | None = Field(default=None, max_length=500)
-    registration_url: str | None = Field(default=None, max_length=1024)
+    registration_url: str | None = Field(default=None, max_length=500)
     note: str | None = Field(default=None, max_length=500)
+    client_request_id: str | None = Field(
+        default=None,
+        min_length=16,
+        max_length=64,
+        pattern=_CLIENT_REQUEST_ID_PATTERN,
+    )
     # remove_cover wins over cover_ref
     cover_ref: str | None = Field(default=None, max_length=256)
     remove_cover: bool = False
 
+    _normalize_single_line_fields = field_validator(
+        "title", "location", "organizer_name", mode="before"
+    )(_normalize_optional_single_line)
+    _normalize_description = field_validator("description", mode="before")(
+        _normalize_optional_multiline
+    )
+    _normalize_optional_multiline_fields = field_validator(
+        "it_equipment", "materials", "note", mode="before"
+    )(_normalize_optional_multiline)
+    _normalize_registration_link = field_validator("registration_url", mode="before")(
+        _normalize_optional_single_line
+    )
     _check_registration_url = field_validator("registration_url")(
         _validate_registration_url
     )
 
     @model_validator(mode="after")
     def validate_dates_and_times(self) -> FlutterEventResubmit:
+        for field_name in (
+            "title",
+            "description",
+            "location",
+            "organizer_name",
+        ):
+            if (
+                field_name in self.model_fields_set
+                and getattr(self, field_name) is None
+            ):
+                raise ValueError(f"{field_name} cannot be empty.")
+
         settings = get_settings()
         tz = ZoneInfo(settings.app_timezone)
         now = datetime.now(tz)
@@ -464,21 +587,21 @@ class FlutterEventResubmit(BaseModel):
         if self.event_date is not None and self.event_date < today:
             raise ValueError("Event date cannot be in the past.")
 
-        start_t = end_t = None
+        start_time = end_time = None
         if self.event_time is not None:
-            start_t = datetime.strptime(self.event_time, "%H:%M").time()
+            start_time = _parse_event_time(self.event_time)
         if self.event_end_time is not None:
-            end_t = datetime.strptime(self.event_end_time, "%H:%M").time()
+            end_time = _parse_event_time(self.event_end_time)
 
         if (
             self.event_date is not None
             and self.event_date == today
-            and start_t is not None
-            and start_t < now.time()
+            and start_time is not None
+            and start_time <= now.time().replace(second=0, microsecond=0)
         ):
             raise ValueError("Event start time has already passed today.")
 
-        if start_t is not None and end_t is not None and end_t <= start_t:
+        if start_time is not None and end_time is not None and end_time <= start_time:
             raise ValueError("End time must be strictly later than start time.")
 
         return self

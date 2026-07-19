@@ -444,8 +444,8 @@ class _EventsScreenState extends State<EventsScreen> {
     return showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      barrierColor: Colors.black.withValues(alpha: 0.48),
+      backgroundColor: AppColors.transparent,
+      barrierColor: AppColors.black.withValues(alpha: 0.48),
       enableDrag: true,
       builder: (_) => _MultiSelectSheet(
         title: title,
@@ -463,7 +463,7 @@ class _EventsScreenState extends State<EventsScreen> {
     final initialDate = _calendarMode ? _selectedCalendarDate : null;
     final submitted = await showModalBottomSheet<bool>(
       context: context,
-      backgroundColor: Colors.transparent,
+      backgroundColor: AppColors.transparent,
       isScrollControlled: true,
       useSafeArea: false,
       builder: (context) =>
@@ -574,9 +574,7 @@ class _EventsScreenState extends State<EventsScreen> {
               ],
             ),
             if (_browseUiEnabled)
-              SliverToBoxAdapter(
-                child: _buildFilterStrip(),
-              ),
+              SliverToBoxAdapter(child: _buildFilterStrip()),
           ],
           body: _buildBody(),
         ),
@@ -622,7 +620,7 @@ class _EventsScreenState extends State<EventsScreen> {
     }
 
     // The filter/search strip is now in the headerSliverBuilder so it scrolls
-    // away along with the app bar. Only the pills that make sense per mode 
+    // away along with the app bar. Only the pills that make sense per mode
     // are shown.
     return AnimatedSwitcher(
       duration: const Duration(milliseconds: 260),
@@ -665,21 +663,27 @@ class _EventsScreenState extends State<EventsScreen> {
             ? CrossFadeState.showSecond
             : CrossFadeState.showFirst,
         firstChild: SizedBox(
-          height: 36,
+          height: 48,
           child: ListView(
             scrollDirection: Axis.horizontal,
             padding: EdgeInsets.zero,
             children: [
-              _EventFilterPill(
-                icon: AppIcons.search,
-                onTap: () => setState(() => _searchOpen = true),
+              Tooltip(
+                message: AppLocalizations.get('search'),
+                child: _EventFilterPill(
+                  icon: AppIcons.search,
+                  onTap: () => setState(() => _searchOpen = true),
+                ),
               ),
               const SizedBox(width: AppSpacing.sm),
               if (!_calendarMode) ...[
-                _EventFilterPill(
-                  icon: AppIcons.sort,
-                  highlighted: _sortActive,
-                  onTap: _pickSort,
+                Tooltip(
+                  message: AppLocalizations.get('sorting'),
+                  child: _EventFilterPill(
+                    icon: AppIcons.sort,
+                    highlighted: _sortActive,
+                    onTap: _pickSort,
+                  ),
                 ),
                 const SizedBox(width: AppSpacing.sm),
               ],
@@ -873,7 +877,7 @@ class _DateHeader extends StatelessWidget {
         label,
         style: Theme.of(
           context,
-        ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+        ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
       ),
     );
   }
@@ -895,15 +899,15 @@ class _EventFilterPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final fg = highlighted ? AppColors.primary : AppColors.textPrimary;
-    final radius = AppSpacing.borderRadiusLg;
+    final radius = AppSpacing.borderRadiusRound;
     return Material(
-      color: highlighted ? AppColors.primaryLight : Colors.white,
+      color: highlighted ? AppColors.primaryLight : AppColors.surface,
       borderRadius: radius,
       child: InkWell(
         onTap: onTap,
         borderRadius: radius,
         child: Container(
-          height: 36,
+          constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
           padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
           child: Row(
             mainAxisSize: MainAxisSize.min,
@@ -921,7 +925,7 @@ class _EventFilterPill extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: AppTextStyles.bodySmall.copyWith(
                       color: fg,
-                      fontWeight: FontWeight.w700,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
                 ),
@@ -1015,8 +1019,6 @@ class _SearchBarState extends State<_SearchBar>
     final bg = isLight
         ? AppColors.surface.withValues(alpha: 0.92)
         : AppColors.surfaceDark.withValues(alpha: 0.92);
-    final hasText = widget.controller.text.isNotEmpty;
-
     return AnimatedBuilder(
       animation: _animCtrl,
       builder: (context, child) => FadeTransition(
@@ -1038,7 +1040,7 @@ class _SearchBarState extends State<_SearchBar>
                   padding: const EdgeInsets.symmetric(horizontal: 14),
                   decoration: BoxDecoration(
                     color: bg,
-                    borderRadius: BorderRadius.circular(15),
+                    borderRadius: AppSpacing.borderRadiusDf,
                     border: Border.all(color: borderColor, width: 1),
                     boxShadow: null,
                   ),
@@ -1058,10 +1060,8 @@ class _SearchBarState extends State<_SearchBar>
                           scrollPadding: EdgeInsets.zero,
                           inputFormatters: [SanitizingFormatter()],
                           onChanged: widget.onChanged,
-                          style: TextStyle(
-                            fontFamily: 'Geist',
-                            fontSize: 15,
-                            fontWeight: FontWeight.w700,
+                          style: AppTextStyles.bodyLarge.copyWith(
+                            fontWeight: FontWeight.w600,
                             color: isLight
                                 ? AppColors.textPrimary
                                 : AppColors.textPrimaryDark,
@@ -1069,9 +1069,7 @@ class _SearchBarState extends State<_SearchBar>
                           decoration: InputDecoration(
                             filled: false,
                             hintText: 'Search events…',
-                            hintStyle: TextStyle(
-                              fontFamily: 'Geist',
-                              fontSize: 15,
+                            hintStyle: AppTextStyles.bodyLarge.copyWith(
                               fontWeight: FontWeight.w500,
                               color: AppColors.textSecondary,
                             ),
@@ -1144,11 +1142,10 @@ class _SortSheetState extends State<_SortSheet> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isLight = theme.brightness == Brightness.light;
-    final textPrimary = isLight ? const Color(0xFF0A0A1A) : Colors.white;
-    final textSub = isLight ? const Color(0xFF6B6B80) : const Color(0xFF8E8EA3);
-    final divider = isLight
-        ? Colors.black.withValues(alpha: 0.06)
-        : Colors.white.withValues(alpha: 0.06);
+    final textPrimary = isLight
+        ? AppColors.textPrimary
+        : AppColors.textPrimaryDark;
+    final divider = isLight ? AppColors.borderGrey : AppColors.borderDark;
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -1201,10 +1198,7 @@ class _SortOptionState extends State<_SortOption> {
 
   @override
   Widget build(BuildContext context) {
-    final isLight = Theme.of(context).brightness == Brightness.light;
-    final pressedColor = isLight
-        ? Colors.black.withValues(alpha: 0.04)
-        : Colors.white.withValues(alpha: 0.04);
+    final pressedColor = AppColors.primaryLight.withValues(alpha: 0.5);
 
     return GestureDetector(
       onTapDown: (_) => setState(() => _pressed = true),
@@ -1215,15 +1209,17 @@ class _SortOptionState extends State<_SortOption> {
       onTapCancel: () => setState(() => _pressed = false),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 80),
-        color: _pressed ? pressedColor : Colors.transparent,
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 13),
+        color: _pressed ? pressedColor : AppColors.transparent,
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.lg,
+          vertical: AppSpacing.md,
+        ),
         child: Row(
           children: [
             Expanded(
               child: Text(
                 widget.label,
-                style: TextStyle(
-                  fontSize: 15,
+                style: AppTextStyles.bodyLarge.copyWith(
                   fontWeight: widget.selected
                       ? FontWeight.w600
                       : FontWeight.w500,
@@ -1297,8 +1293,10 @@ class _MultiSelectSheetState extends State<_MultiSelectSheet> {
   Widget build(BuildContext context) {
     final mq = MediaQuery.of(context);
     final isLight = Theme.of(context).brightness == Brightness.light;
-    final surface = isLight ? Colors.white : const Color(0xFF1C1C1E);
-    final textPrimary = isLight ? const Color(0xFF0A0A1A) : Colors.white;
+    final surface = isLight ? AppColors.surface : AppColors.surfaceDark;
+    final textPrimary = isLight
+        ? AppColors.textPrimary
+        : AppColors.textPrimaryDark;
 
     final filtered = _query.isEmpty
         ? widget.options
@@ -1313,7 +1311,7 @@ class _MultiSelectSheetState extends State<_MultiSelectSheet> {
       child: Container(
         decoration: BoxDecoration(
           color: surface,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+          borderRadius: AppSpacing.borderRadiusTopSheet,
         ),
         constraints: BoxConstraints(
           maxHeight: (mq.size.height - mq.viewInsets.bottom) * 0.7,
@@ -1333,8 +1331,8 @@ class _MultiSelectSheetState extends State<_MultiSelectSheet> {
                     height: 4,
                     decoration: BoxDecoration(
                       color: isLight
-                          ? const Color(0xFFD1D1D6)
-                          : const Color(0xFF48484A),
+                          ? AppColors.borderGrey
+                          : AppColors.borderDark,
                       borderRadius: BorderRadius.circular(2),
                     ),
                   ),
@@ -1345,13 +1343,7 @@ class _MultiSelectSheetState extends State<_MultiSelectSheet> {
                 padding: const EdgeInsets.fromLTRB(20, 10, 20, 12),
                 child: Text(
                   widget.title,
-                  style: TextStyle(
-                    fontSize: 17,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: -0.3,
-                    color: textPrimary,
-                    height: 1.2,
-                  ),
+                  style: AppTextStyles.titleMedium.copyWith(color: textPrimary),
                 ),
               ),
               // Content
@@ -1367,13 +1359,13 @@ class _MultiSelectSheetState extends State<_MultiSelectSheet> {
                           duration: const Duration(milliseconds: 160),
                           decoration: BoxDecoration(
                             color: isLight
-                                ? const Color(0xFFF2F2F7)
-                                : const Color(0xFF2C2C2E),
-                            borderRadius: BorderRadius.circular(10),
+                                ? AppColors.fieldBackground
+                                : AppColors.surfaceDark,
+                            borderRadius: AppSpacing.borderRadiusMd,
                             border: Border.all(
                               color: _focused
                                   ? AppColors.primary.withValues(alpha: 0.6)
-                                  : Colors.transparent,
+                                  : AppColors.transparent,
                               width: 1.5,
                             ),
                           ),
@@ -1401,7 +1393,7 @@ class _MultiSelectSheetState extends State<_MultiSelectSheet> {
                                 vertical: 10,
                               ),
                             ),
-                            style: const TextStyle(fontSize: 15),
+                            style: AppTextStyles.bodyLarge,
                           ),
                         ),
                         const SizedBox(height: 12),
@@ -1423,20 +1415,18 @@ class _MultiSelectSheetState extends State<_MultiSelectSheet> {
                                 color: active
                                     ? AppColors.primary
                                     : (isLight
-                                          ? const Color(0xFFF2F2F7)
-                                          : const Color(0xFF2C2C2E)),
-                                borderRadius: BorderRadius.circular(20),
+                                          ? AppColors.fieldBackground
+                                          : AppColors.surfaceDark),
+                                borderRadius: AppSpacing.borderRadiusRound,
                               ),
                               child: Text(
                                 option,
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w500,
+                                style: AppTextStyles.labelLarge.copyWith(
                                   color: active
-                                      ? Colors.white
+                                      ? AppColors.white
                                       : (isLight
-                                            ? const Color(0xFF0A0A1A)
-                                            : Colors.white),
+                                            ? AppColors.textPrimary
+                                            : AppColors.textPrimaryDark),
                                 ),
                               ),
                             ),
@@ -1449,9 +1439,8 @@ class _MultiSelectSheetState extends State<_MultiSelectSheet> {
                           child: Center(
                             child: Text(
                               'Nothing found',
-                              style: TextStyle(
+                              style: AppTextStyles.bodyMedium.copyWith(
                                 color: AppColors.grey,
-                                fontSize: 14,
                               ),
                             ),
                           ),

@@ -66,6 +66,7 @@ class Event(TimestampMixin, Base):
         ),
         Index("ix_events_status_date_time", "status", "event_date", "event_time"),
         Index("ix_events_public_token", "public_token", unique=True),
+        Index("ix_events_client_request_id", "client_request_id", unique=True),
         # creator_user_id has no implicit index (Postgres does not index FKs);
         # list_my_events / get_user_events filter on it, ordered by created_at.
         Index("ix_events_creator_created", "creator_user_id", "created_at"),
@@ -89,6 +90,10 @@ class Event(TimestampMixin, Base):
         String(36),
         default=lambda: str(uuid4()),
         nullable=False,
+    )
+    client_request_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    client_request_fingerprint: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
     )
     # public event content
     title: Mapped[str] = mapped_column(String(255))

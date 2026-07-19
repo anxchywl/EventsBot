@@ -2,12 +2,12 @@
 
 The Flutter coordinator app will move into the university superapp (the big
 Flutter app with NFC entry cards). This backend is prepared for that migration
-with a **forward-compatible identity seam** that is **inert until configured** —
-today nothing changes, and all three surfaces keep working:
+with a **forward-compatible identity seam** that is inert until configured:
 
 - **Telegram bot** — unchanged (long-polling, `admin_ids`/DB role).
 - **Mini app** — unchanged (Telegram `initData` HMAC).
-- **Flutter app** — unchanged (native `flutter_auth.py` email/password + PyJWT).
+- **Flutter standalone host** — native email/password tokens are available only
+  in an explicitly enabled debug backend.
 
 ## How it works
 
@@ -21,14 +21,15 @@ Every Flutter endpoint funnels through `require_flutter_user`
    app upserts Telegram users), `is_verified=True` because the superapp asserts
    identity, and role defaults to `user` — only elevated to `admin` when a
    configured role claim exactly matches the configured admin value.
-2. **Native Flutter token** — the current mechanism, unchanged.
+2. **Native Flutter token** — accepted only when the development-only
+   `FLUTTER_NATIVE_AUTH_ENABLED=true` flag is enabled under `LOG_LEVEL=DEBUG`.
 
-Running both at once is the **dual-mode migration window**: embed the Flutter
-module in the superapp, have it send superapp tokens, and old native tokens keep
-working until every client is migrated. Then delete the native login.
+The production posture is superapp-only. Native login, registration, and
+previously issued native tokens are rejected unless the explicit development
+flag is enabled, so shared test accounts cannot become a production backdoor.
 
-No assumption is made about the superapp beyond "it can hand its webview a signed
-JWT" (standard OIDC/JWT). If instead it authenticates via a gateway-injected
+No assumption is made about the superapp beyond "it can hand the Flutter module
+a signed JWT" (standard OIDC/JWT). If instead it authenticates via a gateway-injected
 header or mTLS, `superapp_bridge.py` is the *only* file to change — swap
 `decode_superapp_token()`; keep `resolve_or_create_superapp_user()`.
 
@@ -51,17 +52,39 @@ The bridge is considered enabled once `SUPERAPP_JWT_ISSUER` **and** a key
 (public key or secret) are set. Prefer the asymmetric public key so this backend
 never holds the superapp's signing key.
 
+## Flutter host contract
+
+Jas Wallet passes its access token to the feature; it does not pass a local user
+ID or role. The feature calls:
+
+```http
+GET /api/flutter/auth/session
+Authorization: Bearer <jas-wallet-token>
+```
+
+The response contains `user_id`, `role`, `first_name`, and `is_verified`. It
+never echoes the bearer token. All later Flutter endpoints accept the same
+token and resolve the same local user. On HTTP 401, the feature clears its
+session-scoped cache, stops realtime updates, and invokes the host's
+`onSessionExpired` callback once. The host must obtain a new Jas Wallet token
+and rebuild `EventsFeature` with a new `EventsHostSession`.
+
+The bridge copies an email claim only when the verified token also contains
+`email_verified: true`. Email is profile data, never the local identity key;
+the configured subject claim remains the stable account mapping.
+
 ## Remaining steps at cutover (need superapp specifics)
 
-- **CORS / CSP**: add the superapp webview origin to `_cors_origins` and to the
-  `frame-ancestors` CSP in `app/web/main.py` (both are Telegram-only today).
+- **CORS / CSP**: no change is required for a native Flutter tab. If the final
+  integration uses Flutter Web or a webview, add its exact origin to CORS and
+  `frame-ancestors` rather than enabling a wildcard.
 - **`TRUSTED_PROXY_IPS`**: set to the superapp/university gateway IP, or all
   users collapse to one rate-limit bucket.
 - **Flutter build**: ship with `--dart-define=API_BASE_URL=https://<prod-host>`
   (release builds now refuse to run without it).
-- **Remove native login** once all clients send superapp tokens: delete
-  `flutter_auth_router` (register/login) and, if unused elsewhere, the
-  `password_hash` column and reset flows.
+- **Development access**: use `LOG_LEVEL=DEBUG` and
+  `FLUTTER_NATIVE_AUTH_ENABLED=true` only in an isolated development
+  environment. Leave the flag unset/false in production.
 - **Role provisioning**: decide how superapp roles/groups map to coordinator
   (`admin`) vs club-head (`user`) and set `SUPERAPP_ROLE_CLAIM` /
   `SUPERAPP_ADMIN_ROLE_VALUE` accordingly.

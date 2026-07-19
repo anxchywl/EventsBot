@@ -76,11 +76,9 @@ class _PeriodPickerSheetState extends State<_PeriodPickerSheet> {
 
   void _applyCustom() {
     if (_start == null || _end == null) return;
-    Navigator.of(context).pop(AnalyticsPeriod(
-      PeriodType.custom,
-      customStart: _start,
-      customEnd: _end,
-    ));
+    Navigator.of(context).pop(
+      AnalyticsPeriod(PeriodType.custom, customStart: _start, customEnd: _end),
+    );
   }
 
   void _onCalendarDay(DateTime date) {
@@ -141,8 +139,7 @@ class _PeriodPickerSheetState extends State<_PeriodPickerSheet> {
                 : const Offset(-1, 0);
             return SlideTransition(
               position: Tween<Offset>(begin: begin, end: Offset.zero).animate(
-                CurvedAnimation(
-                    parent: animation, curve: Curves.easeOutCubic),
+                CurvedAnimation(parent: animation, curve: Curves.easeOutCubic),
               ),
               child: FadeTransition(opacity: animation, child: child),
             );
@@ -189,10 +186,12 @@ class _PeriodListView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isLight = Theme.of(context).brightness == Brightness.light;
-    final textPrimary = isLight ? const Color(0xFF0A0A1A) : Colors.white;
+    final textPrimary = isLight
+        ? AppColors.textPrimary
+        : AppColors.textPrimaryDark;
     final divider = isLight
-        ? Colors.black.withValues(alpha: 0.06)
-        : Colors.white.withValues(alpha: 0.06);
+        ? AppColors.black.withValues(alpha: 0.06)
+        : AppColors.white.withValues(alpha: 0.06);
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -216,13 +215,14 @@ class _PeriodListView extends StatelessWidget {
           final isLast = i == periodOrder.length - 1;
           // For the Custom row, append the saved date range when it exists.
           final isCustomRow = type == PeriodType.custom;
-          final hasRange = isCustomRow &&
+          final hasRange =
+              isCustomRow &&
               current.type == PeriodType.custom &&
               current.customStart != null &&
               current.customEnd != null;
           final label = hasRange
               ? '${AppLocalizations.get('customRange')} '
-                '(${_fmtDate(current.customStart!)} – ${_fmtDate(current.customEnd!)})'
+                    '(${_fmtDate(current.customStart!)} – ${_fmtDate(current.customEnd!)})'
               : AnalyticsPeriod(type).label;
           return Column(
             mainAxisSize: MainAxisSize.min,
@@ -235,8 +235,7 @@ class _PeriodListView extends StatelessWidget {
                 onTap: () => onSelect(type),
               ),
               if (!isLast)
-                Divider(
-                    height: 1, indent: 20, endIndent: 20, color: divider),
+                Divider(height: 1, indent: 20, endIndent: 20, color: divider),
             ],
           );
         }),
@@ -272,8 +271,8 @@ class _PeriodTileState extends State<_PeriodTile> {
   Widget build(BuildContext context) {
     final isLight = Theme.of(context).brightness == Brightness.light;
     final pressed = isLight
-        ? Colors.black.withValues(alpha: 0.04)
-        : Colors.white.withValues(alpha: 0.04);
+        ? AppColors.black.withValues(alpha: 0.04)
+        : AppColors.white.withValues(alpha: 0.04);
 
     return GestureDetector(
       onTapDown: (_) => setState(() => _pressed = true),
@@ -284,7 +283,7 @@ class _PeriodTileState extends State<_PeriodTile> {
       onTapCancel: () => setState(() => _pressed = false),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 80),
-        color: _pressed ? pressed : Colors.transparent,
+        color: _pressed ? pressed : AppColors.transparent,
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 13),
         child: Row(
           children: [
@@ -293,8 +292,9 @@ class _PeriodTileState extends State<_PeriodTile> {
                 widget.label,
                 style: TextStyle(
                   fontSize: 15,
-                  fontWeight:
-                      widget.isSelected ? FontWeight.w600 : FontWeight.w500,
+                  fontWeight: widget.isSelected
+                      ? FontWeight.w600
+                      : FontWeight.w500,
                   color: widget.textPrimary,
                   height: 1.3,
                 ),
@@ -339,8 +339,9 @@ class _CustomRangeView extends StatelessWidget {
 
   // The calendar's effective date constraints depend on which tab is active.
   // To-mode: firstDate is clamped to `start` so dates before `start` are grey.
-  DateTime get _calFirst => selectingStart ? firstAllowed : (start ?? firstAllowed);
-  DateTime get _calLast  => today;
+  DateTime get _calFirst =>
+      selectingStart ? firstAllowed : (start ?? firstAllowed);
+  DateTime get _calLast => today;
 
   // Clamp the displayed month into [_calFirst, _calLast] so CalendarDatePicker
   // never throws an assertion about initialDate being out of range.
@@ -354,9 +355,11 @@ class _CustomRangeView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isLight = Theme.of(context).brightness == Brightness.light;
-    final textPrimary = isLight ? const Color(0xFF0A0A1A) : Colors.white;
-    final textSub    = isLight ? const Color(0xFF6B6B80) : const Color(0xFF8E8EA3);
-    final surface    = isLight ? const Color(0xFFF2F2F7) : const Color(0xFF2C2C2E);
+    final textPrimary = isLight
+        ? AppColors.textPrimary
+        : AppColors.textPrimaryDark;
+    final textSub = AppColors.textSecondary;
+    final surface = isLight ? AppColors.fieldBackground : AppColors.surfaceDark;
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -368,8 +371,11 @@ class _CustomRangeView extends StatelessWidget {
             children: [
               IconButton(
                 onPressed: onBack,
-                icon: Icon(Icons.arrow_back_ios_new,
-                    size: 17, color: textPrimary),
+                icon: Icon(
+                  Icons.arrow_back_ios_new,
+                  size: 17,
+                  color: textPrimary,
+                ),
                 visualDensity: VisualDensity.compact,
               ),
               Expanded(
@@ -408,11 +414,13 @@ class _CustomRangeView extends StatelessWidget {
               // Arrow between tabs
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 6),
-                child: Icon(Icons.arrow_forward,
-                    size: 16,
-                    color: (start != null && end != null)
-                        ? AppColors.primary
-                        : textSub),
+                child: Icon(
+                  Icons.arrow_forward,
+                  size: 16,
+                  color: (start != null && end != null)
+                      ? AppColors.primary
+                      : textSub,
+                ),
               ),
               Expanded(
                 child: _DateTab(
@@ -440,11 +448,11 @@ class _CustomRangeView extends StatelessWidget {
         Theme(
           data: Theme.of(context).copyWith(
             colorScheme: Theme.of(context).colorScheme.copyWith(
-                  primary: AppColors.primary,
-                  onPrimary: Colors.white,
-                  onSurface: textPrimary,
-                  onSurfaceVariant: textSub,
-                ),
+              primary: AppColors.primary,
+              onPrimary: AppColors.white,
+              onSurface: textPrimary,
+              onSurfaceVariant: textSub,
+            ),
           ),
           child: CalendarDatePicker(
             initialDate: _calInitial(),
@@ -505,8 +513,8 @@ class _DateTab extends StatelessWidget {
     final labelActiveColor = dimmed
         ? textSub.withValues(alpha: 0.35)
         : isActive
-            ? AppColors.primary
-            : textSub;
+        ? AppColors.primary
+        : textSub;
 
     return GestureDetector(
       onTap: onTap,
@@ -515,8 +523,8 @@ class _DateTab extends StatelessWidget {
         duration: const Duration(milliseconds: 260),
         curve: Curves.easeOutCubic,
         builder: (context, t, _) {
-          final labelSize   = _lerp(15.0, 10.0, t);
-          final labelTop    = _lerp(_labelCentredTop, _labelFloatedTop, t);
+          final labelSize = _lerp(15.0, 10.0, t);
+          final labelTop = _lerp(_labelCentredTop, _labelFloatedTop, t);
           final labelWeight = t > 0.5 ? FontWeight.w700 : FontWeight.w500;
           final labelSpacing = _lerp(0.6, 0.4, t);
 
@@ -526,11 +534,11 @@ class _DateTab extends StatelessWidget {
             height: _h,
             decoration: BoxDecoration(
               color: isActive ? accent : surface,
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: AppSpacing.borderRadiusMd,
               border: Border.all(
                 color: isActive
                     ? AppColors.primary.withValues(alpha: 0.45)
-                    : Colors.transparent,
+                    : AppColors.transparent,
                 width: 1.5,
               ),
             ),

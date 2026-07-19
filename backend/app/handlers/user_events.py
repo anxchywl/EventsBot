@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.events import (
     delete_event_completely,
+    event_belongs_to_telegram_user,
     get_event_by_id,
     get_user_events,
 )
@@ -479,7 +480,10 @@ async def process_manage_event(callback: CallbackQuery, session: AsyncSession):
 
     settings = get_settings()
     user_id = callback.from_user.id
-    if event.creator_user_id != user_id and user_id not in settings.admin_ids:
+    if (
+        not event_belongs_to_telegram_user(event, user_id)
+        and user_id not in settings.admin_ids
+    ):
         await callback.answer("Unauthorized.", show_alert=True)
         return
 
@@ -536,7 +540,10 @@ async def process_delete_event(callback: CallbackQuery, session: AsyncSession):
 
     settings = get_settings()
     user_id = callback.from_user.id
-    if event.creator_user_id != user_id and user_id not in settings.admin_ids:
+    if (
+        not event_belongs_to_telegram_user(event, user_id)
+        and user_id not in settings.admin_ids
+    ):
         await callback.answer("Unauthorized.", show_alert=True)
         return
 
@@ -567,7 +574,10 @@ async def process_confirm_delete(
 
     settings = get_settings()
     user_id = callback.from_user.id
-    if event.creator_user_id != user_id and user_id not in settings.admin_ids:
+    if (
+        not event_belongs_to_telegram_user(event, user_id)
+        and user_id not in settings.admin_ids
+    ):
         await callback.answer("Unauthorized.", show_alert=True)
         return
 
