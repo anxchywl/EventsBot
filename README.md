@@ -4,7 +4,8 @@
 
 Clubs submit events through the bot, admins approve them, and approved events appear in auto-updating dashboards pinned to connected Telegram groups. Students browse, favorite, set reminders, and coordinate attendance through the Mini App.
 
-Built with aiogram 3, FastAPI, PostgreSQL, and vanilla JS.
+Built with aiogram 3, FastAPI, PostgreSQL, a vanilla JavaScript Telegram Mini App,
+and a modular Flutter Events feature for the Jas Wallet host app.
 
 ---
 
@@ -76,7 +77,8 @@ flowchart LR
 | API and web server | FastAPI + Uvicorn |
 | Database | PostgreSQL + SQLAlchemy (async) + Alembic |
 | Cache | Redis |
-| Mini App frontend | Vanilla JS and CSS |
+| Telegram Mini App | Vanilla JS and CSS |
+| Events feature | Flutter, with the shared `app_ui` package |
 | Runtime | Docker Compose |
 
 ---
@@ -87,6 +89,8 @@ flowchart LR
 events_bot/
   backend/      Python application code and Alembic migrations
   frontend/     Mini App static assets
+  flutter_events/  Flutter Events feature and standalone development host
+  app_ui/       Shared Flutter design system package
   docs/         product and infrastructure documentation
   .github/      CI/CD workflows
   docker/       Dockerfiles and Docker Compose files
@@ -95,8 +99,12 @@ events_bot/
   tests/        backend and frontend tests
 ```
 
-Detailed product spec and business rules: [docs/PRODUCT.md](./docs/PRODUCT.md)  
-Infrastructure, setup, and deployment: [docs/INFRASTRUCTURE.md](./docs/INFRASTRUCTURE.md)  
+Detailed product spec and business rules: [docs/PRODUCT.md](./docs/PRODUCT.md)
+
+Infrastructure, setup, and deployment: [docs/INFRASTRUCTURE.md](./docs/INFRASTRUCTURE.md)
+
+Flutter feature and Jas Wallet integration: [flutter_events/README.md](./flutter_events/README.md)
+
 Agent coding rules: [AGENTS.md](./AGENTS.md)
 
 ---
