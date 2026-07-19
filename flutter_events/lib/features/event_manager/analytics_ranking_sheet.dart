@@ -337,7 +337,7 @@ class _RankTile extends StatelessWidget {
           Text(
             row.value,
             style: AppTextStyles.bodyMedium.copyWith(
-              fontWeight: FontWeight.w800,
+              fontWeight: FontWeight.w700,
               color: AppColors.primary,
             ),
           ),

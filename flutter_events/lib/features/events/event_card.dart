@@ -176,7 +176,9 @@ class EventCard extends StatelessWidget {
               ),
               color: isMutedPending
                   ? AppColors.fieldBackground
-                  : (statusColorOverride ?? event.statusColor).withValues(alpha: 0.12),
+                  : (statusColorOverride ?? event.statusColor).withValues(
+                      alpha: 0.12,
+                    ),
               child: Row(
                 children: [
                   Expanded(
@@ -187,7 +189,6 @@ class EventCard extends StatelessWidget {
                             ? AppColors.grey
                             : (statusColorOverride ?? event.statusColor),
                         fontWeight: FontWeight.w600,
-                        fontSize: 12,
                       ),
                     ),
                   ),
@@ -281,9 +282,7 @@ class _MutedThumb extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      decoration: const BoxDecoration(
-        color: AppColors.fieldBackground,
-      ),
+      decoration: const BoxDecoration(color: AppColors.fieldBackground),
     );
   }
 }

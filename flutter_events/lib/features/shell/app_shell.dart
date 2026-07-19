@@ -1,3 +1,5 @@
+import 'dart:ui' show lerpDouble;
+
 import 'package:app_ui/app_ui.dart';
 import 'package:flutter/material.dart';
 
@@ -132,58 +134,50 @@ class _AppShellState extends State<AppShell> {
   Widget build(BuildContext context) {
     final destinations = _destinations;
     final currentIndex = _currentIndex.clamp(0, destinations.length - 1);
+    final isLight = Theme.of(context).brightness == Brightness.light;
     return Scaffold(
       resizeToAvoidBottomInset: false,
-      extendBody: true,
+      extendBody: false,
       body: _buildBody(),
-      bottomNavigationBar: Padding(
-        padding: EdgeInsets.fromLTRB(
-          AppSpacing.df,
-          0,
-          AppSpacing.df,
-          MediaQuery.paddingOf(context).bottom > 0 ? 12.0 : AppSpacing.sm,
+      bottomNavigationBar: Container(
+        decoration: BoxDecoration(
+          color: isLight ? AppColors.surface : AppColors.surfaceDark,
+          border: Border(
+            top: BorderSide(
+              color: isLight ? AppColors.borderGrey : AppColors.borderDark,
+            ),
+          ),
+          boxShadow: HomeShadows.navBar,
+        ),
+        padding: EdgeInsets.only(
+          left: AppSpacing.sm,
+          right: AppSpacing.sm,
+          top: AppSpacing.xs,
+          bottom: MediaQuery.paddingOf(context).bottom + AppSpacing.xs,
         ),
         child: Align(
-          heightFactor: 1,
           alignment: Alignment.bottomCenter,
-          child: Padding(
-            padding: const EdgeInsets.only(top: AppSpacing.md),
-            child: Container(
-            height: AppSpacing.xxxl + AppSpacing.sm,
-            constraints: const BoxConstraints(maxWidth: 320),
-            decoration: BoxDecoration(
-              color: AppColors.surface,
-              borderRadius: AppSpacing.borderRadiusXl,
-              border: Border.all(color: AppColors.borderGrey),
-              boxShadow: HomeShadows.navBar,
-            ),
-            padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.sm,
-              vertical: AppSpacing.xs,
-            ),
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                return Row(
-                  children: [
-                    for (var i = 0; i < destinations.length; i++)
-                      Expanded(
-                        child: _NavIconButton(
-                          icon: destinations[i].icon,
-                          label: destinations[i].label,
-                          selected: i == currentIndex,
-                          onTap: () => _handleNavigationTap(i),
-                        ),
-                      ),
-                  ],
-                );
-              },
+          heightFactor: 1,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 840),
+            child: Row(
+              children: [
+                for (var i = 0; i < destinations.length; i++)
+                  Expanded(
+                    child: _NavIconButton(
+                      icon: destinations[i].icon,
+                      label: destinations[i].label,
+                      selected: i == currentIndex,
+                      onTap: () => _handleNavigationTap(i),
+                    ),
+                  ),
+              ],
             ),
           ),
         ),
       ),
-    ),
-  );
-}
+    );
+  }
 }
 
 class _NavIconButton extends StatelessWidget {
@@ -201,23 +195,69 @@ class _NavIconButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = selected ? AppColors.primary : AppColors.iconSecondary;
     return Tooltip(
       message: label,
+      excludeFromSemantics: true,
       child: Semantics(
         label: label,
         selected: selected,
         button: true,
+        excludeSemantics: true,
         child: InkWell(
+          borderRadius: AppSpacing.borderRadiusMd,
+          canRequestFocus: true,
           onTap: onTap,
-          borderRadius: AppSpacing.borderRadiusLg,
-          child: Center(
-            child: AnimatedScale(
-              scale: selected ? 1.08 : 1,
-              duration: const Duration(milliseconds: 160),
-              curve: Curves.easeOutCubic,
-              child: AppIcon(icon, size: AppSpacing.xl, color: color),
-            ),
+          child: TweenAnimationBuilder<double>(
+            tween: Tween<double>(begin: 0, end: selected ? 1 : 0),
+            duration: const Duration(milliseconds: 240),
+            curve: Curves.easeOutCubic,
+            builder: (context, progress, child) {
+              final color = Color.lerp(
+                AppColors.iconSecondary,
+                AppColors.primary,
+                progress,
+              )!;
+              final background = Color.lerp(
+                AppColors.transparent,
+                AppColors.primaryLight,
+                progress,
+              )!;
+              final horizontalPadding = lerpDouble(
+                AppSpacing.xs,
+                AppSpacing.sm,
+                progress,
+              )!;
+
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Container(
+                    padding: EdgeInsets.symmetric(
+                      horizontal: horizontalPadding,
+                      vertical: AppSpacing.xs,
+                    ),
+                    decoration: BoxDecoration(
+                      color: background,
+                      borderRadius: AppSpacing.borderRadiusMd,
+                    ),
+                    child: AppIcon(icon, size: AppSpacing.iconDf, color: color),
+                  ),
+                  const SizedBox(height: AppSpacing.xs),
+                  Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTextStyles.labelSmall.copyWith(
+                      color: color,
+                      fontWeight: progress > 0.5
+                          ? FontWeight.w600
+                          : FontWeight.w500,
+                    ),
+                  ),
+                ],
+              );
+            },
           ),
         ),
       ),

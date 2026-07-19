@@ -874,7 +874,7 @@ class _SubmitScreenState extends State<SubmitScreen>
               Text(
                 AppLocalizations.get('moderationTimeframe'),
                 textAlign: TextAlign.center,
-                style: TextStyle(color: AppColors.grey, fontSize: 14),
+                style: AppTextStyles.bodyMedium.copyWith(color: AppColors.grey),
               ),
               const SizedBox(height: AppSpacing.xl),
               AppPrimaryButton(
@@ -922,7 +922,7 @@ class _SubmitScreenState extends State<SubmitScreen>
           bottom: MediaQuery.of(context).viewInsets.bottom,
         ),
         child: ClipRRect(
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
+          borderRadius: AppSpacing.borderRadiusTopSheet,
           child: Material(
             color: Theme.of(context).scaffoldBackgroundColor,
             child: SafeArea(
@@ -936,7 +936,7 @@ class _SubmitScreenState extends State<SubmitScreen>
                     height: 4,
                     decoration: BoxDecoration(
                       color: AppColors.grey.withValues(alpha: 0.35),
-                      borderRadius: BorderRadius.circular(999),
+                      borderRadius: AppSpacing.borderRadiusRound,
                     ),
                   ),
                   _buildFocusAnim(
@@ -945,10 +945,7 @@ class _SubmitScreenState extends State<SubmitScreen>
                       child: Center(
                         child: Text(
                           _currentTitle,
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700,
-                          ),
+                          style: AppTextStyles.titleMedium,
                         ),
                       ),
                     ),
@@ -1074,8 +1071,10 @@ class _SubmitScreenState extends State<SubmitScreen>
       lastDate: lastDate,
     );
     final isLight = Theme.of(context).brightness == Brightness.light;
-    final textPrimary = isLight ? const Color(0xFF0A0A1A) : Colors.white;
-    final textSub = isLight ? const Color(0xFF6B6B80) : const Color(0xFF8E8EA3);
+    final textPrimary = isLight
+        ? AppColors.textPrimary
+        : AppColors.textPrimaryDark;
+    final textSub = AppColors.textSecondary;
     return KeyedSubtree(
       key: key,
       child: Padding(
@@ -1088,7 +1087,7 @@ class _SubmitScreenState extends State<SubmitScreen>
               data: Theme.of(context).copyWith(
                 colorScheme: Theme.of(context).colorScheme.copyWith(
                   primary: AppColors.primary,
-                  onPrimary: Colors.white,
+                  onPrimary: AppColors.white,
                   onSurface: textPrimary,
                   onSurfaceVariant: textSub,
                 ),
@@ -1237,7 +1236,9 @@ class _SubmitScreenState extends State<SubmitScreen>
               Center(
                 child: Text(
                   _categoriesError!,
-                  style: const TextStyle(color: AppColors.error),
+                  style: AppTextStyles.bodyMedium.copyWith(
+                    color: AppColors.error,
+                  ),
                 ),
               )
             else
@@ -1268,22 +1269,22 @@ class _SubmitScreenState extends State<SubmitScreen>
                         backgroundColor: isLight
                             ? AppColors.fieldBackground
                             : AppColors.surfaceDark,
-                        labelStyle: TextStyle(
+                        labelStyle: AppTextStyles.labelLarge.copyWith(
                           color: _categoryId == category.id
                               ? AppColors.primary
                               : (isLight
                                     ? AppColors.textPrimary
                                     : AppColors.textPrimaryDark),
                           fontWeight: _categoryId == category.id
-                              ? FontWeight.bold
-                              : FontWeight.normal,
+                              ? FontWeight.w600
+                              : FontWeight.w400,
                         ),
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8.0),
+                          borderRadius: AppSpacing.borderRadiusSm,
                           side: BorderSide(
                             color: _categoryId == category.id
                                 ? AppColors.primary
-                                : Colors.transparent,
+                                : AppColors.transparent,
                             width: 1,
                           ),
                         ),
@@ -1339,7 +1340,7 @@ class _SubmitScreenState extends State<SubmitScreen>
             height: 4,
             margin: const EdgeInsets.symmetric(horizontal: AppSpacing.df),
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(999),
+              borderRadius: AppSpacing.borderRadiusRound,
               color: AppColors.fieldBackground,
             ),
             child: Row(
@@ -1348,7 +1349,7 @@ class _SubmitScreenState extends State<SubmitScreen>
                   flex: _currentStep + 1,
                   child: Container(
                     decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(999),
+                      borderRadius: AppSpacing.borderRadiusRound,
                       color: AppColors.primary,
                     ),
                   ),
@@ -1492,7 +1493,7 @@ class _SubmitScreenState extends State<SubmitScreen>
           const SizedBox(height: AppSpacing.sm),
           Text(
             _coverError!,
-            style: const TextStyle(color: AppColors.error, fontSize: 13),
+            style: AppTextStyles.bodySmall.copyWith(color: AppColors.error),
           ),
         ],
         const SizedBox(height: AppSpacing.sm),
@@ -1518,7 +1519,7 @@ class _SubmitScreenState extends State<SubmitScreen>
         ),
         if (_coverUploading)
           Container(
-            color: Colors.black.withValues(alpha: 0.45),
+            color: AppColors.black.withValues(alpha: 0.45),
             alignment: Alignment.center,
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -1527,7 +1528,9 @@ class _SubmitScreenState extends State<SubmitScreen>
                 const SizedBox(height: AppSpacing.sm),
                 Text(
                   AppLocalizations.get('uploading'),
-                  style: const TextStyle(color: Colors.white, fontSize: 13),
+                  style: AppTextStyles.bodySmall.copyWith(
+                    color: AppColors.white,
+                  ),
                 ),
               ],
             ),
@@ -1550,7 +1553,7 @@ class _SubmitScreenState extends State<SubmitScreen>
             const SizedBox(height: AppSpacing.sm),
             Text(
               AppLocalizations.get('addCover'),
-              style: const TextStyle(color: AppColors.grey, fontSize: 13),
+              style: AppTextStyles.bodySmall.copyWith(color: AppColors.grey),
             ),
           ],
         ),
@@ -1748,7 +1751,7 @@ class _SubmitScreenState extends State<SubmitScreen>
         : Image.network(widget.initialEvent!.coverUrl!, fit: BoxFit.contain);
     showDialog<void>(
       context: context,
-      barrierColor: Colors.black.withValues(alpha: 0.9),
+      barrierColor: AppColors.black.withValues(alpha: 0.9),
       builder: (ctx) => GestureDetector(
         onTap: () => Navigator.pop(ctx),
         child: Center(

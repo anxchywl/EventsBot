@@ -124,6 +124,19 @@ void main() {
       );
       expect(control, findsOneWidget, reason: label);
       expect(tester.widget<InkWell>(control).canRequestFocus, isTrue);
+      expect(tester.widget<Tooltip>(tooltip).excludeFromSemantics, isTrue);
+      final semantics = find.descendant(
+        of: tooltip,
+        matching: find.byWidgetPredicate(
+          (widget) =>
+              widget is Semantics &&
+              widget.properties.label == label &&
+              widget.properties.button == true,
+        ),
+      );
+      expect(semantics, findsOneWidget, reason: label);
+      expect(tester.widget<Semantics>(semantics).properties.label, label);
+      expect(tester.widget<Semantics>(semantics).excludeSemantics, isTrue);
     }
     final search = find.byWidgetPredicate(
       (widget) => widget is Tooltip && widget.message == 'Search',
@@ -174,6 +187,22 @@ void main() {
 
     expect(tester.getSize(find.byType(IndexedStack)).width, 840);
     expect(tester.takeException(), isNull);
+    await _disposeShell(tester);
+  });
+
+  testWidgets('embedded navigation follows the host dark surface', (
+    tester,
+  ) async {
+    await _pumpShell(
+      tester,
+      size: const Size(800, 700),
+      brightness: Brightness.dark,
+    );
+
+    final scaffold = tester.widget<Scaffold>(find.byType(Scaffold).first);
+    final navigation = scaffold.bottomNavigationBar! as Container;
+    final decoration = navigation.decoration! as BoxDecoration;
+    expect(decoration.color, AppColors.surfaceDark);
     await _disposeShell(tester);
   });
 
@@ -599,6 +628,7 @@ Future<void> _pumpShell(
   WidgetTester tester, {
   required Size size,
   TextScaler textScaler = TextScaler.noScaling,
+  Brightness brightness = Brightness.light,
 }) async {
   setApiClientForTesting(
     MockClient((request) async {
@@ -623,6 +653,7 @@ Future<void> _pumpShell(
 
   await tester.pumpWidget(
     MaterialApp(
+      theme: ThemeData(brightness: brightness),
       home: MediaQuery(
         data: MediaQueryData(size: size, textScaler: textScaler),
         child: const AppShell(),
