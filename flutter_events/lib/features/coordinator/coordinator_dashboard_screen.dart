@@ -363,4 +363,3 @@ class _RequestDateHeader extends StatelessWidget {
     );
   }
 }
-
