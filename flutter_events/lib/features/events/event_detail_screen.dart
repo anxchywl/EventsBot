@@ -1,10 +1,12 @@
 import 'dart:async';
 
 import 'package:app_ui/app_ui.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../core/auth_store.dart';
+import '../../core/api_client.dart';
 import '../../core/cache_store.dart';
 import '../../core/exceptions.dart';
 import '../../core/localization.dart';
@@ -27,6 +29,9 @@ class EventDetailScreen extends StatefulWidget {
 
 class _EventDetailScreenState extends State<EventDetailScreen> {
   late EventModel _event = widget.event;
+  Future<Map<String, dynamic>>? _ownerAnalyticsFuture;
+  Map<String, dynamic>? _ownerAnalyticsInitialData;
+  bool _ownerAnalyticsWasCached = false;
   bool _moderating = false;
   bool _lifecycleMutating = false;
 
@@ -65,9 +70,20 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
     // event or a mutation elsewhere is reflected here without a manual refresh.
     EventCache.instance.seed(_event);
     EventCache.instance.addListener(_onCacheChanged);
+    _prepareOwnerAnalytics();
     // Opened from a list; pull the freshest copy in the background (cache-first
     // for instant render, revalidated silently).
     unawaited(_refreshEvent());
+  }
+
+  @override
+  void didUpdateWidget(covariant EventDetailScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.event.id != widget.event.id ||
+        oldWidget.showStatus != widget.showStatus) {
+      _event = widget.event;
+      _prepareOwnerAnalytics();
+    }
   }
 
   @override
@@ -92,6 +108,24 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
     } catch (_) {
       // Offline / transient: keep the copy we were handed.
     }
+  }
+
+  void _prepareOwnerAnalytics() {
+    if (!widget.showStatus || AuthStore.isAdmin) {
+      _ownerAnalyticsFuture = null;
+      _ownerAnalyticsInitialData = null;
+      _ownerAnalyticsWasCached = false;
+      return;
+    }
+    final userId = AuthStore.userId;
+    final key = 'owner-event|$userId|${_event.id}';
+    _ownerAnalyticsInitialData = AnalyticsCache.instance
+        .peekFresh<Map<String, dynamic>>(key);
+    _ownerAnalyticsWasCached = _ownerAnalyticsInitialData != null;
+    _ownerAnalyticsFuture = AnalyticsCache.instance.get(
+      key,
+      () => fetchOwnerEventAnalytics(_event.id),
+    );
   }
 
   @override
@@ -139,77 +173,232 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
             _factsCard(),
             if (_event.description.isNotEmpty)
               _section('Description', _event.description),
+            if (widget.showStatus && !AuthStore.isAdmin)
+              Padding(
+                padding: const EdgeInsets.only(top: AppSpacing.lg),
+                child: _ownerAnalyticsSection(),
+              ),
             if (AuthStore.isAdmin && _event.itEquipment?.isNotEmpty == true)
               _section('IT Equipment', _event.itEquipment!),
             if (AuthStore.isAdmin && _event.materials?.isNotEmpty == true)
               _section('Materials', _event.materials!),
             if (_event.registrationUrl?.isNotEmpty == true)
               _registrationCard(_event.registrationUrl!, theme),
-            const SizedBox(height: AppSpacing.xxl),
+            if (_canModerate || _canResubmit || _canCancel || _canDelete)
+              _buildBottomBar()!,
           ],
         ),
       ),
-      bottomNavigationBar: _buildBottomBar(),
     );
+  }
+
+  Widget _ownerAnalyticsSection() {
+    final future = _ownerAnalyticsFuture;
+    if (future == null) return const SizedBox.shrink();
+    return FutureBuilder<Map<String, dynamic>>(
+      future: future,
+      initialData: _ownerAnalyticsInitialData,
+      builder: (context, snapshot) {
+        if (!snapshot.hasData &&
+            snapshot.connectionState != ConnectionState.done) {
+          return const _OwnerAnalyticsSkeleton();
+        }
+        if (snapshot.hasError || snapshot.data == null) {
+          return const SizedBox.shrink();
+        }
+        final data = snapshot.data!;
+        final engagement = data['engagement'] as Map<String, dynamic>;
+        final moderation = data['moderation'] as Map<String, dynamic>? ?? {};
+        final ratings =
+            data['rating_distribution'] as Map<String, dynamic>? ?? {};
+        final history =
+            (moderation['history'] as List<dynamic>?) ?? const <dynamic>[];
+        final viewsOverTime =
+            (data['views_over_time'] as List<dynamic>?) ?? const <dynamic>[];
+        final content = Column(
+          children: [
+            _analyticsCard('Moderation health', [
+              _OwnerStat(
+                'Total review time',
+                _duration(moderation['total_review_seconds']),
+              ),
+              _OwnerStat(
+                'Review iterations',
+                moderation['review_iterations'] ?? 0,
+              ),
+              _OwnerStat(
+                'Changes requested',
+                moderation['needs_changes_count'] ?? 0,
+              ),
+              _OwnerStat(
+                'Resubmissions',
+                moderation['resubmission_count'] ?? 0,
+              ),
+            ], timelineEntries: history),
+            const SizedBox(height: AppSpacing.lg),
+            _analyticsCard('Engagement', [
+              _OwnerStat('Views', engagement['views'], span: 2),
+              _OwnerStat('Registrations', engagement['register_clicks']),
+              _OwnerStat('Shares', engagement['share_clicks']),
+              _OwnerStat('Reminders', engagement['reminder_creates']),
+              _OwnerStat('Favorites', engagement['favorites_added'] ?? 0),
+            ], viewTrend: viewsOverTime),
+            const SizedBox(height: AppSpacing.lg),
+            _ratingsCard(
+              data['average_rating'],
+              data['total_reviews'],
+              ratings,
+            ),
+          ],
+        );
+        if (_ownerAnalyticsWasCached) return content;
+        return TweenAnimationBuilder<double>(
+          tween: Tween(begin: 0, end: 1),
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOut,
+          builder: (context, opacity, child) =>
+              Opacity(opacity: opacity, child: child),
+          child: content,
+        );
+      },
+    );
+  }
+
+  Widget _analyticsCard(
+    String title,
+    List<_OwnerStat> metrics, {
+    List<dynamic> timelineEntries = const [],
+    List<dynamic> viewTrend = const [],
+    Object? averageRating,
+    Object? totalReviews,
+    Map<String, dynamic> ratingDistribution = const {},
+    bool emptyRatings = false,
+  }) {
+    return AppCard(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: double.infinity,
+            child: Text(
+              title,
+              textAlign: TextAlign.center,
+              style: AppTextStyles.titleMedium,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          _OwnerStatGrid(stats: metrics),
+          if (timelineEntries.isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.lg),
+            Text('Timeline', style: AppTextStyles.titleMedium),
+            const SizedBox(height: AppSpacing.md),
+            for (var index = 0; index < timelineEntries.length; index++)
+              _OwnerTimelineEntry(
+                entry: timelineEntries[index] as Map<String, dynamic>,
+                isLast: index == timelineEntries.length - 1,
+              ),
+          ],
+          if (viewTrend.isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.lg),
+            _OwnerViewsOverTime(points: viewTrend),
+          ],
+          if (!emptyRatings && totalReviews != null) ...[
+            _OwnerRatingsSummary(
+              average: averageRating,
+              total: totalReviews,
+              distribution: ratingDistribution,
+            ),
+          ],
+          if (emptyRatings)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
+              child: Center(
+                child: Text(
+                  'Nothing here yet',
+                  style: AppTextStyles.bodyMedium.copyWith(
+                    color: AppColors.grey,
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _ratingsCard(
+    Object? average,
+    Object? total,
+    Map<String, dynamic> distribution,
+  ) {
+    if (total == 0) {
+      return _analyticsCard('Ratings', const [], emptyRatings: true);
+    }
+    return _analyticsCard(
+      'Ratings',
+      const [],
+      averageRating: average,
+      totalReviews: total,
+      ratingDistribution: distribution,
+    );
+  }
+
+  String _duration(Object? value) {
+    if (value == null) return '—';
+    final seconds = (value as num).toDouble();
+    if (seconds < 60) return '${seconds.round()}s';
+    final minutes = seconds / 60;
+    if (minutes < 60) return '${minutes.round()}m';
+    final hours = minutes / 60;
+    if (hours < 24) return '${hours.toStringAsFixed(hours < 10 ? 1 : 0)}h';
+    final days = hours / 24;
+    return '${days.toStringAsFixed(days < 10 ? 1 : 0)}d';
   }
 
   Widget? _buildBottomBar() {
     if (_canModerate) {
-      return SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(
-            AppSpacing.df,
-            AppSpacing.sm,
-            AppSpacing.df,
-            AppSpacing.md,
-          ),
-          child: _moderationSection(),
-        ),
+      return Padding(
+        padding: const EdgeInsets.only(top: AppSpacing.lg),
+        child: _moderationSection(),
       );
     }
     if (_canResubmit || _canCancel || _canDelete) {
-      return SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(
-            AppSpacing.df,
-            AppSpacing.sm,
-            AppSpacing.df,
-            AppSpacing.md,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (_canResubmit)
-                AppPrimaryButton(
-                  size: AppButtonSize.medium,
-                  text: _event.status == 'approved'
-                      ? 'Edit event'
-                      : AppLocalizations.get('editAndResubmit'),
-                  isLoading: _lifecycleMutating,
-                  onPressed: _lifecycleMutating ? null : _openResubmit,
-                ),
-              if (_canResubmit && _canCancel)
-                const SizedBox(height: AppSpacing.sm),
-              if (_canCancel)
-                AppSecondaryButton(
-                  size: AppButtonSize.medium,
-                  text: 'Cancel event',
-                  isLoading: _lifecycleMutating,
-                  borderColor: AppColors.error,
-                  textColor: AppColors.error,
-                  onPressed: _lifecycleMutating ? null : _confirmCancel,
-                ),
-              if (_canDelete)
-                AppSecondaryButton(
-                  size: AppButtonSize.medium,
-                  text: 'Delete event',
-                  isLoading: _lifecycleMutating,
-                  borderColor: AppColors.error,
-                  textColor: AppColors.error,
-                  onPressed: _lifecycleMutating ? null : _confirmDelete,
-                ),
-            ],
-          ),
+      return Padding(
+        padding: const EdgeInsets.only(top: AppSpacing.lg),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (_canResubmit)
+              AppPrimaryButton(
+                size: AppButtonSize.medium,
+                text: _event.status == 'approved'
+                    ? 'Edit event'
+                    : AppLocalizations.get('editAndResubmit'),
+                isLoading: _lifecycleMutating,
+                onPressed: _lifecycleMutating ? null : _openResubmit,
+              ),
+            if (_canResubmit && _canCancel)
+              const SizedBox(height: AppSpacing.sm),
+            if (_canCancel)
+              AppSecondaryButton(
+                size: AppButtonSize.medium,
+                text: 'Cancel event',
+                isLoading: _lifecycleMutating,
+                borderColor: AppColors.error,
+                textColor: AppColors.error,
+                onPressed: _lifecycleMutating ? null : _confirmCancel,
+              ),
+            if (_canDelete)
+              AppSecondaryButton(
+                size: AppButtonSize.medium,
+                text: 'Delete event',
+                isLoading: _lifecycleMutating,
+                borderColor: AppColors.error,
+                textColor: AppColors.error,
+                onPressed: _lifecycleMutating ? null : _confirmDelete,
+              ),
+          ],
         ),
       );
     }
@@ -730,6 +919,448 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
     ScaffoldMessenger.maybeOf(
       context,
     )?.showSnackBar(SnackBar(content: Text(message)));
+  }
+}
+
+class _OwnerStat {
+  const _OwnerStat(this.label, this.value, {this.span = 1});
+
+  final String label;
+  final Object value;
+  final int span;
+}
+
+class _OwnerAnalyticsSkeleton extends StatefulWidget {
+  const _OwnerAnalyticsSkeleton();
+
+  @override
+  State<_OwnerAnalyticsSkeleton> createState() =>
+      _OwnerAnalyticsSkeletonState();
+}
+
+class _OwnerAnalyticsSkeletonState extends State<_OwnerAnalyticsSkeleton>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 900),
+  )..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: Tween<double>(begin: 0.45, end: 0.9).animate(_controller),
+      child: Column(
+        children: [
+          _card(rows: 2),
+          const SizedBox(height: AppSpacing.lg),
+          _card(rows: 3),
+          const SizedBox(height: AppSpacing.lg),
+          _card(rows: 2),
+        ],
+      ),
+    );
+  }
+
+  Widget _card({required int rows}) {
+    return AppCard(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      child: Column(
+        children: [
+          FractionallySizedBox(widthFactor: 0.42, child: _bar(height: 14)),
+          const SizedBox(height: AppSpacing.md),
+          for (var index = 0; index < rows; index++) ...[
+            Row(
+              children: [
+                Expanded(child: _block()),
+                const SizedBox(width: AppSpacing.sm),
+                Expanded(child: _block()),
+              ],
+            ),
+            if (index != rows - 1) const SizedBox(height: AppSpacing.sm),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _block() {
+    return Container(
+      height: 72,
+      decoration: BoxDecoration(
+        color: AppColors.fieldBackground,
+        borderRadius: AppSpacing.borderRadiusMd,
+      ),
+    );
+  }
+
+  Widget _bar({required double height}) {
+    return Container(
+      height: height,
+      decoration: BoxDecoration(
+        color: AppColors.lightGrey,
+        borderRadius: BorderRadius.circular(999),
+      ),
+    );
+  }
+}
+
+class _OwnerStatGrid extends StatelessWidget {
+  const _OwnerStatGrid({required this.stats});
+
+  final List<_OwnerStat> stats;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const spacing = AppSpacing.sm;
+        final width = (constraints.maxWidth - spacing) / 2;
+        return Wrap(
+          spacing: spacing,
+          runSpacing: spacing,
+          children: [
+            for (final stat in stats)
+              SizedBox(
+                width: width * stat.span + (stat.span - 1) * spacing,
+                child: Container(
+                  constraints: const BoxConstraints(minHeight: 82),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.md,
+                    vertical: AppSpacing.sm,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.fieldBackground,
+                    borderRadius: AppSpacing.borderRadiusMd,
+                  ),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        '${stat.value}',
+                        style: AppTextStyles.bodyLarge.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        stat.label,
+                        textAlign: TextAlign.center,
+                        style: AppTextStyles.bodySmall.copyWith(
+                          color: AppColors.grey,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _OwnerViewsOverTime extends StatelessWidget {
+  const _OwnerViewsOverTime({required this.points});
+
+  final List<dynamic> points;
+
+  @override
+  Widget build(BuildContext context) {
+    final counts = points
+        .map(
+          (point) =>
+              ((point as Map<String, dynamic>)['count'] as num).toDouble(),
+        )
+        .toList();
+    final total = counts.fold<double>(0, (sum, count) => sum + count);
+    Map<String, dynamic>? peak;
+    for (final point in points.cast<Map<String, dynamic>>()) {
+      if (peak == null || (point['count'] as num) > (peak['count'] as num)) {
+        peak = point;
+      }
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: double.infinity,
+          child: Text(
+            'Views over time',
+            textAlign: TextAlign.center,
+            style: AppTextStyles.bodyMedium.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        if (total == 0)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
+            child: Center(
+              child: Text(
+                'No activity in this period',
+                style: AppTextStyles.bodyMedium.copyWith(color: AppColors.grey),
+              ),
+            ),
+          )
+        else ...[
+          SizedBox(
+            width: double.infinity,
+            height: 56,
+            child: CustomPaint(
+              size: Size.infinite,
+              painter: _OwnerTrendPainter(counts),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          if (peak != null)
+            Text(
+              'Peak: ${peak['count']} · ${_formatTrendDate(peak['date'] as String)}',
+              style: AppTextStyles.bodySmall.copyWith(color: AppColors.grey),
+            ),
+        ],
+      ],
+    );
+  }
+
+  static String _formatTrendDate(String value) {
+    try {
+      final date = DateTime.parse(value);
+      final day = date.day.toString().padLeft(2, '0');
+      final month = date.month.toString().padLeft(2, '0');
+      return '$day.$month.${date.year}';
+    } catch (_) {
+      return value;
+    }
+  }
+}
+
+class _OwnerTrendPainter extends CustomPainter {
+  const _OwnerTrendPainter(this.points);
+
+  final List<double> points;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (points.length < 2) return;
+    final maximum = points.fold<double>(0, (a, b) => a > b ? a : b);
+    final dx = size.width / (points.length - 1);
+    final baseline = size.height - 1;
+    final path = Path();
+    for (var i = 0; i < points.length; i++) {
+      final x = dx * i;
+      final y = maximum == 0
+          ? baseline
+          : baseline - (points[i] / maximum) * (size.height - 2);
+      if (i == 0) {
+        path.moveTo(x, y);
+      } else {
+        path.lineTo(x, y);
+      }
+    }
+    canvas.drawPath(
+      path,
+      Paint()
+        ..color = AppColors.primary
+        ..strokeWidth = 2
+        ..strokeCap = StrokeCap.round
+        ..style = PaintingStyle.stroke,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _OwnerTrendPainter oldDelegate) =>
+      !listEquals(oldDelegate.points, points);
+}
+
+class _OwnerTimelineEntry extends StatelessWidget {
+  const _OwnerTimelineEntry({required this.entry, required this.isLast});
+
+  final Map<String, dynamic> entry;
+  final bool isLast;
+
+  @override
+  Widget build(BuildContext context) {
+    final action = entry['action'] as String;
+    final color = _actionColor(action);
+    final actor = entry['actor_name'] as String?;
+    final comment = entry['comment'] as String?;
+    final createdAt = entry['created_at'] as String;
+
+    return IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 24,
+            child: Column(
+              children: [
+                const SizedBox(height: 4),
+                Container(
+                  width: 10,
+                  height: 10,
+                  decoration: BoxDecoration(
+                    color: color,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                if (!isLast)
+                  Expanded(
+                    child: Container(width: 2, color: AppColors.lightGrey),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: Padding(
+              padding: EdgeInsets.only(bottom: isLast ? 0 : AppSpacing.md),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          _actionLabel(action),
+                          style: AppTextStyles.bodyMedium.copyWith(
+                            color: color,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      Text(
+                        _formatDateTime(createdAt),
+                        style: AppTextStyles.bodySmall.copyWith(
+                          color: AppColors.grey,
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (actor != null) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      actor,
+                      style: AppTextStyles.bodySmall.copyWith(
+                        color: AppColors.grey,
+                      ),
+                    ),
+                  ],
+                  if (comment?.isNotEmpty == true) ...[
+                    const SizedBox(height: AppSpacing.xs),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: AppSpacing.md,
+                        vertical: AppSpacing.sm,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.fieldBackground,
+                        borderRadius: AppSpacing.borderRadiusMd,
+                      ),
+                      child: Text(comment!, style: AppTextStyles.bodyMedium),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static Color _actionColor(String action) {
+    return switch (action) {
+      'approved' || 'restored' => AppColors.success,
+      'rejected' || 'cancelled' => AppColors.error,
+      'needs_changes' => AppColors.orange,
+      'submitted' || 'resubmitted' => AppColors.primary,
+      _ => AppColors.grey,
+    };
+  }
+
+  static String _actionLabel(String action) {
+    return switch (action) {
+      'approved' => AppLocalizations.get('approvedLabel'),
+      'rejected' => AppLocalizations.get('rejectedLabel'),
+      'needs_changes' => AppLocalizations.get('needsChangesLabel'),
+      'submitted' => AppLocalizations.get('submittedAction'),
+      'resubmitted' => AppLocalizations.get('resubmitted'),
+      'cancelled' => AppLocalizations.get('cancelledLabel'),
+      'archived' => AppLocalizations.get('archivedLabel'),
+      'restored' => AppLocalizations.get('restoredAction'),
+      'edited' => AppLocalizations.get('editedAction'),
+      _ => action,
+    };
+  }
+
+  static String _formatDateTime(String value) {
+    try {
+      final date = DateTime.parse(value).toLocal();
+      final month = date.month.toString().padLeft(2, '0');
+      final day = date.day.toString().padLeft(2, '0');
+      final hour = date.hour.toString().padLeft(2, '0');
+      final minute = date.minute.toString().padLeft(2, '0');
+      return '$day.$month ${date.year} $hour:$minute';
+    } catch (_) {
+      return value;
+    }
+  }
+}
+
+class _OwnerRatingsSummary extends StatelessWidget {
+  const _OwnerRatingsSummary({
+    required this.average,
+    required this.total,
+    required this.distribution,
+  });
+
+  final Object? average;
+  final Object total;
+  final Map<String, dynamic> distribution;
+
+  @override
+  Widget build(BuildContext context) {
+    final totalCount = (total as num).toInt();
+    return Column(
+      children: [
+        Text(
+          '${(average as num).toDouble().toStringAsFixed(1)} / 5',
+          style: AppTextStyles.titleLarge,
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        Text('$totalCount reviews', style: AppTextStyles.bodySmall),
+        const SizedBox(height: AppSpacing.md),
+        for (var score = 5; score >= 1; score--)
+          Padding(
+            padding: const EdgeInsets.only(bottom: AppSpacing.xs),
+            child: Row(
+              children: [
+                SizedBox(width: 16, child: Text('$score')),
+                const SizedBox(width: AppSpacing.sm),
+                Expanded(
+                  child: LinearProgressIndicator(
+                    value: totalCount == 0
+                        ? 0
+                        : ((distribution['$score'] as num?) ?? 0) / totalCount,
+                    minHeight: 6,
+                    borderRadius: AppSpacing.borderRadiusSm,
+                  ),
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
   }
 }
 

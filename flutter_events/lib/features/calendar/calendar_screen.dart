@@ -8,6 +8,7 @@ import '../../core/localization.dart';
 import '../../core/realtime_updates.dart';
 import '../../models/event_model.dart';
 import '../events/event_detail_screen.dart';
+import '../shared/loading_skeleton.dart';
 
 class CalendarScreen extends StatefulWidget {
   const CalendarScreen({super.key});
@@ -114,12 +115,12 @@ class _CalendarScreenState extends State<CalendarScreen> {
       result.add(
         AppCalendarEvent(
           id: e.id.toString(),
-          title: e.location,
-          subtitle: e.title,
+          title: e.title,
+          subtitle: e.location,
           date: date,
           time: _parseTime(e.eventTime),
           endTime: e.eventEndTime != null ? _parseTime(e.eventEndTime!) : null,
-          color: e.isPending ? AppColors.grey : AppColors.error,
+          color: e.isPending ? AppColors.grey : AppColors.primary,
           metadata: e,
         ),
       );
@@ -144,7 +145,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
   }
 
   Widget _buildBody() {
-    if (_loading) return const Center(child: AppLoader());
+    if (_loading) return const AppPanelSkeleton(cards: 3);
     if (_error != null) {
       return Center(
         child: Padding(
@@ -164,27 +165,30 @@ class _CalendarScreenState extends State<CalendarScreen> {
       );
     }
 
-    return Padding(
-      padding: const EdgeInsets.all(AppSpacing.df),
-      child: AppCalendar(
-        events: _calendarEvents(),
-        initialDate: _selectedDate,
-        showEventList: true,
-        onDateSelected: (date) {
-          setState(() {
-            _selectedDate = date;
-          });
-        },
-        onEventTap: (event) {
-          final model = event.metadata;
-          if (model is EventModel) {
-            _openDetail(model);
-          }
-        },
-        headerLabel: AppLocalizations.get('bookings'),
-        accentColor: AppColors.primary,
-        emptyStateTitle: AppLocalizations.get('available'),
-        emptyStateSubtitle: AppLocalizations.get('noBookingsOrRequests'),
+    return SingleChildScrollView(
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.df),
+        child: AppCalendar(
+          events: _calendarEvents(),
+          initialDate: _selectedDate,
+          showEventList: true,
+          showTodayButton: true,
+          todayLabel: AppLocalizations.get('today'),
+          todayButtonLabel: AppLocalizations.get('today'),
+          onDateSelected: (date) {
+            setState(() {
+              _selectedDate = date;
+            });
+          },
+          onEventTap: (event) {
+            final model = event.metadata;
+            if (model is EventModel) {
+              _openDetail(model);
+            }
+          },
+          accentColor: AppColors.primary,
+          emptyStateTitle: AppLocalizations.get('noEventsForDay'),
+        ),
       ),
     );
   }

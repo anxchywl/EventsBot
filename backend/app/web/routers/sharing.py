@@ -13,6 +13,7 @@ from app.services.telegram_links import (
     build_telegram_share_link,
 )
 from app.web.auth import MiniAppUser, require_current_miniapp_user, upsert_miniapp_user
+from app.web.realtime import schedule_analytics_changed
 from app.web.limiter import check_rate_limit
 from app.web.routers.events import validate_public_token
 from app.web.schemas import ActionResponse
@@ -59,6 +60,7 @@ async def share_event(
         source="miniapp",
     )
     await session.commit()
+    schedule_analytics_changed("share_click")
     return ActionResponse(
         message="Share this event.",
         url=build_telegram_share_link(url=target, text=event.title),

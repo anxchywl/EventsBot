@@ -52,11 +52,17 @@ from app.web.schemas import (
 from app.web.serializers import event_detail as serialize_event_detail
 from app.web.serializers import event_list_items
 from app.web.telegram import get_bot_username
-from app.web.realtime import subscribe_miniapp_events
+from app.web.realtime import schedule_analytics_changed, subscribe_miniapp_events
 
 
 router = APIRouter(prefix="/api/events", tags=["miniapp-events"])
 event_cache = TTLCache(ttl_seconds=20, max_items=2000)
+# The sync-version endpoint is polled every few seconds by every connected mini
+# app client, so an uncached MAX() aggregate would run once per client per tick.
+# A tiny TTL collapses that fan-out to ~one query per interval while keeping the
+# change-detection latency within the client poll window.
+_sync_version_cache = TTLCache(ttl_seconds=2, max_items=1)
+_SYNC_VERSION_KEY = "sync_version"
 
 ALLOWED_SORTS = {
     "time_asc",
@@ -187,7 +193,12 @@ async def event_filters(
 async def event_sync_version(
     session: AsyncSession = Depends(get_session),
 ) -> dict:
-    return await latest_completed_sync_version(session)
+    cached = _sync_version_cache.get(_SYNC_VERSION_KEY)
+    if cached is not None:
+        return cached
+    version = await latest_completed_sync_version(session)
+    _sync_version_cache.set(_SYNC_VERSION_KEY, version)
+    return version
 
 
 # stream review deletion updates to connected clients
@@ -284,12 +295,14 @@ async def event_detail(
         60,
         "Too many event requests. Try again later.",
     )
+    recorded_action: str | None = None
     if await _should_record_open(event.id, actor_key, source):
+        recorded_action = "open_from_share" if source == "share" else "open"
         await record_event_action_by_ids(
             session,
             event_id=event.id,
             user_id=user.id if user else None,
-            action="open_from_share" if source == "share" else "open",
+            action=recorded_action,
             source=source,
         )
 
@@ -301,6 +314,8 @@ async def event_detail(
         related_events=await _related_events(session, event),
     )
     await session.commit()
+    if recorded_action:
+        schedule_analytics_changed(recorded_action)
     return data
 
 
@@ -355,6 +370,8 @@ async def register_event_click(
         )
     )
     await session.commit()
+    if not already_registered:
+        schedule_analytics_changed("register_click")
     return RegisterResponse(attendee_count=int(count or 0))
 
 

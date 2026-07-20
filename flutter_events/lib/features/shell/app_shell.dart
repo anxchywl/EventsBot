@@ -1,5 +1,3 @@
-import 'dart:ui' show lerpDouble;
-
 import 'package:app_ui/app_ui.dart';
 import 'package:flutter/material.dart';
 
@@ -23,6 +21,7 @@ class AppShell extends StatefulWidget {
 class _AppShellState extends State<AppShell> {
   late int _currentIndex;
   int _eventsTapCount = 0;
+  bool _switchingDevelopmentRole = false;
 
   @override
   void initState() {
@@ -106,24 +105,23 @@ class _AppShellState extends State<AppShell> {
       return;
     }
 
+    if (_switchingDevelopmentRole) return;
+
     // Role switcher: 5 taps on the Events tab swaps between the user and admin
     // test accounts so both shells can be exercised without a login screen.
     _eventsTapCount += 1;
     if (_eventsTapCount >= 5) {
       _eventsTapCount = 0;
+      _switchingDevelopmentRole = true;
       try {
         await switchRole();
       } catch (_) {
         // ignore network errors; keep the current role
+      } finally {
+        _switchingDevelopmentRole = false;
       }
       if (!mounted) return;
       setState(() => _currentIndex = 0);
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        SnackBar(
-          content: Text('Switched to ${AuthStore.isAdmin ? 'admin' : 'user'}'),
-          duration: const Duration(seconds: 1),
-        ),
-      );
       return;
     }
     if (!mounted) return;
@@ -207,57 +205,40 @@ class _NavIconButton extends StatelessWidget {
           borderRadius: AppSpacing.borderRadiusMd,
           canRequestFocus: true,
           onTap: onTap,
-          child: TweenAnimationBuilder<double>(
-            tween: Tween<double>(begin: 0, end: selected ? 1 : 0),
-            duration: const Duration(milliseconds: 240),
-            curve: Curves.easeOutCubic,
-            builder: (context, progress, child) {
-              final color = Color.lerp(
-                AppColors.iconSecondary,
-                AppColors.primary,
-                progress,
-              )!;
-              final background = Color.lerp(
-                AppColors.transparent,
-                AppColors.primaryLight,
-                progress,
-              )!;
-              final horizontalPadding = lerpDouble(
-                AppSpacing.xs,
-                AppSpacing.sm,
-                progress,
-              )!;
-
-              return Column(
-                mainAxisSize: MainAxisSize.min,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Container(
-                    padding: EdgeInsets.symmetric(
-                      horizontal: horizontalPadding,
-                      vertical: AppSpacing.xs,
-                    ),
-                    decoration: BoxDecoration(
-                      color: background,
-                      borderRadius: AppSpacing.borderRadiusMd,
-                    ),
-                    child: AppIcon(icon, size: AppSpacing.iconDf, color: color),
-                  ),
-                  const SizedBox(height: AppSpacing.xs),
-                  Text(
-                    label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppTextStyles.labelSmall.copyWith(
-                      color: color,
-                      fontWeight: progress > 0.5
-                          ? FontWeight.w600
-                          : FontWeight.w500,
-                    ),
-                  ),
-                ],
-              );
-            },
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                curve: Curves.easeOutCubic,
+                padding: EdgeInsets.symmetric(
+                  horizontal: selected ? AppSpacing.sm : AppSpacing.xs,
+                  vertical: AppSpacing.xs,
+                ),
+                decoration: BoxDecoration(
+                  color: selected
+                      ? AppColors.primaryLight
+                      : AppColors.transparent,
+                  borderRadius: BorderRadius.circular(24),
+                ),
+                child: AppIcon(
+                  icon,
+                  size: AppSpacing.iconDf,
+                  color: selected ? AppColors.primary : AppColors.iconSecondary,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.xs),
+              Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: AppTextStyles.labelSmall.copyWith(
+                  color: selected ? AppColors.primary : AppColors.iconSecondary,
+                  fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                ),
+              ),
+            ],
           ),
         ),
       ),

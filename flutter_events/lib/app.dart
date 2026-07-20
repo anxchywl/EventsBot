@@ -194,7 +194,11 @@ class _EventsFeatureState extends State<EventsFeature> {
   @override
   Widget build(BuildContext context) {
     if (_ready && AuthStore.isLoggedIn) {
-      return AppShell(onDevelopmentRoleSwitch: widget.onDevelopmentRoleSwitch);
+      return ValueListenableBuilder<int>(
+        valueListenable: AuthStore.sessionChanges,
+        builder: (context, _, _) =>
+            AppShell(onDevelopmentRoleSwitch: widget.onDevelopmentRoleSwitch),
+      );
     }
     if (_loading) {
       return const _FeatureStartupScreen(isLoading: true);
@@ -242,9 +246,9 @@ class _StandaloneSessionGateState extends State<_StandaloneSessionGate> {
       if (!AuthStore.isLoggedIn) {
         throw StateError('Development account sign-in failed');
       }
-    } catch (_) {
+    } catch (error) {
       if (mounted) {
-        setState(() => _error = 'Could not start the development session.');
+        setState(() => _error = error.toString());
       }
     } finally {
       if (mounted) setState(() => _signingIn = false);
@@ -355,7 +359,7 @@ class _SessionRequiredScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final message = canUseDevelopmentAccess
         ? 'The development account is not available right now.'
-        : 'Open Events from Jas Wallet to continue.';
+        : 'Authentication required. Open Events from Jas Wallet to continue.';
     return Scaffold(
       body: SafeArea(
         child: Center(

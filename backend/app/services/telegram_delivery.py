@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import secrets
 from collections.abc import Awaitable, Callable
 from typing import TypeVar
 
@@ -31,7 +32,9 @@ async def call_with_telegram_backoff(
                 raise
 
             retry_after = float(getattr(exc, "retry_after", 1) or 1)
-            wait_seconds = retry_after + 0.5
+            # jitter the wait so many messages that hit flood control together do
+            # not all retry on the same instant and re-trigger flood control
+            wait_seconds = retry_after + 0.5 + secrets.randbelow(500) / 1000.0
             logger.warning(
                 "telegram flood control for %s; retrying in %.1fs",
                 context,

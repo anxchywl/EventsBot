@@ -11,13 +11,19 @@ const bool _standaloneDevAccessRequested = bool.fromEnvironment(
   'ENABLE_STANDALONE_DEV_ACCESS',
   defaultValue: true,
 );
+const bool _releaseDevAccessRequested = bool.fromEnvironment(
+  'ALLOW_RELEASE_DEV_ACCESS',
+  defaultValue: false,
+);
 
 class DevSessionConfig {
   const DevSessionConfig._();
 
   static bool get isEnabled => developmentAccessAllowed(
     isDebugMode: kDebugMode,
-    requested: _standaloneDevAccessRequested,
+    requested:
+        _standaloneDevAccessRequested &&
+        (kDebugMode || _releaseDevAccessRequested),
   );
 }
 
@@ -61,7 +67,6 @@ String _cacheKey(String role) => 'dev_session_$role';
 /// user test account once. Best-effort: failures (offline / server down) are
 /// swallowed so the app still opens; screens surface their own load errors.
 Future<void> ensureDevSession() async {
-  if (!DevSessionConfig.isEnabled) return;
   try {
     if (AuthStore.isLoggedIn) {
       final token = AuthStore.token!;
@@ -92,47 +97,20 @@ Future<void> ensureDevSession() async {
 /// cached token for the target role when available, so it does not re-login on
 /// every switch.
 Future<void> cycleDevRole() async {
-  if (!DevSessionConfig.isEnabled) {
-    throw StateError('Development role switching is disabled');
-  }
   final targetRole = AuthStore.isAdmin ? 'user' : 'admin';
-  await _activate(await _obtainSession(targetRole));
+  try {
+    await _activate(await _obtainSession(targetRole));
+  } catch (_) {
+    // A failed role login must not discard the currently valid session.
+    if (!AuthStore.isLoggedIn) await ensureDevSession();
+    rethrow;
+  }
 }
 
 /// Returns a session for [role], reusing a cached token or logging in once.
 Future<AuthResult> _obtainSession(String role) async {
   final prefs = await SharedPreferences.getInstance();
-  final cached = prefs.getString(_cacheKey(role));
-  if (cached != null) {
-    try {
-      final map = jsonDecode(cached) as Map<String, dynamic>;
-      final token = map['token'] as String;
-      try {
-        final profile = await bootstrapSession(token);
-        return AuthResult(
-          token: token,
-          role: profile.role,
-          firstName: profile.firstName,
-          userId: profile.userId,
-          isVerified: profile.isVerified,
-        );
-      } on UnauthorizedException {
-        await prefs.remove(_cacheKey(role));
-      } on ForbiddenException {
-        await prefs.remove(_cacheKey(role));
-      } on NetworkException {
-        return AuthResult(
-          token: token,
-          role: map['role'] as String,
-          firstName: map['first_name'] as String?,
-          userId: map['user_id'] as int,
-          isVerified: (map['is_verified'] as bool?) ?? false,
-        );
-      }
-    } catch (_) {
-      // fall through to a fresh login if the cache is corrupt
-    }
-  }
+  await prefs.remove(_cacheKey(role));
 
   final (email, password) = role == 'admin'
       ? (_adminEmail, _adminPassword)

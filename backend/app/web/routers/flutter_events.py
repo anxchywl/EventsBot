@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import secrets
 
 from fastapi import (
     APIRouter,
@@ -29,6 +30,7 @@ from app.services.event_sync import (
     capture_event_snapshot,
     enqueue_event_sync,
 )
+from app.services import analytics_dashboard as analytics_service
 from app.services.events import (
     CREATOR_CANCELLABLE_EVENT_STATUSES,
     DELETABLE_EVENT_STATUSES,
@@ -78,7 +80,38 @@ from app.web.telegram import get_web_bot
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/flutter/events", tags=["flutter-events"])
+
+
+@router.get("/{event_id}/analytics")
+async def owner_event_analytics(
+    event_id: int,
+    user: User = Depends(require_flutter_user),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    event = await session.get(Event, event_id)
+    if event is None or event.creator_user_id != user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Event not found")
+    filters = analytics_service.AnalyticsFilters(event_id=event_id)
+    engagement = await analytics_service.compute_engagement(session, filters, 30)
+    ratings = await analytics_service.compute_ratings(session, filters, 1)
+    moderation = await analytics_service.compute_event_moderation_detail(
+        session, event_id
+    )
+    return {
+        "event_id": event_id,
+        "engagement": engagement["totals"],
+        "views_over_time": engagement["views_over_time"],
+        "moderation": moderation,
+        "average_rating": ratings["average"],
+        "total_reviews": ratings["total_reviews"],
+        "rating_distribution": ratings["distribution"],
+    }
+
+
 _FLUTTER_SSE_MAX_CONNECTION_SECONDS = 300
+# spread forced reconnects so a fleet that connected together (e.g. right after a
+# deploy) does not all reconnect on the same second — a thundering herd
+_FLUTTER_SSE_DISCONNECT_JITTER_SECONDS = 60
 
 
 async def _event_update_targets(
@@ -321,7 +354,11 @@ async def flutter_event_updates(
         yield ": connected\n\n"
         iterator = subscribe_miniapp_events(user.id)
         loop = asyncio.get_running_loop()
-        disconnect_at = loop.time() + _FLUTTER_SSE_MAX_CONNECTION_SECONDS
+        disconnect_at = (
+            loop.time()
+            + _FLUTTER_SSE_MAX_CONNECTION_SECONDS
+            + secrets.randbelow(_FLUTTER_SSE_DISCONNECT_JITTER_SECONDS * 1000) / 1000
+        )
         try:
             while loop.time() < disconnect_at:
                 try:

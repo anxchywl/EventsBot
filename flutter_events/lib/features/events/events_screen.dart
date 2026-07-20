@@ -11,6 +11,7 @@ import '../../core/localization.dart';
 import '../../models/category_model.dart';
 import '../../models/event_model.dart';
 import '../submit/submit_screen.dart';
+import '../shared/loading_skeleton.dart';
 import 'event_card.dart';
 import 'event_detail_screen.dart';
 
@@ -506,14 +507,14 @@ class _EventsScreenState extends State<EventsScreen> {
       result.add(
         AppCalendarEvent(
           id: event.id.toString(),
-          title: event.location,
-          subtitle: event.title,
+          title: event.title,
+          subtitle: event.location,
           date: date,
           time: _parseTime(event.eventTime),
           endTime: event.eventEndTime != null
               ? _parseTime(event.eventEndTime!)
               : null,
-          color: event.isPending ? AppColors.grey : AppColors.error,
+          color: event.isPending ? AppColors.grey : AppColors.primary,
           metadata: event,
         ),
       );
@@ -584,14 +585,7 @@ class _EventsScreenState extends State<EventsScreen> {
 
   Widget _buildBody() {
     if (_loading) {
-      return const CustomScrollView(
-        slivers: [
-          SliverFillRemaining(
-            hasScrollBody: false,
-            child: Center(child: AppLoader()),
-          ),
-        ],
-      );
+      return const AppPanelSkeleton();
     }
     if (_error != null) {
       return CustomScrollView(
@@ -838,21 +832,26 @@ class _CalendarModeView extends StatelessWidget {
   Widget build(BuildContext context) {
     return CustomScrollView(
       slivers: [
-        SliverFillRemaining(
-          hasScrollBody: false,
-          child: Padding(
-            padding: const EdgeInsets.all(AppSpacing.df),
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.df,
+            AppSpacing.df,
+            AppSpacing.df,
+            AppSpacing.sm,
+          ),
+          sliver: SliverToBoxAdapter(
             child: AppCalendar(
               key: ValueKey(jumpNonce),
               events: events,
               initialDate: selectedDate,
               showEventList: true,
+              showTodayButton: true,
+              todayLabel: AppLocalizations.get('today'),
+              todayButtonLabel: AppLocalizations.get('today'),
               onDateSelected: onDateSelected,
               onEventTap: onEventTap,
-              headerLabel: AppLocalizations.get('bookings'),
               accentColor: AppColors.primary,
-              emptyStateTitle: AppLocalizations.get('available'),
-              emptyStateSubtitle: AppLocalizations.get('noBookingsOrRequests'),
+              emptyStateTitle: AppLocalizations.get('noEventsForDay'),
             ),
           ),
         ),
@@ -906,32 +905,38 @@ class _EventFilterPill extends StatelessWidget {
       child: InkWell(
         onTap: onTap,
         borderRadius: radius,
-        child: Container(
-          constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
-          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (icon != null) ...[
-                AppIcon(icon!, size: 14, color: fg),
-                if (label != null) const SizedBox(width: AppSpacing.sm),
-              ],
-              if (label != null)
-                ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 140),
-                  child: Text(
-                    label!,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppTextStyles.bodySmall.copyWith(
-                      color: fg,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
+        child: label == null && icon != null
+            ? SizedBox(
+                width: 48,
+                height: 48,
+                child: Center(child: AppIcon(icon!, size: 18, color: fg)),
+              )
+            : Container(
+                constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (icon != null) ...[
+                      AppIcon(icon!, size: 18, color: fg),
+                      if (label != null) const SizedBox(width: AppSpacing.sm),
+                    ],
+                    if (label != null)
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 140),
+                        child: Text(
+                          label!,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTextStyles.bodySmall.copyWith(
+                            color: fg,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
-            ],
-          ),
-        ),
+              ),
       ),
     );
   }

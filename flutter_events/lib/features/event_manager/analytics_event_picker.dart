@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import '../../core/api_client.dart';
 import '../../core/localization.dart';
 import '../../models/analytics_model.dart';
+import '../shared/loading_skeleton.dart';
 
 /// Result of the event-picker sheet. A null [event] means "All events" (clear
 /// the event filter); a non-null selection scopes analytics to that event.
@@ -343,7 +344,7 @@ class _EventPickerSheetState extends State<_EventPickerSheet> {
 
   Widget _buildList() {
     if (_loading) {
-      return const SizedBox(height: 120, child: Center(child: AppLoader()));
+      return const AppSheetSkeleton();
     }
     if (_error != null) {
       return Padding(

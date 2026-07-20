@@ -54,15 +54,16 @@ class AuthStore {
   }) async {
     final normalizedRole = role == 'admin' ? 'admin' : 'user';
     final accessChanged = _userId != userId || _role != normalizedRole;
-    if (accessChanged) {
-      _clearMemory();
-      await Future.wait([_clearPersistedSession(), CacheStore.clearAll()]);
-    }
 
+    // keep a valid token installed while cache cleanup wakes active screens
     _token = token;
     _role = normalizedRole;
     _firstName = firstName;
     _userId = userId;
+
+    if (accessChanged) {
+      await Future.wait([_clearPersistedSession(), CacheStore.clearAll()]);
+    }
     if (persist) {
       await Future.wait([
         _prefs.setString(_kToken, token),

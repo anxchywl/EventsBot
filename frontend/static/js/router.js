@@ -426,6 +426,18 @@ let pendingEventsRefreshAfterFavorite = false;
 let lastDirectHapticAt = 0;
 let reviewUpdatesSource = null;
 let miniappUpdatesSource = null;
+// capped exponential backoff + jitter so a server blip does not make the whole
+// fleet reconnect in a synchronized 3s loop (thundering herd)
+let reviewUpdatesRetries = 0;
+let miniappUpdatesRetries = 0;
+const SSE_BASE_BACKOFF_MS = 3000;
+const SSE_MAX_BACKOFF_MS = 60000;
+
+function sseBackoffDelay(retries) {
+  const capped = Math.min(SSE_BASE_BACKOFF_MS * 2 ** retries, SSE_MAX_BACKOFF_MS);
+  // full jitter in [capped/2, capped]
+  return capped / 2 + Math.random() * (capped / 2);
+}
 let friendSearchTimer = null;
 
 // snapshot of the events menu dom saved when leaving for an event page
@@ -487,11 +499,39 @@ export async function boot() {
 }
 
 // start event sync polling
-function startEventSyncPolling() {
-  window.clearInterval(eventSyncPollTimer);
-  eventSyncPollTimer = window.setInterval(checkEventSyncVersion, 5000);
-  checkEventSyncVersion().catch(() => null);
+//
+// Self-rescheduling with jitter (instead of a fixed setInterval) so a fleet of
+// clients does not hit /sync-version on the same tick, and paused while the mini
+// app is backgrounded so a suspended tab stops polling until it is visible again.
+const EVENT_SYNC_POLL_BASE_MS = 5000;
+const EVENT_SYNC_POLL_JITTER_MS = 2000;
+
+function scheduleEventSyncPoll() {
+  window.clearTimeout(eventSyncPollTimer);
+  if (document.hidden) return;
+  const delay = EVENT_SYNC_POLL_BASE_MS + Math.random() * EVENT_SYNC_POLL_JITTER_MS;
+  eventSyncPollTimer = window.setTimeout(async () => {
+    if (!document.hidden) {
+      await checkEventSyncVersion().catch(() => null);
+    }
+    scheduleEventSyncPoll();
+  }, delay);
 }
+
+function startEventSyncPolling() {
+  window.clearTimeout(eventSyncPollTimer);
+  checkEventSyncVersion().catch(() => null);
+  scheduleEventSyncPoll();
+}
+
+// pause polling in the background; on return, reconcile immediately then resume
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) {
+    window.clearTimeout(eventSyncPollTimer);
+    return;
+  }
+  startEventSyncPolling();
+});
 
 // check event sync version
 async function checkEventSyncVersion() {
@@ -512,6 +552,9 @@ async function checkEventSyncVersion() {
 function startReviewUpdates() {
   if (!window.EventSource || reviewUpdatesSource || !state.session) return;
   reviewUpdatesSource = new EventSource(`/api/events/review-updates?token=${encodeURIComponent(state.session)}`);
+  reviewUpdatesSource.onopen = () => {
+    reviewUpdatesRetries = 0;
+  };
   reviewUpdatesSource.addEventListener("review_deleted", (event) => {
     try {
       handleReviewDeleted(JSON.parse(event.data || "{}")).catch(() => null);
@@ -522,7 +565,9 @@ function startReviewUpdates() {
   reviewUpdatesSource.onerror = () => {
     reviewUpdatesSource?.close();
     reviewUpdatesSource = null;
-    window.setTimeout(startReviewUpdates, 3000);
+    const delay = sseBackoffDelay(reviewUpdatesRetries);
+    reviewUpdatesRetries = Math.min(reviewUpdatesRetries + 1, 8);
+    window.setTimeout(startReviewUpdates, delay);
   };
 }
 
@@ -530,6 +575,9 @@ function startReviewUpdates() {
 function startMiniappUpdates() {
   if (!window.EventSource || miniappUpdatesSource || !state.session) return;
   miniappUpdatesSource = new EventSource(`/api/events/updates?token=${encodeURIComponent(state.session)}`);
+  miniappUpdatesSource.onopen = () => {
+    miniappUpdatesRetries = 0;
+  };
   [
     "favorite_changed",
     "friend_request_received",
@@ -551,7 +599,9 @@ function startMiniappUpdates() {
   miniappUpdatesSource.onerror = () => {
     miniappUpdatesSource?.close();
     miniappUpdatesSource = null;
-    window.setTimeout(startMiniappUpdates, 3000);
+    const delay = sseBackoffDelay(miniappUpdatesRetries);
+    miniappUpdatesRetries = Math.min(miniappUpdatesRetries + 1, 8);
+    window.setTimeout(startMiniappUpdates, delay);
   };
 }
 

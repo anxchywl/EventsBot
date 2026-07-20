@@ -9,6 +9,7 @@ import '../../core/realtime_updates.dart';
 import '../../models/event_model.dart';
 import '../events/event_card.dart';
 import '../events/event_detail_screen.dart';
+import '../shared/loading_skeleton.dart';
 
 /// Moderation queue — every event awaiting review, regardless of creator.
 /// Only reachable by admins from the events screen app bar.
@@ -96,7 +97,7 @@ class _PendingEventsScreenState extends State<PendingEventsScreen> {
   }
 
   Widget _buildBody() {
-    if (_loading) return const Center(child: AppLoader());
+    if (_loading) return const AppPanelSkeleton();
     if (_error != null) {
       return Center(
         child: Padding(

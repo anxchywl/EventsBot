@@ -10,6 +10,7 @@ import '../../models/event_model.dart';
 import '../events/event_card.dart';
 import '../events/event_detail_screen.dart';
 import '../shared/stale_banner.dart';
+import '../shared/loading_skeleton.dart';
 
 /// University Coordinator dashboard: every incoming request awaiting a decision,
 /// with work filters by club (organizer) and by date.
@@ -47,7 +48,9 @@ class _CoordinatorDashboardScreenState
   @override
   void initState() {
     super.initState();
-    final cached = EventCache.instance.peekPending(includeRejected: _showRejected);
+    final cached = EventCache.instance.peekPending(
+      includeRejected: _showRejected,
+    );
     _events = cached ?? [];
     _loading = cached == null;
     EventCache.instance.addListener(_onCacheChanged);
@@ -64,7 +67,9 @@ class _CoordinatorDashboardScreenState
 
   void _onCacheChanged() {
     if (!mounted) return;
-    final cached = EventCache.instance.peekPending(includeRejected: _showRejected);
+    final cached = EventCache.instance.peekPending(
+      includeRejected: _showRejected,
+    );
     if (cached != null) {
       setState(() {
         _events = cached;
@@ -92,15 +97,18 @@ class _CoordinatorDashboardScreenState
       });
     } catch (e) {
       if (!mounted || includeRejected != _showRejected) return;
-      final cached =
-          EventCache.instance.peekPending(includeRejected: includeRejected);
+      final cached = EventCache.instance.peekPending(
+        includeRejected: includeRejected,
+      );
       if (cached != null) {
-        final at =
-            EventCache.instance.fetchedAtPending(includeRejected: includeRejected);
+        final at = EventCache.instance.fetchedAtPending(
+          includeRejected: includeRejected,
+        );
         setState(() {
           _events = cached;
           _loading = false;
-          _stale = at != null &&
+          _stale =
+              at != null &&
               DateTime.now().difference(at) > CacheTtl.stalenessThreshold;
         });
       } else {
@@ -117,8 +125,9 @@ class _CoordinatorDashboardScreenState
       _showRejected = !_showRejected;
       // Adopt the other key's cached contents instantly (may be null → spinner
       // only if that view was never loaded this session).
-      final cached =
-          EventCache.instance.peekPending(includeRejected: _showRejected);
+      final cached = EventCache.instance.peekPending(
+        includeRejected: _showRejected,
+      );
       _events = cached ?? [];
       _loading = cached == null;
     });
@@ -142,7 +151,8 @@ class _CoordinatorDashboardScreenState
     for (final event in events) {
       groups.putIfAbsent(event.eventDate, () => []).add(event);
     }
-    final entries = groups.entries.toList()..sort((a, b) => a.key.compareTo(b.key));
+    final entries = groups.entries.toList()
+      ..sort((a, b) => a.key.compareTo(b.key));
     return [
       for (final entry in entries)
         (
@@ -227,14 +237,7 @@ class _CoordinatorDashboardScreenState
 
   Widget _buildBody(BuildContext context) {
     if (_loading) {
-      return const CustomScrollView(
-        slivers: [
-          SliverFillRemaining(
-            hasScrollBody: false,
-            child: Center(child: AppLoader()),
-          ),
-        ],
-      );
+      return const AppPanelSkeleton();
     }
 
     if (_error != null) {
@@ -299,9 +302,7 @@ class _CoordinatorDashboardScreenState
     final items = <Widget>[];
     for (var g = 0; g < groups.length; g++) {
       final group = groups[g];
-      items.add(
-        _RequestDateHeader(label: group.label, first: g == 0),
-      );
+      items.add(_RequestDateHeader(label: group.label, first: g == 0));
       for (final event in group.events) {
         items.add(_requestCard(event));
       }
@@ -312,9 +313,7 @@ class _CoordinatorDashboardScreenState
         right: AppSpacing.df,
         bottom: 108.0,
       ),
-      sliver: SliverList(
-        delegate: SliverChildListDelegate(items),
-      ),
+      sliver: SliverList(delegate: SliverChildListDelegate(items)),
     );
   }
 
@@ -330,7 +329,6 @@ class _CoordinatorDashboardScreenState
     );
   }
 }
-
 
 class _RequestDateHeader extends StatelessWidget {
   const _RequestDateHeader({required this.label, this.first = false});

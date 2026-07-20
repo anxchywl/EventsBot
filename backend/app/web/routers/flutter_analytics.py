@@ -20,9 +20,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_session
 from app.models.enums import EventStatus
+from app.models.event import Event
 from app.services import analytics_dashboard as svc
 from app.web.cache import TTLCache
-from app.web.flutter_auth import require_flutter_admin
+from app.web.flutter_auth import require_flutter_admin, require_flutter_user
 from app.web.limiter import check_rate_limit
 from app.web.schemas import (
     FlutterAnalyticsCategory,
@@ -246,11 +247,14 @@ async def organizers(
 async def event_moderation_detail(
     request: Request,
     event_id: int = Query(ge=1),
-    user=Depends(require_flutter_admin),
+    user=Depends(require_flutter_user),
     session: AsyncSession = Depends(get_session),
 ) -> FlutterEventModerationDetail:
     """Exact moderation timeline for a single event (not aggregated)."""
     await _limit(request, user.id, "mod_event")
+    event = await session.get(Event, event_id)
+    if event is None or (user.role != "admin" and event.creator_user_id != user.id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "event not found")
     data = await svc.compute_event_moderation_detail(session, event_id)
     if data is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "event not found")

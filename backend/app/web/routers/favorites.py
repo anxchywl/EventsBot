@@ -19,7 +19,7 @@ from app.services.favorites import (
 from app.services.friends import friend_ids, public_user_summary
 from app.web.auth import MiniAppUser, require_current_miniapp_user, upsert_miniapp_user
 from app.web.limiter import check_rate_limit
-from app.web.realtime import publish_miniapp_event
+from app.web.realtime import publish_miniapp_event, schedule_analytics_changed
 from app.web.routers.events import event_cache, validate_public_token
 from app.web.schemas import EventListItem, FavoriteResponse
 from app.web.serializers import event_list_items
@@ -83,6 +83,7 @@ async def favorite_event(
                 "target_user_ids": targets,
             },
         )
+        schedule_analytics_changed("favorite_add")
     event_cache.clear()
     return FavoriteResponse(is_favorite=True)
 
@@ -127,5 +128,6 @@ async def unfavorite_event(
                 "target_user_ids": targets,
             },
         )
+        schedule_analytics_changed("favorite_remove")
     event_cache.clear()
     return FavoriteResponse(is_favorite=False)

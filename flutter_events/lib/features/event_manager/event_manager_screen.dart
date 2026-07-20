@@ -1,14 +1,20 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:app_ui/app_ui.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/api_client.dart';
 import '../../core/cache_store.dart';
+import '../../core/exceptions.dart';
 import '../../core/localization.dart';
 import '../../core/realtime_updates.dart';
 import '../../models/analytics_model.dart';
 import '../../models/category_model.dart';
+import '../shared/loading_skeleton.dart';
+import '../shared/stale_banner.dart';
 import 'analytics_event_picker.dart';
 import 'analytics_period.dart';
 import 'analytics_period_picker.dart';
@@ -29,7 +35,10 @@ class EventManagerScreen extends StatefulWidget {
 }
 
 class _EventManagerScreenState extends State<EventManagerScreen> {
-  static const _pollInterval = Duration(seconds: 30);
+  // The fallback poll bypasses cache freshness (via AnalyticsCache.revalidate),
+  // so it need not exceed CacheTtl.analytics; jitter spreads reconnect bursts.
+  static const _pollBase = Duration(seconds: 30);
+  static const _pollJitterMs = 10000;
 
   // Active filters. The period governs the "all events" view; a pinned event is
   // the stronger selector and shows that event's full history (the period is
@@ -40,17 +49,26 @@ class _EventManagerScreenState extends State<EventManagerScreen> {
   String? _categoryName;
   String? _organizer;
 
-  final ValueNotifier<int> _refreshSignal = ValueNotifier(0);
+  // true while data is served from cache and the last revalidation failed
+  // offline — drives the subtle stale banner, never a blocking error.
+  final ValueNotifier<bool> _offline = ValueNotifier(false);
+  // panels defer only the *visual* apply of a result while the user is actively
+  // scrolling; the cache itself is always updated immediately.
+  final ValueNotifier<bool> _scrolling = ValueNotifier(false);
+
   final _nestedKey = GlobalKey<NestedScrollViewState>();
-  ScrollController get _scrollController =>
-      _nestedKey.currentState?.innerController ?? ScrollController();
   Timer? _pollTimer;
-  Timer? _deferredRefreshTimer;
   StreamSubscription<RealtimeUpdate>? _updatesSub;
-  bool _isScrolling = false;
-  bool _refreshAfterScroll = false;
 
   bool get _eventPinned => _selectedEvent != null;
+
+  // Only the untouched default view is persisted for offline use, keeping the
+  // on-disk snapshot bounded (one value per panel, not per filter combination).
+  bool get _isDefaultView =>
+      !_eventPinned &&
+      _categoryId == null &&
+      _organizer == null &&
+      _period.type == PeriodType.last30;
 
   // Filters compose (AND) server-side. A pinned event drops the other dimensions
   // (it is the strongest selector and shows that event's full history) so an
@@ -81,56 +99,67 @@ class _EventManagerScreenState extends State<EventManagerScreen> {
   @override
   void initState() {
     super.initState();
-    _pollTimer = Timer.periodic(_pollInterval, (_) => _bumpTick());
+    _schedulePoll();
     _updatesSub = RealtimeUpdates.instance.stream.listen(_handleRealtimeUpdate);
   }
 
   @override
   void dispose() {
     _pollTimer?.cancel();
-    _deferredRefreshTimer?.cancel();
     _updatesSub?.cancel();
-    _refreshSignal.dispose();
+    _offline.dispose();
+    _scrolling.dispose();
     super.dispose();
   }
 
-  void _handleRealtimeUpdate(RealtimeUpdate update) {
-    if (update.type == 'event_status_changed') {
-      // Any status change moves the moderation / engagement / ratings figures,
-      // so drop the cached panels before re-running their loaders.
-      AnalyticsCache.instance.clear();
-      _bumpTick();
-    }
+  // Fallback catch-up: revalidate every mounted panel on a jittered interval so
+  // a reconnect burst never lands as a synchronized thundering herd, and
+  // anything a coalesced realtime signal missed still converges to server state.
+  void _schedulePoll() {
+    final jitter = math.Random().nextInt(_pollJitterMs);
+    _pollTimer = Timer(_pollBase + Duration(milliseconds: jitter), () {
+      if (!mounted) return;
+      AnalyticsCache.instance.bumpAll();
+      _schedulePoll();
+    });
   }
 
-  void _bumpTick({bool force = false}) {
-    if (!mounted) return;
-    if (_isScrolling && !force) {
-      _refreshAfterScroll = true;
-      _deferredRefreshTimer?.cancel();
-      return;
+  void _handleRealtimeUpdate(RealtimeUpdate update) {
+    switch (update.type) {
+      case 'analytics_changed':
+        // Coalesced hint: bump only the panels the reported metrics can move.
+        final metrics = update.data['metrics'];
+        if (metrics is List) {
+          final tags = <String>{};
+          for (final metric in metrics) {
+            if (metric is String) tags.addAll(AnalyticsTags.forMetric(metric));
+          }
+          if (tags.isNotEmpty) AnalyticsCache.instance.bumpTags(tags);
+        }
+        break;
+      case 'event_status_changed':
+        AnalyticsCache.instance.bumpTags(AnalyticsTags.statusChange);
+        break;
+      case 'event_deleted':
+        AnalyticsCache.instance.bumpTags(AnalyticsTags.all);
+        break;
     }
-    _deferredRefreshTimer?.cancel();
-    _refreshAfterScroll = false;
-    _refreshSignal.value++;
   }
 
   bool _handleScrollNotification(ScrollNotification notification) {
     if (notification.depth != 0) return false;
     if (notification is ScrollStartNotification) {
-      _isScrolling = true;
-      _deferredRefreshTimer?.cancel();
+      _scrolling.value = true;
     } else if (notification is ScrollEndNotification) {
-      _isScrolling = false;
-      if (_refreshAfterScroll) {
-        _deferredRefreshTimer?.cancel();
-        _deferredRefreshTimer = Timer(
-          const Duration(seconds: 2),
-          () => _bumpTick(force: true),
-        );
-      }
+      _scrolling.value = false;
     }
     return false;
+  }
+
+  // A panel finished revalidating: reflect whether it fell back to cached data
+  // because the network was unreachable.
+  void _onPanelResult(bool offline) {
+    if (mounted) _offline.value = offline;
   }
 
   Future<void> _onPickPeriod() async {
@@ -222,6 +251,38 @@ class _EventManagerScreenState extends State<EventManagerScreen> {
     );
   }
 
+  // persist a panel's default-view snapshot only when no filter is active
+  String? _persistId(String id) => _isDefaultView ? id : null;
+
+  Widget _panel<T>({
+    required String keyId,
+    required String title,
+    required String tag,
+    required String cacheKey,
+    required Future<T> Function() fetch,
+    required Widget Function(T data) builder,
+    required Object Function(T value) encode,
+    T Function(Object json)? decode,
+    String? persistKey,
+    int skeletonLines = 3,
+  }) {
+    return _AnalyticsPanel<T>(
+      key: ValueKey(keyId),
+      title: title,
+      tag: tag,
+      cacheKey: cacheKey,
+      fetch: fetch,
+      builder: builder,
+      encode: encode,
+      decode: decode,
+      persistKey: persistKey,
+      scrollingListenable: _scrolling,
+      onResult: _onPanelResult,
+      centerTitle: true,
+      skeletonLines: skeletonLines,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final filters = _filters;
@@ -232,11 +293,18 @@ class _EventManagerScreenState extends State<EventManagerScreen> {
         AppSliverAppBar(title: AppLocalizations.get('analytics')),
       ],
       body: RefreshIndicator(
-        onRefresh: () async => _bumpTick(force: true),
+        onRefresh: () async => AnalyticsCache.instance.bumpAll(),
         child: NotificationListener<ScrollNotification>(
           onNotification: _handleScrollNotification,
           child: CustomScrollView(
             slivers: [
+              SliverToBoxAdapter(
+                child: ValueListenableBuilder<bool>(
+                  valueListenable: _offline,
+                  builder: (_, offline, _) =>
+                      offline ? const StaleBanner() : const SizedBox.shrink(),
+                ),
+              ),
               SliverPadding(
                 padding: EdgeInsets.fromLTRB(
                   AppSpacing.df,
@@ -263,100 +331,103 @@ class _EventManagerScreenState extends State<EventManagerScreen> {
                     // cover all relevant data, so hide this panel to reduce noise.
                     if (!_eventPinned) ...[
                       const SizedBox(height: AppSpacing.lg),
-                      _AnalyticsPanel<AnalyticsSummary>(
+                      _panel<AnalyticsSummary>(
+                        keyId: 'summary',
                         title: AppLocalizations.get('overview'),
-                        reloadKey: reloadKey,
-                        refreshListenable: _refreshSignal,
-                        scrollingListenable: _scrollController,
-                        centerTitle: true,
-                        loader: () => AnalyticsCache.instance.get(
-                          'summary|$reloadKey',
-                          () => fetchAnalyticsSummary(filters),
+                        tag: AnalyticsTags.summary,
+                        cacheKey: 'summary|$reloadKey',
+                        fetch: () => fetchAnalyticsSummary(filters),
+                        encode: (s) => s.toJson(),
+                        decode: (j) => AnalyticsSummary.fromJson(
+                          j as Map<String, dynamic>,
                         ),
+                        persistKey: _persistId('summary'),
                         builder: (s) => _SummaryBody(summary: s),
                         skeletonLines: 4,
                       ),
                     ],
                     const SizedBox(height: AppSpacing.lg),
                     if (_eventPinned)
-                      _AnalyticsPanel<EventModerationDetail>(
+                      _panel<EventModerationDetail>(
+                        keyId: 'modevent',
                         title: AppLocalizations.get('moderationHealth'),
-                        reloadKey: reloadKey,
-                        refreshListenable: _refreshSignal,
-                        scrollingListenable: _scrollController,
-                        centerTitle: true,
-                        loader: () => AnalyticsCache.instance.get(
-                          'modevent|$reloadKey',
-                          () => fetchEventModerationDetail(_selectedEvent!.id),
-                        ),
+                        tag: AnalyticsTags.moderation,
+                        cacheKey: 'modevent|$reloadKey',
+                        fetch: () =>
+                            fetchEventModerationDetail(_selectedEvent!.id),
+                        encode: (m) => m.toJson(),
                         builder: (m) => _EventModerationDetailBody(data: m),
                         skeletonLines: 6,
                       )
                     else
-                      _AnalyticsPanel<AnalyticsModeration>(
+                      _panel<AnalyticsModeration>(
+                        keyId: 'moderation',
                         title: AppLocalizations.get('moderationHealth'),
-                        reloadKey: reloadKey,
-                        refreshListenable: _refreshSignal,
-                        scrollingListenable: _scrollController,
-                        centerTitle: true,
-                        loader: () => AnalyticsCache.instance.get(
-                          'moderation|$reloadKey',
-                          () => fetchAnalyticsModeration(filters),
+                        tag: AnalyticsTags.moderation,
+                        cacheKey: 'moderation|$reloadKey',
+                        fetch: () => fetchAnalyticsModeration(filters),
+                        encode: (m) => m.toJson(),
+                        decode: (j) => AnalyticsModeration.fromJson(
+                          j as Map<String, dynamic>,
                         ),
+                        persistKey: _persistId('moderation'),
                         builder: (m) =>
                             _ModerationBody(data: m, eventPinned: false),
                         skeletonLines: 5,
                       ),
                     const SizedBox(height: AppSpacing.lg),
-                    _AnalyticsPanel<AnalyticsEngagement>(
+                    _panel<AnalyticsEngagement>(
+                      keyId: 'engagement',
                       title: AppLocalizations.get('engagement'),
-                      reloadKey: reloadKey,
-                      refreshListenable: _refreshSignal,
-                      scrollingListenable: _scrollController,
-                      centerTitle: true,
-                      loader: () => AnalyticsCache.instance.get(
-                        'engagement|$_trendDays|$reloadKey',
-                        () => fetchAnalyticsEngagement(
-                          filters,
-                          trendDays: _trendDays,
-                        ),
+                      tag: AnalyticsTags.engagement,
+                      cacheKey: 'engagement|$_trendDays|$reloadKey',
+                      fetch: () => fetchAnalyticsEngagement(
+                        filters,
+                        trendDays: _trendDays,
                       ),
+                      encode: (e) => e.toJson(),
+                      decode: (j) => AnalyticsEngagement.fromJson(
+                        j as Map<String, dynamic>,
+                      ),
+                      persistKey: _persistId('engagement'),
                       builder: (e) => _EngagementBody(data: e),
                       skeletonLines: 4,
                     ),
                     // cross-event ranking is meaningless for a single pinned event
                     if (!_eventPinned) ...[
                       const SizedBox(height: AppSpacing.lg),
-                      _AnalyticsPanel<List<RankedEvent>>(
+                      _panel<List<RankedEvent>>(
+                        keyId: 'top_views',
                         title: AppLocalizations.get('mostViewed'),
-                        reloadKey: reloadKey,
-                        refreshListenable: _refreshSignal,
-                        scrollingListenable: _scrollController,
-                        centerTitle: true,
-                        loader: () => AnalyticsCache.instance.get(
-                          'top|views|3|$reloadKey',
-                          () => fetchAnalyticsTop(
-                            filters,
-                            metric: 'views',
-                            limit: 3,
-                          ),
+                        tag: AnalyticsTags.ranking,
+                        cacheKey: 'top|views|3|$reloadKey',
+                        fetch: () => fetchAnalyticsTop(
+                          filters,
+                          metric: 'views',
+                          limit: 3,
                         ),
+                        encode: (rows) => [for (final r in rows) r.toJson()],
+                        decode: (j) => [
+                          for (final e in j as List)
+                            RankedEvent.fromJson(e as Map<String, dynamic>),
+                        ],
+                        persistKey: _persistId('ranking_top_views'),
                         builder: (rows) =>
                             _TopViewedBody(rows: rows, filters: filters),
                         skeletonLines: 3,
                       ),
                     ],
                     const SizedBox(height: AppSpacing.lg),
-                    _AnalyticsPanel<AnalyticsRatings>(
+                    _panel<AnalyticsRatings>(
+                      keyId: 'ratings',
                       title: AppLocalizations.get('ratings'),
-                      reloadKey: reloadKey,
-                      refreshListenable: _refreshSignal,
-                      scrollingListenable: _scrollController,
-                      centerTitle: true,
-                      loader: () => AnalyticsCache.instance.get(
-                        'ratings|3|$reloadKey',
-                        () => fetchAnalyticsRatings(filters, topLimit: 3),
-                      ),
+                      tag: AnalyticsTags.ratings,
+                      cacheKey: 'ratings|3|$reloadKey',
+                      fetch: () => fetchAnalyticsRatings(filters, topLimit: 3),
+                      encode: (r) => r.toJson(),
+                      decode: (j) =>
+                          AnalyticsRatings.fromJson(j as Map<String, dynamic>),
+                      persistKey: _persistId('ratings'),
                       builder: (r) => _RatingsBody(
                         data: r,
                         filters: filters,
@@ -369,30 +440,39 @@ class _EventManagerScreenState extends State<EventManagerScreen> {
                     // while a single event is pinned
                     if (!_eventPinned) ...[
                       const SizedBox(height: AppSpacing.lg),
-                      _AnalyticsPanel<List<AnalyticsCategory>>(
+                      _panel<List<AnalyticsCategory>>(
+                        keyId: 'categories',
                         title: AppLocalizations.get('categories'),
-                        reloadKey: reloadKey,
-                        refreshListenable: _refreshSignal,
-                        scrollingListenable: _scrollController,
-                        centerTitle: true,
-                        loader: () => AnalyticsCache.instance.get(
-                          'categories|$reloadKey',
-                          () => fetchAnalyticsCategories(filters),
-                        ),
+                        tag: AnalyticsTags.categories,
+                        cacheKey: 'categories|$reloadKey',
+                        fetch: () => fetchAnalyticsCategories(filters),
+                        encode: (rows) => [for (final c in rows) c.toJson()],
+                        decode: (j) => [
+                          for (final e in j as List)
+                            AnalyticsCategory.fromJson(
+                              e as Map<String, dynamic>,
+                            ),
+                        ],
+                        persistKey: _persistId('categories'),
                         builder: (rows) => _CategoriesBody(rows: rows),
                         skeletonLines: 4,
                       ),
                       const SizedBox(height: AppSpacing.lg),
-                      _AnalyticsPanel<List<AnalyticsOrganizer>>(
+                      _panel<List<AnalyticsOrganizer>>(
+                        keyId: 'organizers',
                         title: AppLocalizations.get('organizers'),
-                        reloadKey: reloadKey,
-                        refreshListenable: _refreshSignal,
-                        scrollingListenable: _scrollController,
-                        centerTitle: true,
-                        loader: () => AnalyticsCache.instance.get(
-                          'organizers|3|$reloadKey',
-                          () => fetchAnalyticsOrganizers(filters, limit: 3),
-                        ),
+                        tag: AnalyticsTags.organizers,
+                        cacheKey: 'organizers|3|$reloadKey',
+                        fetch: () =>
+                            fetchAnalyticsOrganizers(filters, limit: 3),
+                        encode: (rows) => [for (final o in rows) o.toJson()],
+                        decode: (j) => [
+                          for (final e in j as List)
+                            AnalyticsOrganizer.fromJson(
+                              e as Map<String, dynamic>,
+                            ),
+                        ],
+                        persistKey: _persistId('organizers'),
                         builder: (rows) =>
                             _OrganizersBody(rows: rows, filters: filters),
                         skeletonLines: 4,
@@ -572,22 +652,47 @@ class _FilterPill extends StatelessWidget {
 class _AnalyticsPanel<T> extends StatefulWidget {
   const _AnalyticsPanel({
     required this.title,
-    required this.reloadKey,
-    required this.loader,
+    required this.tag,
+    required this.cacheKey,
+    required this.fetch,
     required this.builder,
-    required this.refreshListenable,
+    required this.encode,
     required this.scrollingListenable,
+    this.decode,
+    this.persistKey,
+    this.onResult,
     this.centerTitle = false,
     this.skeletonLines = 3,
     super.key,
   });
 
   final String title;
-  final String reloadKey;
-  final Future<T> Function() loader;
+
+  /// Invalidation tag: the panel wakes only when this tag is bumped.
+  final String tag;
+
+  /// Filter-specific cache key (changes when the active filters change).
+  final String cacheKey;
+
+  /// The authoritative network read.
+  final Future<T> Function() fetch;
+
   final Widget Function(T data) builder;
-  final Listenable refreshListenable;
-  final ScrollController scrollingListenable;
+
+  /// Canonical JSON encoding, used both as the change signature (equality guard
+  /// + cross-fade key) and, for a default view, the offline snapshot payload.
+  final Object Function(T value) encode;
+
+  /// Decodes an offline snapshot back to [T]; null for panels that never persist.
+  final T Function(Object json)? decode;
+
+  /// Non-null only for the default view — enables bounded offline persistence.
+  final String? persistKey;
+
+  /// Reports whether this revalidation fell back to cached data while offline.
+  final void Function(bool offline)? onResult;
+
+  final ValueListenable<bool> scrollingListenable;
   final bool centerTitle;
   final int skeletonLines;
 
@@ -601,46 +706,95 @@ class _AnalyticsPanelState<T> extends State<_AnalyticsPanel<T>>
   Object? _error;
   bool _loading = false;
   int _requestId = 0;
+  String? _signature;
   Timer? _applyResultTimer;
+  Listenable? _tagListenable;
 
   @override
   void initState() {
     super.initState();
-    widget.refreshListenable.addListener(_refresh);
-    _load();
+    _tagListenable = AnalyticsCache.instance.tagListenable(widget.tag);
+    _tagListenable!.addListener(_onTagBump);
+    _bootstrap();
   }
 
   @override
   void dispose() {
     _applyResultTimer?.cancel();
-    widget.refreshListenable.removeListener(_refresh);
+    _tagListenable?.removeListener(_onTagBump);
     super.dispose();
   }
 
   @override
   void didUpdateWidget(covariant _AnalyticsPanel<T> oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.refreshListenable != widget.refreshListenable) {
-      oldWidget.refreshListenable.removeListener(_refresh);
-      widget.refreshListenable.addListener(_refresh);
+    if (oldWidget.tag != widget.tag) {
+      _tagListenable?.removeListener(_onTagBump);
+      _tagListenable = AnalyticsCache.instance.tagListenable(widget.tag);
+      _tagListenable!.addListener(_onTagBump);
     }
-    if (oldWidget.reloadKey != widget.reloadKey) {
-      _load(clearData: true);
+    if (oldWidget.cacheKey != widget.cacheKey) {
+      // Filters changed: adopt the new key's cached value instantly if we have
+      // it (no skeleton flash), otherwise show the skeleton while it loads.
+      final cached = AnalyticsCache.instance.peek<T>(widget.cacheKey);
+      if (cached != null) {
+        _data = cached;
+        _signature = _sig(cached);
+        _load(showLoading: false);
+      } else {
+        _load(showLoading: true, clearData: true);
+      }
     }
   }
 
-  void _refresh() => _load(showLoading: false);
+  // Instant paint from memory or the offline snapshot, then revalidate.
+  void _bootstrap() {
+    final cached = AnalyticsCache.instance.peek<T>(widget.cacheKey);
+    if (cached != null) {
+      _data = cached;
+      _signature = _sig(cached);
+    } else if (widget.decode != null && widget.persistKey != null) {
+      final raw = AnalyticsCache.instance.readSnapshot(widget.persistKey!);
+      if (raw != null) {
+        try {
+          _data = widget.decode!(raw);
+          _signature = _sig(_data as T);
+        } catch (_) {
+          // incompatible/corrupt snapshot: discard and fall back to a skeleton
+          _data = null;
+        }
+      }
+    }
+    _load(showLoading: _data == null);
+  }
 
-  Future<void> _load({bool showLoading = true, bool clearData = false}) async {
+  // A tag bump (poll / realtime signal / local mutation) always revalidates
+  // through the network, keeping the current value visible meanwhile.
+  void _onTagBump() => _load(showLoading: false, revalidate: true);
+
+  String? _sig(T value) {
+    try {
+      return jsonEncode(widget.encode(value));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _load({
+    bool showLoading = false,
+    bool revalidate = false,
+    bool clearData = false,
+  }) async {
     final requestId = ++_requestId;
     if (clearData) {
       _applyResultTimer?.cancel();
       setState(() {
         _data = null;
+        _signature = null;
         _loading = true;
         _error = null;
       });
-    } else if (showLoading || _data == null) {
+    } else if (showLoading && _data == null) {
       setState(() {
         _loading = true;
         _error = null;
@@ -649,32 +803,68 @@ class _AnalyticsPanelState<T> extends State<_AnalyticsPanel<T>>
       setState(() => _error = null);
     }
     try {
-      final result = await widget.loader();
+      final result = revalidate
+          ? await AnalyticsCache.instance.revalidate<T>(
+              widget.cacheKey,
+              widget.fetch,
+              tag: widget.tag,
+            )
+          : await AnalyticsCache.instance.get<T>(
+              widget.cacheKey,
+              widget.fetch,
+              tag: widget.tag,
+            );
       if (!mounted || requestId != _requestId) return;
       _applyResult(result, requestId);
+      widget.onResult?.call(false);
     } catch (e) {
       if (!mounted || requestId != _requestId) return;
-      setState(() {
-        _error = e;
-        _loading = false;
-      });
+      if (_data != null) {
+        // Keep the last value visible; only a network gap is treated as offline.
+        widget.onResult?.call(e is NetworkException);
+        if (_loading) setState(() => _loading = false);
+      } else {
+        setState(() {
+          _error = e;
+          _loading = false;
+        });
+      }
     }
   }
 
   void _applyResult(T result, int requestId) {
     _applyResultTimer?.cancel();
-    if (widget.scrollingListenable.hasClients &&
-        widget.scrollingListenable.position.isScrollingNotifier.value) {
-      _applyResultTimer = Timer(const Duration(milliseconds: 300), () {
+    // Defer only the *visual* apply while the user is actively scrolling; the
+    // cache is already updated and a newer request supersedes this one.
+    if (widget.scrollingListenable.value) {
+      _applyResultTimer = Timer(const Duration(milliseconds: 250), () {
         if (!mounted || requestId != _requestId) return;
         _applyResult(result, requestId);
       });
       return;
     }
+    _persist(result);
+    final newSignature = _sig(result);
+    // Equality guard: identical data must not rebuild or animate.
+    if (_data != null && newSignature != null && newSignature == _signature) {
+      if (_loading) setState(() => _loading = false);
+      return;
+    }
     setState(() {
       _data = result;
+      _signature = newSignature;
       _loading = false;
     });
+  }
+
+  void _persist(T value) {
+    final key = widget.persistKey;
+    if (key == null) return;
+    try {
+      AnalyticsCache.instance.writeSnapshot(key, widget.encode(value));
+    } catch (_) {
+      // persistence is best-effort; never let it break rendering
+    }
   }
 
   @override
@@ -683,17 +873,42 @@ class _AnalyticsPanelState<T> extends State<_AnalyticsPanel<T>>
     return _PanelCard(
       title: widget.title,
       centerTitle: widget.centerTitle,
-      child: _buildBody(),
+      child: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 220),
+        switchInCurve: Curves.easeOut,
+        switchOutCurve: Curves.easeIn,
+        child: _buildBody(),
+      ),
     );
   }
 
   Widget _buildBody() {
-    if (_data != null) return widget.builder(_data as T);
-    if (_loading) return _PanelSkeleton(lines: widget.skeletonLines);
-    if (_error != null) return _PanelError(onRetry: _load);
-    return _EmptyInsight(
-      icon: Icons.insights_outlined,
-      text: AppLocalizations.get('nothingYet'),
+    if (_data != null) {
+      // Keyed by the value signature so a genuine change cross-fades while an
+      // identical value (same key) never triggers a transition.
+      return KeyedSubtree(
+        key: ValueKey('data:${_signature ?? _requestId}'),
+        child: widget.builder(_data as T),
+      );
+    }
+    if (_loading) {
+      return KeyedSubtree(
+        key: const ValueKey('skeleton'),
+        child: _PanelSkeleton(lines: widget.skeletonLines),
+      );
+    }
+    if (_error != null) {
+      return KeyedSubtree(
+        key: const ValueKey('error'),
+        child: _PanelError(onRetry: () => _load(showLoading: true)),
+      );
+    }
+    return KeyedSubtree(
+      key: const ValueKey('empty'),
+      child: _EmptyInsight(
+        icon: Icons.insights_outlined,
+        text: AppLocalizations.get('nothingYet'),
+      ),
     );
   }
 
@@ -1322,12 +1537,7 @@ class _ReviewsSheetState extends State<_ReviewsSheet> {
 
   Widget _buildBody(ScrollController scrollController) {
     if (_loading && _items.isEmpty) {
-      return const Center(
-        child: Padding(
-          padding: EdgeInsets.all(AppSpacing.xl),
-          child: CircularProgressIndicator(),
-        ),
-      );
+      return const AppPanelSkeleton(cards: 4, compact: true);
     }
     if (_error != null && _items.isEmpty) {
       return Center(

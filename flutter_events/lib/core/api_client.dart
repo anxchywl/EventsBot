@@ -242,6 +242,33 @@ Future<List<EventModel>> fetchMyEvents() async {
   return _decodeEventList(response.body);
 }
 
+Future<Map<String, dynamic>> fetchOwnerEventAnalytics(int eventId) async {
+  final response = await _get(
+    _uri('/api/flutter/events/$eventId/analytics', null),
+    headers: _headers(auth: true),
+  );
+  if (!_isOk(response.statusCode)) _throwFor(response);
+  final data = jsonDecode(response.body) as Map<String, dynamic>;
+  final moderation = await fetchEventModerationDetail(eventId);
+  data['moderation'] = {
+    'total_review_seconds': moderation.totalReviewSeconds,
+    'review_iterations': moderation.reviewIterations,
+    'needs_changes_count': moderation.needsChangesCount,
+    'resubmission_count': moderation.resubmissionCount,
+    'history': moderation.history
+        .map(
+          (entry) => {
+            'action': entry.action,
+            'actor_name': entry.actorName,
+            'comment': entry.comment,
+            'created_at': entry.createdAt,
+          },
+        )
+        .toList(),
+  };
+  return data;
+}
+
 Future<List<EventModel>> fetchPendingEvents({
   bool includeRejected = false,
 }) async {

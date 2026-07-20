@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/category_model.dart';
 import '../models/event_model.dart';
 import 'api_client.dart';
+import 'auth_store.dart';
 import 'realtime_updates.dart';
 
 /// Named cache lifetimes. Every per-endpoint policy is expressed here so the
@@ -19,8 +20,12 @@ import 'realtime_updates.dart';
 ///  - [approved] / [myEvents] follow stale-while-revalidate: rendered instantly
 ///    from disk, revalidated in the background.
 ///  - [categories] change rarely, so a long session-scoped TTL is plenty.
-///  - [analytics] matches the 30 s analytics poll so a tick reuses the last
-///    response instead of recomputing it server-side.
+///  - [analytics] governs cross-panel *read* reuse (initial paint, filter
+///    changes, reopening the screen). It deliberately does NOT gate the
+///    scheduled poll or a realtime signal: those revalidate through
+///    [AnalyticsCache.revalidate], which bypasses freshness, so a tick can
+///    always obtain newer data. This removes the old poll(30 s) ⊂ ttl(35 s)
+///    dead-zone where a tick reused a still-fresh cache and skipped the network.
 class CacheTtl {
   const CacheTtl._();
 
@@ -28,7 +33,7 @@ class CacheTtl {
   static const Duration approved = Duration(seconds: 45);
   static const Duration myEvents = Duration(seconds: 45);
   static const Duration categories = Duration(hours: 6);
-  static const Duration analytics = Duration(seconds: 35);
+  static const Duration analytics = Duration(seconds: 20);
 
   /// Cached data older than this is surfaced with a non-intrusive staleness
   /// hint when a background refresh cannot complete (offline).
@@ -431,7 +436,8 @@ class EventCache extends ChangeNotifier {
     _markStale(_kMy);
     _markStale(_kPendingOpen);
     _markStale(_kPendingRejected);
-    AnalyticsCache.instance.clear();
+    // resubmission moves the queue and portfolio counts, not ratings/engagement
+    AnalyticsCache.instance.bumpTags(AnalyticsTags.statusChange);
     _persistAll();
     notifyListeners();
     return updated;
@@ -454,8 +460,9 @@ class EventCache extends ChangeNotifier {
     _markStale(_kPendingOpen);
     _markStale(_kPendingRejected);
     _markStale(_kApproved);
-    // Any status change moves the moderation / engagement / ratings counts.
-    AnalyticsCache.instance.clear();
+    // a status transition moves moderation health, portfolio totals and the
+    // per-category / per-organizer / picker membership — but not ratings.
+    AnalyticsCache.instance.bumpTags(AnalyticsTags.statusChange);
     _persistAll();
     notifyListeners();
     return updated;
@@ -469,7 +476,7 @@ class EventCache extends ChangeNotifier {
     _markStale(_kMy);
     _markStale(_kPendingRejected);
     _markStale(_kApproved);
-    AnalyticsCache.instance.clear();
+    AnalyticsCache.instance.bumpTags(AnalyticsTags.statusChange);
     _persistAll();
     notifyListeners();
     return updated;
@@ -482,7 +489,8 @@ class EventCache extends ChangeNotifier {
     _markStale(_kPendingOpen);
     _markStale(_kPendingRejected);
     _markStale(_kApproved);
-    AnalyticsCache.instance.clear();
+    // an event vanishing can move any aggregate
+    AnalyticsCache.instance.bumpTags(AnalyticsTags.all);
     _persistAll();
     notifyListeners();
   }
@@ -614,21 +622,93 @@ class EventCache extends ChangeNotifier {
   }
 }
 
-/// One cached analytics response with its fetch time.
-class _AnalyticsEntry {
-  _AnalyticsEntry(this.value, this.fetchedAt);
+/// Panel identities used both as the cache-key prefix and the invalidation tag.
+/// A mutation invalidates *tags*, not the whole cache, so a single event view
+/// never reloads the ratings or moderation panels.
+class AnalyticsTags {
+  const AnalyticsTags._();
 
-  final Object value;
-  final DateTime fetchedAt;
+  static const String summary = 'summary';
+  static const String moderation = 'moderation';
+  static const String engagement = 'engagement';
+  static const String ranking = 'ranking'; // most-viewed / top-rated lists
+  static const String ratings = 'ratings';
+  static const String categories = 'categories';
+  static const String organizers = 'organizers';
+  static const String picker = 'picker'; // event-picker membership
+
+  /// Everything an event's status transition can move.
+  static const Set<String> statusChange = {
+    summary,
+    moderation,
+    categories,
+    organizers,
+    picker,
+    ranking,
+  };
+
+  /// Everything (event removed): coarse but rare.
+  static const Set<String> all = {
+    summary,
+    moderation,
+    engagement,
+    ranking,
+    ratings,
+    categories,
+    organizers,
+    picker,
+  };
+
+  /// Maps a backend analytics mutation [metric] to exactly the panels it can
+  /// move. Kept in one place so realtime and local-mutation invalidation agree.
+  static Set<String> forMetric(String metric) {
+    switch (metric) {
+      case 'open':
+      case 'open_from_share':
+        return const {summary, engagement, ranking, categories, organizers};
+      case 'register_click':
+        return const {summary, engagement, categories, organizers};
+      case 'favorite_add':
+      case 'favorite_remove':
+        return const {summary, engagement, organizers};
+      case 'share_click':
+      case 'reminder_create':
+      case 'reminder_remove':
+      case 'reminder_click':
+        return const {engagement};
+      case 'rating':
+        return const {summary, ratings, ranking, categories, organizers};
+      case 'status':
+        return statusChange;
+      default:
+        return const {};
+    }
+  }
+}
+
+/// One cached analytics response with its fetch time and owning tag.
+class _AnalyticsEntry {
+  _AnalyticsEntry(this.value, this.fetchedAt, this.tag);
+
+  Object value;
+  DateTime fetchedAt;
+  final String? tag;
 
   bool get isFresh => DateTime.now().difference(fetchedAt) < CacheTtl.analytics;
 }
 
-/// In-memory, coordinator-only cache for analytics panels. Not persisted: the
-/// numbers are cheap to recompute and volatile. Keyed by the caller — the key
-/// encodes the panel plus the stringified [AnalyticsFilters], so each filter
-/// combination caches separately. Paginated / searched endpoints (the event
-/// picker, ranking sheets, reviews) are never routed through here.
+/// In-memory cache for coordinator and event-owner analytics panels, backed by a
+/// bounded, versioned, user-scoped disk snapshot for offline paint.
+///
+/// Keyed by the caller — the key encodes the panel tag plus the stringified
+/// [AnalyticsFilters], so each filter combination caches separately. Paginated /
+/// searched endpoints (the event picker, ranking sheets, reviews) are never
+/// routed through here.
+///
+/// Reads come in two flavours: [get] short-circuits on a fresh entry (cross-panel
+/// reuse, filter changes, reopening the screen), while [revalidate] always hits
+/// the network (the scheduled poll and realtime signals) so a refresh can obtain
+/// newer data regardless of the freshness window.
 class AnalyticsCache {
   AnalyticsCache._();
 
@@ -636,14 +716,83 @@ class AnalyticsCache {
 
   final Map<String, _AnalyticsEntry> _entries = {};
   final Map<String, Future<dynamic>> _inFlight = {};
+  final Map<String, ValueNotifier<int>> _tagNotifiers = {};
 
-  /// Returns the cached value while fresh (so a poll tick reuses it), otherwise
-  /// runs [loader] once — concurrent callers for the same key share the Future.
-  Future<T> get<T>(String key, Future<T> Function() loader) {
+  // Bounded offline snapshot: one raw-JSON value per *default-view* panel key.
+  // Filtered / pinned variants are memory-only, so the persisted set stays
+  // O(number of panels) per user rather than unbounded across filter combos.
+  static const String _kSnapshotKey = 'cache_analytics_snapshot';
+  Map<String, dynamic> _snapshot = {};
+  int? _snapshotUserId;
+  bool _snapshotLoaded = false;
+
+  // ── Tag listenables (targeted rebuilds) ────────────────────────────────────
+
+  /// A panel listens to its tag; only tags that actually changed notify, so an
+  /// unrelated panel never rebuilds.
+  Listenable tagListenable(String tag) =>
+      _tagNotifiers.putIfAbsent(tag, () => ValueNotifier<int>(0));
+
+  void _notifyTag(String tag) => _tagNotifiers[tag]?.value++;
+
+  /// Mark every entry carrying [tag] stale (so a later [get] refetches) and wake
+  /// its live panels to revalidate now. The value is kept so an offline peek
+  /// still renders the last figure.
+  void bumpTag(String tag) {
+    for (final entry in _entries.values) {
+      if (entry.tag == tag) {
+        entry.fetchedAt = DateTime.fromMillisecondsSinceEpoch(0);
+      }
+    }
+    _notifyTag(tag);
+  }
+
+  void bumpTags(Iterable<String> tags) {
+    for (final tag in tags.toSet()) {
+      bumpTag(tag);
+    }
+  }
+
+  /// Fallback poll: wake every mounted panel to revalidate. Values are not
+  /// pre-invalidated because [revalidate] ignores freshness anyway.
+  void bumpAll() {
+    for (final tag in _tagNotifiers.keys.toList()) {
+      _notifyTag(tag);
+    }
+  }
+
+  // ── Reads ──────────────────────────────────────────────────────────────────
+
+  T? peekFresh<T>(String key) {
+    final entry = _entries[key];
+    if (entry == null || !entry.isFresh) return null;
+    return entry.value as T;
+  }
+
+  /// Last known in-memory value regardless of age (for offline paint).
+  T? peek<T>(String key) => _entries[key]?.value as T?;
+
+  DateTime? fetchedAtOf(String key) => _entries[key]?.fetchedAt;
+
+  /// Fresh-first read: reuses a fresh entry (cross-panel reuse), otherwise loads
+  /// once — concurrent callers for the same key share the in-flight Future.
+  Future<T> get<T>(String key, Future<T> Function() loader, {String? tag}) {
     final entry = _entries[key];
     if (entry != null && entry.isFresh) {
       return Future.value(entry.value as T);
     }
+    return _load(key, loader, tag);
+  }
+
+  /// Always loads (bypasses freshness) — the poll / realtime path. Still shares
+  /// one in-flight Future per key so a burst of signals coalesces into one call.
+  Future<T> revalidate<T>(
+    String key,
+    Future<T> Function() loader, {
+    String? tag,
+  }) => _load(key, loader, tag);
+
+  Future<T> _load<T>(String key, Future<T> Function() loader, String? tag) {
     final existing = _inFlight[key];
     if (existing != null) return existing.then((v) => v as T);
 
@@ -652,7 +801,7 @@ class AnalyticsCache {
       try {
         final value = await loader();
         if (generation == CacheStore.generation) {
-          _entries[key] = _AnalyticsEntry(value as Object, DateTime.now());
+          _entries[key] = _AnalyticsEntry(value as Object, DateTime.now(), tag);
         }
         return value;
       } finally {
@@ -663,8 +812,67 @@ class AnalyticsCache {
     return future;
   }
 
+  // ── Offline snapshot (bounded, versioned, user-scoped) ──────────────────────
+
+  void _ensureSnapshotLoaded() {
+    if (_snapshotLoaded) return;
+    _snapshotLoaded = true;
+    final json = CacheStore.readMap(_kSnapshotKey);
+    if (json == null) return;
+    final userId = json['user_id'];
+    // Never surface one account's snapshot to another. clearAll() also wipes
+    // this on switch; this is the belt-and-braces read-time guard.
+    if (userId is! int || userId != AuthStore.userId) return;
+    final panels = json['panels'];
+    if (panels is Map<String, dynamic>) {
+      _snapshot = panels;
+      _snapshotUserId = userId;
+    }
+  }
+
+  /// Persisted raw JSON for a default-view [panelKey], or null. The caller
+  /// decodes with the matching `fromJson`; a decode failure discards it.
+  Object? readSnapshot(String panelKey) {
+    _ensureSnapshotLoaded();
+    final entry = _snapshot[panelKey];
+    if (entry is! Map<String, dynamic>) return null;
+    return entry['data'];
+  }
+
+  DateTime? snapshotFetchedAt(String panelKey) {
+    _ensureSnapshotLoaded();
+    final entry = _snapshot[panelKey];
+    if (entry is! Map<String, dynamic>) return null;
+    final ts = entry['ts'];
+    return ts is int ? DateTime.fromMillisecondsSinceEpoch(ts) : null;
+  }
+
+  /// Write the latest default-view value for [panelKey]. [data] must be raw
+  /// JSON (Map/List). Only the default filter set persists, keeping the blob
+  /// bounded.
+  void writeSnapshot(String panelKey, Object data) {
+    _ensureSnapshotLoaded();
+    final userId = AuthStore.userId;
+    if (userId == null) return;
+    if (_snapshotUserId != userId) {
+      // account changed under us: start a fresh blob for this user
+      _snapshot = {};
+      _snapshotUserId = userId;
+    }
+    _snapshot[panelKey] = {
+      'ts': DateTime.now().millisecondsSinceEpoch,
+      'data': data,
+    };
+    CacheStore.write(_kSnapshotKey, {'user_id': userId, 'panels': _snapshot});
+  }
+
+  /// Drop everything on logout / account switch. The persisted blob is wiped by
+  /// [CacheStore.clearAll]; tag notifiers are kept (panels stay subscribed).
   void clear() {
     _entries.clear();
     _inFlight.clear();
+    _snapshot = {};
+    _snapshotUserId = null;
+    _snapshotLoaded = false;
   }
 }

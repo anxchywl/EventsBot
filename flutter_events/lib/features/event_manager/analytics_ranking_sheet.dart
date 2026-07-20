@@ -2,6 +2,7 @@ import 'package:app_ui/app_ui.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/localization.dart';
+import '../shared/loading_skeleton.dart';
 
 /// One option in a capped selection sheet.
 class SelectionOption<T> {
@@ -227,7 +228,7 @@ class _RankingSheetState extends State<_RankingSheet> {
 
   Widget _buildBody() {
     if (_loading) {
-      return const SizedBox(height: 120, child: Center(child: AppLoader()));
+      return const AppSheetSkeleton();
     }
     if (_error != null) {
       return Padding(

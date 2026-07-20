@@ -29,6 +29,8 @@ class AnalyticsSummary {
     );
   }
 
+  Map<String, dynamic> toJson() => {'metrics': metrics};
+
   num? operator [](String key) => metrics[key];
 }
 
@@ -53,6 +55,13 @@ class RankedEvent {
       count: json['count'] as int?,
     );
   }
+
+  Map<String, dynamic> toJson() => {
+    'event_id': eventId,
+    'title': title,
+    'value': value,
+    'count': count,
+  };
 }
 
 class LongestPending {
@@ -73,6 +82,12 @@ class LongestPending {
       waitingSeconds: (json['waiting_seconds'] as num).toDouble(),
     );
   }
+
+  Map<String, dynamic> toJson() => {
+    'event_id': eventId,
+    'title': title,
+    'waiting_seconds': waitingSeconds,
+  };
 }
 
 class ThresholdBucket {
@@ -87,6 +102,11 @@ class ThresholdBucket {
       count: json['count'] as int,
     );
   }
+
+  Map<String, dynamic> toJson() => {
+    'threshold_hours': thresholdHours,
+    'count': count,
+  };
 }
 
 class AnalyticsModeration {
@@ -119,19 +139,32 @@ class AnalyticsModeration {
       needsChangesRate: (json['needs_changes_rate'] as num).toDouble(),
       avgTimeToFirstDecisionSeconds:
           (json['avg_time_to_first_decision_seconds'] as num?)?.toDouble(),
-      avgTotalReviewSeconds:
-          (json['avg_total_review_seconds'] as num?)?.toDouble(),
+      avgTotalReviewSeconds: (json['avg_total_review_seconds'] as num?)
+          ?.toDouble(),
       avgReviewIterations: (json['avg_review_iterations'] as num?)?.toDouble(),
       queueSize: json['queue_size'] as int,
       longestPending: json['longest_pending'] == null
           ? null
           : LongestPending.fromJson(
-              json['longest_pending'] as Map<String, dynamic>),
+              json['longest_pending'] as Map<String, dynamic>,
+            ),
       thresholdBuckets: ((json['threshold_buckets'] as List<dynamic>?) ?? [])
           .map((e) => ThresholdBucket.fromJson(e as Map<String, dynamic>))
           .toList(),
     );
   }
+
+  Map<String, dynamic> toJson() => {
+    'approval_rate': approvalRate,
+    'rejection_rate': rejectionRate,
+    'needs_changes_rate': needsChangesRate,
+    'avg_time_to_first_decision_seconds': avgTimeToFirstDecisionSeconds,
+    'avg_total_review_seconds': avgTotalReviewSeconds,
+    'avg_review_iterations': avgReviewIterations,
+    'queue_size': queueSize,
+    'longest_pending': longestPending?.toJson(),
+    'threshold_buckets': [for (final b in thresholdBuckets) b.toJson()],
+  };
 }
 
 class EngagementTotals {
@@ -161,6 +194,15 @@ class EngagementTotals {
       favoritesRemoved: json['favorites_removed'] as int,
     );
   }
+
+  Map<String, dynamic> toJson() => {
+    'views': views,
+    'register_clicks': registerClicks,
+    'share_clicks': shareClicks,
+    'reminder_creates': reminderCreates,
+    'favorites_added': favoritesAdded,
+    'favorites_removed': favoritesRemoved,
+  };
 }
 
 class TrendPoint {
@@ -175,13 +217,18 @@ class TrendPoint {
       count: json['count'] as int,
     );
   }
+
+  Map<String, dynamic> toJson() => {'date': date, 'count': count};
 }
 
 class AnalyticsEngagement {
   final EngagementTotals totals;
   final List<TrendPoint> viewsOverTime;
 
-  const AnalyticsEngagement({required this.totals, required this.viewsOverTime});
+  const AnalyticsEngagement({
+    required this.totals,
+    required this.viewsOverTime,
+  });
 
   factory AnalyticsEngagement.fromJson(Map<String, dynamic> json) {
     return AnalyticsEngagement(
@@ -191,6 +238,11 @@ class AnalyticsEngagement {
           .toList(),
     );
   }
+
+  Map<String, dynamic> toJson() => {
+    'totals': totals.toJson(),
+    'views_over_time': [for (final p in viewsOverTime) p.toJson()],
+  };
 }
 
 class AnalyticsRatings {
@@ -221,6 +273,15 @@ class AnalyticsRatings {
       lowestRated: _rankedList(json['lowest_rated']),
     );
   }
+
+  Map<String, dynamic> toJson() => {
+    'average': average,
+    'distribution': distribution,
+    'total_reviews': totalReviews,
+    'events_with_zero_reviews': eventsWithZeroReviews,
+    'top_rated': [for (final e in topRated) e.toJson()],
+    'lowest_rated': [for (final e in lowestRated) e.toJson()],
+  };
 }
 
 List<RankedEvent> _rankedList(dynamic raw) {
@@ -259,6 +320,16 @@ class AnalyticsCategory {
       approvalRate: (json['approval_rate'] as num).toDouble(),
     );
   }
+
+  Map<String, dynamic> toJson() => {
+    'category_id': categoryId,
+    'category': category,
+    'event_count': eventCount,
+    'views': views,
+    'registration_clicks': registrationClicks,
+    'average_rating': averageRating,
+    'approval_rate': approvalRate,
+  };
 }
 
 class AnalyticsOrganizer {
@@ -294,6 +365,17 @@ class AnalyticsOrganizer {
       favorites: json['favorites'] as int,
     );
   }
+
+  Map<String, dynamic> toJson() => {
+    'organizer': organizer,
+    'events_created': eventsCreated,
+    'approval_rate': approvalRate,
+    'rejection_rate': rejectionRate,
+    'average_rating': averageRating,
+    'views': views,
+    'registration_clicks': registrationClicks,
+    'favorites': favorites,
+  };
 }
 
 /// One entry in the moderation log for a single event.
@@ -318,6 +400,13 @@ class ModerationLogEntry {
       createdAt: json['created_at'] as String,
     );
   }
+
+  Map<String, dynamic> toJson() => {
+    'action': action,
+    'actor_name': actorName,
+    'comment': comment,
+    'created_at': createdAt,
+  };
 }
 
 /// Exact moderation timeline for a single event (`/api/flutter/analytics/moderation/event`).
@@ -375,6 +464,23 @@ class EventModerationDetail {
           .toList(),
     );
   }
+
+  Map<String, dynamic> toJson() => {
+    'current_status': currentStatus,
+    'submitted_at': submittedAt,
+    'first_reviewed_at': firstReviewedAt,
+    'approved_at': approvedAt,
+    'rejected_at': rejectedAt,
+    'total_review_seconds': totalReviewSeconds,
+    'review_iterations': reviewIterations,
+    'needs_changes_count': needsChangesCount,
+    'resubmission_count': resubmissionCount,
+    'latest_moderator': latestModerator,
+    'latest_comment': latestComment,
+    'last_status_update': lastStatusUpdate,
+    'creator_resubmitted': creatorResubmitted,
+    'history': [for (final e in history) e.toJson()],
+  };
 }
 
 /// One review (rating + optional text) for the per-event reviews sheet.

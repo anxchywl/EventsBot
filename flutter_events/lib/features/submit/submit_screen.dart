@@ -16,6 +16,7 @@ import '../../core/exceptions.dart';
 import '../../core/localization.dart';
 import '../../models/category_model.dart';
 import '../../models/event_model.dart';
+import '../shared/loading_skeleton.dart';
 import 'event_form_validation.dart';
 
 enum _SubmitViewMode {
@@ -974,7 +975,7 @@ class _SubmitScreenState extends State<SubmitScreen>
 
   Widget _buildBodyContainer() {
     if (_categoriesLoading) {
-      return const SizedBox(height: 380, child: Center(child: AppLoader()));
+      return const AppPanelSkeleton(cards: 4);
     }
     if (_categoriesError != null) {
       return Center(
@@ -1226,12 +1227,7 @@ class _SubmitScreenState extends State<SubmitScreen>
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             if (_categoriesLoading)
-              const Center(
-                child: Padding(
-                  padding: EdgeInsets.all(AppSpacing.lg),
-                  child: CircularProgressIndicator(),
-                ),
-              )
+              const AppSheetSkeleton(rows: 3)
             else if (_categoriesError != null)
               Center(
                 child: Text(

@@ -9,6 +9,7 @@ import '../../models/event_model.dart';
 import '../events/event_card.dart';
 import '../events/event_detail_screen.dart';
 import '../shared/stale_banner.dart';
+import '../shared/loading_skeleton.dart';
 
 /// Club Head request tracking: the full history of the user's own event
 /// requests with the coordinator's decision comment on each status change.
@@ -86,7 +87,8 @@ class _MyEventsScreenState extends State<MyEventsScreen> {
         setState(() {
           _events = cached;
           _loading = false;
-          _stale = at != null &&
+          _stale =
+              at != null &&
               DateTime.now().difference(at) > CacheTtl.stalenessThreshold;
         });
       } else {
@@ -126,14 +128,7 @@ class _MyEventsScreenState extends State<MyEventsScreen> {
 
   Widget _buildBody(BuildContext context) {
     if (_loading) {
-      return const CustomScrollView(
-        slivers: [
-          SliverFillRemaining(
-            hasScrollBody: false,
-            child: Center(child: AppLoader()),
-          ),
-        ],
-      );
+      return const AppPanelSkeleton();
     }
 
     if (_error != null) {
@@ -184,26 +179,21 @@ class _MyEventsScreenState extends State<MyEventsScreen> {
         slivers: [
           if (_stale) const SliverToBoxAdapter(child: StaleBanner()),
           SliverPadding(
-            padding: AppSpacing.screenPadding.copyWith(
-              bottom: 108.0,
-            ),
+            padding: AppSpacing.screenPadding.copyWith(bottom: 108.0),
             sliver: SliverList(
-              delegate: SliverChildBuilderDelegate(
-                (context, index) {
-                  final event = _events[index];
-                  return Padding(
-                    key: ValueKey(event.id),
-                    padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-                    child: EventCard(
-                      event: event,
-                      alwaysShowStatus: true,
-                      showCategory: false,
-                      onTap: () => _openDetail(event),
-                    ),
-                  );
-                },
-                childCount: _events.length,
-              ),
+              delegate: SliverChildBuilderDelegate((context, index) {
+                final event = _events[index];
+                return Padding(
+                  key: ValueKey(event.id),
+                  padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                  child: EventCard(
+                    event: event,
+                    alwaysShowStatus: true,
+                    showCategory: false,
+                    onTap: () => _openDetail(event),
+                  ),
+                );
+              }, childCount: _events.length),
             ),
           ),
         ],

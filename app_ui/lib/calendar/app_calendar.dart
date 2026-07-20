@@ -137,7 +137,6 @@ class _AppCalendarState extends State<AppCalendar> {
   late DateTime _month;
   late DateTime _selected;
   late final PageController _pageController;
-  int _slideDir = 1;
 
   static DateTime _dateOnly(DateTime dt) => DateTime(dt.year, dt.month, dt.day);
 
@@ -150,7 +149,8 @@ class _AppCalendarState extends State<AppCalendar> {
 
   void _syncPageController(DateTime month) {
     final targetPage = _pageIndexFor(month);
-    if (_pageController.hasClients && _pageController.page?.round() != targetPage) {
+    if (_pageController.hasClients &&
+        _pageController.page?.round() != targetPage) {
       _pageController.animateToPage(
         targetPage,
         duration: const Duration(milliseconds: 300),
@@ -167,9 +167,7 @@ class _AppCalendarState extends State<AppCalendar> {
         : _dateOnly(DateTime.now());
     _selected = initial;
     _month = DateTime(initial.year, initial.month, 1);
-    _pageController = PageController(
-      initialPage: _pageIndexFor(_month),
-    );
+    _pageController = PageController(initialPage: _pageIndexFor(_month));
   }
 
   @override
@@ -178,32 +176,9 @@ class _AppCalendarState extends State<AppCalendar> {
     super.dispose();
   }
 
-  void _prevMonth() {
-    HapticFeedback.selectionClick();
-    final newMonth = DateTime(_month.year, _month.month - 1, 1);
-    setState(() {
-      _slideDir = -1;
-      _month = newMonth;
-    });
-    _syncPageController(newMonth);
-    widget.onMonthChanged?.call(_month);
-  }
-
-  void _nextMonth() {
-    HapticFeedback.selectionClick();
-    final newMonth = DateTime(_month.year, _month.month + 1, 1);
-    setState(() {
-      _slideDir = 1;
-      _month = newMonth;
-    });
-    _syncPageController(newMonth);
-    widget.onMonthChanged?.call(_month);
-  }
-
   void _selectDate(DateTime date) {
     if (!widget.allowDateSelection) return;
     HapticFeedback.selectionClick();
-    final dayEvents = _eventsOn(date);
     final newMonth = DateTime(date.year, date.month, 1);
     setState(() {
       _selected = date;
@@ -211,9 +186,6 @@ class _AppCalendarState extends State<AppCalendar> {
     });
     _syncPageController(newMonth);
     widget.onDateSelected?.call(date);
-    if (widget.showEventList) {
-      _showDayPreview(date, dayEvents);
-    }
   }
 
   void _goToToday() {
@@ -221,7 +193,6 @@ class _AppCalendarState extends State<AppCalendar> {
     final today = _dateOnly(DateTime.now());
     final todayMonth = DateTime(today.year, today.month, 1);
     setState(() {
-      _slideDir = _month.isBefore(todayMonth) ? 1 : -1;
       _month = todayMonth;
       _selected = today;
     });
@@ -259,10 +230,20 @@ class _AppCalendarState extends State<AppCalendar> {
     list.sort((a, b) {
       final ta = a.time;
       final tb = b.time;
-      if (ta == null && tb == null) return 0;
+      if (ta == null && tb == null) return a.title.compareTo(b.title);
       if (ta == null) return 1;
       if (tb == null) return -1;
-      return (ta.hour * 60 + ta.minute).compareTo(tb.hour * 60 + tb.minute);
+      final startComparison = (ta.hour * 60 + ta.minute).compareTo(
+        tb.hour * 60 + tb.minute,
+      );
+      if (startComparison != 0) return startComparison;
+
+      final aEnd = a.endTime;
+      final bEnd = b.endTime;
+      final endComparison = (aEnd == null ? -1 : aEnd.hour * 60 + aEnd.minute)
+          .compareTo(bEnd == null ? -1 : bEnd.hour * 60 + bEnd.minute);
+      if (endComparison != 0) return endComparison;
+      return a.title.compareTo(b.title);
     });
     return list;
   }
@@ -301,11 +282,15 @@ class _AppCalendarState extends State<AppCalendar> {
     final indicatorMap = _buildIndicatorMap();
     final eventCountMap = _buildEventCountMap();
 
-    return Align(
-      alignment: Alignment.topCenter,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(24),
-        child: Container(
+    final selectedEvents = _eventsOn(_selected);
+    final selectedDateLabel = _selected == today && widget.todayLabel != null
+        ? widget.todayLabel!
+        : mloc.formatMediumDate(_selected);
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
           height: _monthSectionExtent,
           decoration: BoxDecoration(
             color: surface,
@@ -315,73 +300,91 @@ class _AppCalendarState extends State<AppCalendar> {
                   ? const Color(0xFFE8E6F2)
                   : const Color(0xFF2A2A32),
             ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: isLight ? 0.06 : 0.20),
-                blurRadius: 18,
-                offset: const Offset(0, 10),
+          ),
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 16, 14, 8),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        mloc.formatMonthYear(_month),
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                          color: Theme.of(context).colorScheme.onSurface,
+                        ),
+                      ),
+                    ),
+                    if (widget.showTodayButton) ...[
+                      _CalTodayButton(
+                        label: widget.todayButtonLabel ?? 'Today',
+                        onTap: _goToToday,
+                        accent: accent,
+                        isLight: isLight,
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              Expanded(
+                child: PageView.builder(
+                  scrollDirection: Axis.vertical,
+                  controller: _pageController,
+                  onPageChanged: (pageIndex) {
+                    final offset = pageIndex - _monthRange;
+                    final newMonth = DateTime(
+                      today.year,
+                      today.month + offset,
+                      1,
+                    );
+                    setState(() => _month = newMonth);
+                    widget.onMonthChanged?.call(newMonth);
+                  },
+                  itemCount: _monthRange * 2 + 1,
+                  itemBuilder: (context, index) {
+                    final offset = index - _monthRange;
+                    final targetMonth = DateTime(
+                      today.year,
+                      today.month + offset,
+                      1,
+                    );
+                    return _CalMonthSection(
+                      month: targetMonth,
+                      selected: _selected,
+                      today: today,
+                      indicatorMap: indicatorMap,
+                      eventCountMap: eventCountMap,
+                      accentColor: accent,
+                      isLight: isLight,
+                      onSelect: _selectDate,
+                    );
+                  },
+                ),
               ),
             ],
           ),
-          child: PageView.builder(
-            scrollDirection: Axis.vertical,
-            controller: _pageController,
-            onPageChanged: (pageIndex) {
-              final offset = pageIndex - _monthRange;
-              final newMonth = DateTime(today.year, today.month + offset, 1);
-              setState(() => _month = newMonth);
-              widget.onMonthChanged?.call(newMonth);
-            },
-            itemCount: _monthRange * 2 + 1,
-            itemBuilder: (context, index) {
-              final offset = index - _monthRange;
-              final targetMonth = DateTime(today.year, today.month + offset, 1);
-              return _CalMonthSection(
-                month: targetMonth,
-                monthLabel: mloc.formatMonthYear(targetMonth),
-                selected: _selected,
-                today: today,
-                indicatorMap: indicatorMap,
-                eventCountMap: eventCountMap,
-                accentColor: accent,
-                isLight: isLight,
-                onSelect: _selectDate,
-              );
-            },
+        ),
+        if (widget.showEventList)
+          _CalEventListSection(
+            dateLabel: selectedDateLabel,
+            events: selectedEvents,
+            selectedDate: _selected,
+            accentColor: accent,
+            isLight: isLight,
+            textPrimary: Theme.of(context).colorScheme.onSurface,
+            emptyStateTitle: widget.emptyStateTitle,
+            emptyStateSubtitle: widget.emptyStateSubtitle,
+            createEventLabel: widget.createEventLabel,
+            onCreateEvent: widget.onCreateEvent == null
+                ? null
+                : () => widget.onCreateEvent!(_selected),
+            eventBuilder: widget.eventBuilder,
+            emptyStateBuilder: widget.emptyStateBuilder,
+            onEventTap: widget.onEventTap,
           ),
-        ),
-      ),
-    );
-  }
-}
-
-// ─── Navigation Button ────────────────────────────────────────────────────────
-
-class _CalNavButton extends StatelessWidget {
-  const _CalNavButton({
-    required this.icon,
-    required this.onTap,
-    required this.isLight,
-  });
-
-  final AppIconData icon;
-  final VoidCallback onTap;
-  final bool isLight;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: Container(
-        width: 36,
-        height: 36,
-        decoration: BoxDecoration(
-          color: isLight ? const Color(0xFFF7F8FA) : const Color(0xFF222228),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: AppIcon(icon, size: 22, color: const Color(0xFF8E8EA3)),
-      ),
+      ],
     );
   }
 }
@@ -431,7 +434,6 @@ class _CalTodayButton extends StatelessWidget {
 class _CalMonthSection extends StatelessWidget {
   const _CalMonthSection({
     required this.month,
-    required this.monthLabel,
     required this.selected,
     required this.today,
     required this.indicatorMap,
@@ -442,7 +444,6 @@ class _CalMonthSection extends StatelessWidget {
   });
 
   final DateTime month;
-  final String monthLabel;
   final DateTime selected;
   final DateTime today;
   final Map<DateTime, List<Color>> indicatorMap;
@@ -453,46 +454,10 @@ class _CalMonthSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final surface = isLight ? Colors.white : const Color(0xFF17171A);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
+      padding: const EdgeInsets.fromLTRB(14, 4, 14, 14),
       child: Column(
         children: [
-          Center(
-            child: Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 14,
-                vertical: 5,
-              ),
-              decoration: BoxDecoration(
-                color: surface.withValues(alpha: 0.94),
-                borderRadius: BorderRadius.circular(999),
-                border: Border.all(
-                  color: isLight
-                      ? const Color(0xFFE8E6F2)
-                      : const Color(0xFF2A2A32),
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(
-                      alpha: isLight ? 0.05 : 0.16,
-                    ),
-                    blurRadius: 8,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-              ),
-              child: Text(
-                monthLabel,
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w800,
-                  color: Theme.of(context).colorScheme.onSurface,
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
           const _CalWeekdayRow(),
           const SizedBox(height: 8),
           Expanded(
@@ -799,24 +764,24 @@ class _CalDayPreviewSheet extends StatelessWidget {
                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 18),
                 child: Column(
                   children: [
-                        for (final event in events)
-                          eventBuilder != null
-                              ? eventBuilder!(context, event)
-                              : _CalPopupEventItem(
-                                  event: event,
-                                  accentColor: accentColor,
-                                  textPrimary: textPrimary,
-                                  onTap: onEventTap == null
-                                      ? null
-                                      : () {
-                                          Navigator.of(context).pop();
-                                          onEventTap!(event);
-                                        },
-                                ),
-                      ],
-                    ),
-                  ),
-          ),
+                    for (final event in events)
+                      eventBuilder != null
+                          ? eventBuilder!(context, event)
+                          : _CalPopupEventItem(
+                              event: event,
+                              accentColor: accentColor,
+                              textPrimary: textPrimary,
+                              onTap: onEventTap == null
+                                  ? null
+                                  : () {
+                                      Navigator.of(context).pop();
+                                      onEventTap!(event);
+                                    },
+                            ),
+                  ],
+                ),
+              ),
+            ),
           SizedBox(height: MediaQuery.of(context).padding.bottom + 12),
         ],
       ),
@@ -841,10 +806,10 @@ class _CalPopupEventItem extends StatelessWidget {
   Widget build(BuildContext context) {
     final isPending = event.color == AppColors.grey;
     final accent = isPending ? AppColors.grey : AppColors.success;
-    
+
     final title = event.subtitle ?? '';
     final location = event.title;
-    
+
     final startStr = event.time != null
         ? '${event.time!.hour.toString().padLeft(2, '0')}:${event.time!.minute.toString().padLeft(2, '0')}'
         : '--:--';
@@ -889,7 +854,9 @@ class _CalPopupEventItem extends StatelessWidget {
                   width: 2,
                   height: 64,
                   margin: const EdgeInsets.symmetric(vertical: 2),
-                  color: isLight ? const Color(0xFFF2F2F7) : const Color(0xFF2C2C2E),
+                  color: isLight
+                      ? const Color(0xFFF2F2F7)
+                      : const Color(0xFF2C2C2E),
                 ),
               ],
             ),
@@ -899,7 +866,9 @@ class _CalPopupEventItem extends StatelessWidget {
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
                   color: isPending
-                      ? (isLight ? const Color(0xFFF2F2F7) : const Color(0xFF2C2C2E))
+                      ? (isLight
+                            ? const Color(0xFFF2F2F7)
+                            : const Color(0xFF2C2C2E))
                       : accent.withValues(alpha: 0.10),
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(
@@ -977,28 +946,56 @@ class _CalEventListSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final surface = isLight ? AppColors.surface : AppColors.surfaceDark;
+    final divider = isLight ? AppColors.borderGrey : AppColors.borderDark;
+    final timelineItems = _buildTimelineItems();
+
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 18),
+      padding: const EdgeInsets.fromLTRB(4, 18, 4, 24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            dateLabel,
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: textPrimary,
-              letterSpacing: -0.1,
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: SizedBox(
+              width: double.infinity,
+              child: Text(
+                dateLabel,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: textPrimary,
+                  letterSpacing: -0.2,
+                ),
+              ),
             ),
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 12),
           if (events.isEmpty)
             _buildEmptyState(context)
           else
-            ...events.map(
-              (e) => eventBuilder != null
-                  ? eventBuilder!(context, e)
-                  : _buildDefaultEventItem(e),
+            Container(
+              decoration: BoxDecoration(
+                color: surface,
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: divider),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: Column(
+                children: [
+                  for (var index = 0; index < timelineItems.length; index++)
+                    eventBuilder != null
+                        ? eventBuilder!(context, timelineItems[index].event)
+                        : _buildDefaultEventItem(
+                            timelineItems[index].event,
+                            isFirst: index == 0,
+                            isLast: index == timelineItems.length - 1,
+                            showTime: timelineItems[index].showTime,
+                            overlaps: timelineItems[index].overlaps,
+                          ),
+                ],
+              ),
             ),
         ],
       ),
@@ -1011,91 +1008,236 @@ class _CalEventListSection extends StatelessWidget {
     }
     return InkWell(
       borderRadius: BorderRadius.circular(12),
-      onTap: () {
-        Navigator.pop(context);
-        onCreateEvent?.call();
-      },
+      onTap: onCreateEvent,
       child: Container(
         width: double.infinity,
-        padding: const EdgeInsets.symmetric(vertical: 16),
+        padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
+        decoration: BoxDecoration(
+          color: isLight ? AppColors.surface : AppColors.surfaceDark,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+            color: isLight ? AppColors.borderGrey : AppColors.borderDark,
+          ),
+        ),
         alignment: Alignment.center,
         child: Text(
-          'Available',
+          emptyStateTitle ?? 'Available',
           style: TextStyle(
-            fontSize: 15,
+            fontSize: 14,
             fontWeight: FontWeight.w600,
-            color: accentColor,
+            color: AppColors.textSecondary,
           ),
         ),
       ),
     );
   }
 
-  Widget _buildDefaultEventItem(AppCalendarEvent event) {
+  Widget _buildDefaultEventItem(
+    AppCalendarEvent event, {
+    required bool isFirst,
+    required bool isLast,
+    required bool showTime,
+    required bool overlaps,
+  }) {
     final color = event.color ?? accentColor;
-    final timeStr = event.time != null
+    final startTime = event.time != null
         ? '${event.time!.hour.toString().padLeft(2, '0')}:'
               '${event.time!.minute.toString().padLeft(2, '0')}'
+        : '--:--';
+    final endTime = event.endTime != null
+        ? '${event.endTime!.hour.toString().padLeft(2, '0')}:'
+              '${event.endTime!.minute.toString().padLeft(2, '0')}'
         : null;
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 5),
-      child: GestureDetector(
-        onTap: onEventTap != null ? () => onEventTap!(event) : null,
-        behavior: HitTestBehavior.opaque,
+    return InkWell(
+      onTap: onEventTap != null ? () => onEventTap!(event) : null,
+      child: SizedBox(
+        height: 76,
         child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Container(
-              width: 38,
-              height: 38,
-              decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.10),
-                borderRadius: BorderRadius.circular(11),
-              ),
-              child: AppIcon(
-                event.icon ?? AppIcons.event,
-                size: 18,
-                color: color,
+            Padding(
+              padding: const EdgeInsets.only(left: 12),
+              child: SizedBox(
+                width: 48,
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (showTime) ...[
+                      Text(
+                        startTime,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: textPrimary,
+                          height: 1.1,
+                        ),
+                      ),
+                      if (endTime != null) ...[
+                        const SizedBox(height: 3),
+                        Text(
+                          endTime,
+                          style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500,
+                            color: AppColors.textSecondary,
+                            height: 1.1,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ],
+                ),
               ),
             ),
-            const SizedBox(width: 13),
-            Expanded(
+            SizedBox(
+              width: 28,
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    event.title,
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: textPrimary,
+                  Expanded(
+                    child: Container(
+                      width: 2,
+                      color: isFirst
+                          ? Colors.transparent
+                          : color.withValues(alpha: 0.24),
                     ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
                   ),
-                  if (event.subtitle != null)
-                    Text(
-                      event.subtitle!,
-                      style: const TextStyle(
-                        fontSize: 11,
-                        color: Color(0xFF8E8EA3),
-                      ),
+                  SizedBox(
+                    width: 22,
+                    height: 13,
+                    child: Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        if (overlaps)
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: Container(
+                              width: 14,
+                              height: 2,
+                              color: color.withValues(alpha: 0.28),
+                            ),
+                          ),
+                        Align(
+                          alignment: overlaps
+                              ? Alignment.centerRight
+                              : Alignment.center,
+                          child: Container(
+                            width: 11,
+                            height: 11,
+                            decoration: BoxDecoration(
+                              color: color,
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: isLight
+                                    ? AppColors.surface
+                                    : AppColors.surfaceDark,
+                                width: 2,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
+                  ),
+                  Expanded(
+                    child: Container(
+                      width: 2,
+                      color: isLast
+                          ? Colors.transparent
+                          : color.withValues(alpha: 0.24),
+                    ),
+                  ),
                 ],
               ),
             ),
-            if (timeStr != null)
-              Text(
-                timeStr,
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: Color(0xFF8E8EA3),
-                  fontWeight: FontWeight.w500,
+            Expanded(
+              child: Container(
+                decoration: BoxDecoration(
+                  border: isLast
+                      ? null
+                      : Border(
+                          bottom: BorderSide(
+                            color: isLight
+                                ? AppColors.borderGrey.withValues(alpha: 0.75)
+                                : AppColors.borderDark.withValues(alpha: 0.75),
+                          ),
+                        ),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 13),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              event.title,
+                              style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w700,
+                                color: textPrimary,
+                                letterSpacing: -0.1,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            if (event.subtitle != null) ...[
+                              const SizedBox(height: 3),
+                              Text(
+                                event.subtitle!,
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: AppColors.textSecondary,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                  ],
                 ),
               ),
+            ),
           ],
         ),
       ),
     );
+  }
+
+  List<({AppCalendarEvent event, bool showTime, bool overlaps})>
+  _buildTimelineItems() {
+    final result = <({AppCalendarEvent event, bool showTime, bool overlaps})>[];
+    int? previousStart;
+    int? activeEnd;
+
+    for (final event in events) {
+      final time = event.time;
+      final start = time == null ? null : time.hour * 60 + time.minute;
+      final endTime = event.endTime;
+      final end = endTime == null ? start : endTime.hour * 60 + endTime.minute;
+      final sameStart = start != null && start == previousStart;
+      final overlaps =
+          start != null &&
+          activeEnd != null &&
+          (sameStart || start < activeEnd);
+
+      result.add((event: event, showTime: !sameStart, overlaps: overlaps));
+
+      if (start != null) {
+        previousStart = start;
+        final effectiveEnd = end ?? start;
+        if (activeEnd == null || effectiveEnd > activeEnd) {
+          activeEnd = effectiveEnd;
+        }
+      }
+    }
+    return result;
   }
 }

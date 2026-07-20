@@ -17,7 +17,7 @@ from app.models.comment import Comment
 from app.services.events import get_event_by_public_token
 from app.services.friends import avatar_payload
 from app.services.reviews import invalidate_review_caches, permanently_delete_review
-from app.web.realtime import publish_review_deleted
+from app.web.realtime import publish_review_deleted, schedule_analytics_changed
 from app.web.auth import (
     MiniAppUser,
     effective_web_role,
@@ -139,6 +139,7 @@ async def submit_review(
 
     await session.commit()
     invalidate_review_caches()
+    schedule_analytics_changed("rating")
     return ActionResponse(ok=True, message="Review submitted successfully.")
 
 
