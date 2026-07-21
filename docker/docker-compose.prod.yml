@@ -70,7 +70,7 @@ services:
       ADMIN_IDS: ${ADMIN_IDS:?ADMIN_IDS must be set}
       TELEGRAM_DELIVERY_DELAY_SECONDS: ${TELEGRAM_DELIVERY_DELAY_SECONDS:-0.15}
       TELEGRAM_DELIVERY_MAX_RETRIES: ${TELEGRAM_DELIVERY_MAX_RETRIES:-3}
-      EMAIL_HOST: ${EMAIL_HOST:-console}
+      EMAIL_HOST: ${EMAIL_HOST:?EMAIL_HOST must be set for production}
       EMAIL_PORT: ${EMAIL_PORT:-587}
       EMAIL_USERNAME: ${EMAIL_USERNAME:-}
       EMAIL_PASSWORD: ${EMAIL_PASSWORD:-}
@@ -129,7 +129,7 @@ services:
       ADMIN_IDS: ${ADMIN_IDS:?ADMIN_IDS must be set}
       TELEGRAM_DELIVERY_DELAY_SECONDS: ${TELEGRAM_DELIVERY_DELAY_SECONDS:-0.15}
       TELEGRAM_DELIVERY_MAX_RETRIES: ${TELEGRAM_DELIVERY_MAX_RETRIES:-3}
-      EMAIL_HOST: ${EMAIL_HOST:-console}
+      EMAIL_HOST: ${EMAIL_HOST:?EMAIL_HOST must be set for production}
       EMAIL_PORT: ${EMAIL_PORT:-587}
       EMAIL_USERNAME: ${EMAIL_USERNAME:-}
       EMAIL_PASSWORD: ${EMAIL_PASSWORD:-}
@@ -151,7 +151,7 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import json, urllib.request; data=json.load(urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)); raise SystemExit(0 if data.get('status') == 'ok' else 1)\""]
+      test: ["CMD-SHELL", "python -c \"import json, urllib.request; data=json.load(urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=5)); raise SystemExit(0 if data.get('status') == 'ready' else 1)\""]
       interval: 10s
       timeout: 5s
       retries: 6

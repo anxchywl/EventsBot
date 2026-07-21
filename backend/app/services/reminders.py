@@ -219,6 +219,9 @@ async def get_due_reminders(session: AsyncSession) -> Sequence[Reminder]:
         .join(Reminder.event)
         .where(Event.status == EventStatus.APPROVED.value)
         .options(selectinload(Reminder.user), selectinload(Reminder.event))
+        .order_by(Reminder.remind_at, Reminder.id)
+        .with_for_update(skip_locked=True)
+        .limit(1)
     )
     result = await session.execute(stmt)
     return result.scalars().all()
@@ -232,3 +235,9 @@ async def mark_reminder_sent(session: AsyncSession, reminder_id: int) -> None:
     if reminder:
         reminder.status = ReminderStatus.SENT.value
         reminder.sent_at = datetime.now(UTC)
+
+
+async def mark_reminder_failed(session: AsyncSession, reminder_id: int) -> None:
+    reminder = await session.get(Reminder, reminder_id)
+    if reminder:
+        reminder.status = ReminderStatus.FAILED.value

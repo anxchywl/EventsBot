@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   test:
     name: Test & Quality
@@ -137,6 +141,79 @@ jobs:
         working-directory: backend
         run: .venv/bin/pytest ../tests/integration -m integration -q
 
+  flutter:
+    name: Flutter Analyze & Test
+    runs-on: ubuntu-latest
+    concurrency:
+      group: flutter-${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: true
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect Flutter release changes
+        id: flutter-changes
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            comparison_sha="$PR_BASE_SHA"
+          else
+            comparison_sha="$BEFORE_SHA"
+          fi
+
+          if [ -z "$comparison_sha" ] || \
+             [ "$comparison_sha" = "0000000000000000000000000000000000000000" ] || \
+             ! git cat-file -e "$comparison_sha^{commit}"; then
+            echo "release_build=true" >> "$GITHUB_OUTPUT"
+          elif git diff --quiet "$comparison_sha" "$GITHUB_SHA" -- flutter_events app_ui; then
+            echo "release_build=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "release_build=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.38.5"
+          channel: stable
+          cache: true
+
+      - name: Install Flutter dependencies
+        working-directory: flutter_events
+        run: flutter pub get
+
+      - name: Check Flutter formatting
+        working-directory: flutter_events
+        run: dart format --output=none --set-exit-if-changed lib test
+
+      - name: Analyze Flutter feature
+        working-directory: flutter_events
+        run: flutter analyze --no-pub
+
+      - name: Test Flutter feature
+        working-directory: flutter_events
+        run: flutter test --no-pub
+
+      - name: Set up Java for release build
+        if: steps.flutter-changes.outputs.release_build == 'true'
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Restore Gradle build cache
+        if: steps.flutter-changes.outputs.release_build == 'true'
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build Flutter release host
+        if: steps.flutter-changes.outputs.release_build == 'true'
+        working-directory: flutter_events
+        run: flutter build apk --release --no-pub --dart-define=API_BASE_URL=https://events.example.edu --dart-define=ENABLE_STANDALONE_DEV_ACCESS=false
+
   migration-safety:
     name: Migration Safety
     runs-on: ubuntu-latest
@@ -150,7 +227,7 @@ jobs:
   docker:
     name: Docker Build
     runs-on: ubuntu-latest
-    needs: [test, integration, migration-safety]
+    needs: [test, integration, flutter, migration-safety]
 
     steps:
       - uses: actions/checkout@v4
@@ -167,6 +244,7 @@ jobs:
           SESSION_SECRET=test-session-secret
           POSTGRES_PASSWORD=test-postgres-password
           REDIS_PASSWORD=test-redis-password
+          EMAIL_HOST=smtp.example.com
           MINIAPP_BASE_URL=https://events.example.com
           ADMIN_IDS=[1]
           MODERATOR_CHAT_ID=1

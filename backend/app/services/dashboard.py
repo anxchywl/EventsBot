@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 from hashlib import sha256
 
@@ -16,6 +17,8 @@ from app.models.event import Event, EventCategory
 from app.services.event_cards import render_dashboard_event_line
 from app.services.events import ensure_event_public_token
 from app.services.telegram_delivery import call_with_telegram_backoff
+
+logger = logging.getLogger(__name__)
 
 
 class SendRichMessage(TelegramMethod[Message]):
@@ -228,8 +231,16 @@ async def pin_dashboard_message_silently(
             message_id=message_id,
             disable_notification=True,
         )
-    except Exception:
-        pass
+    except Exception as exc:
+        permissions = dict(chat.permissions_status or {})
+        permissions["can_pin_messages"] = False
+        chat.permissions_status = permissions
+        logger.warning(
+            "dashboard pin failed chat=%s message=%s: %s",
+            chat.id,
+            message_id,
+            exc,
+        )
 
 
 # edits a dashboard message or recreates it when needed

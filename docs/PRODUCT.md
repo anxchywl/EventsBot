@@ -1,248 +1,141 @@
-# Student Events Bot — Product Specification
+# Student Events Product Specification
 
-Internal product and business rules reference. Canonical source of truth for product behavior, flows, and edge cases.
+Canonical product behavior and business rules. Infrastructure belongs in [INFRASTRUCTURE.md](./INFRASTRUCTURE.md); the public system map is in [README.md](../README.md).
 
-- Public overview: [README.md](../README.md)
-- Infrastructure and ops: [INFRASTRUCTURE.md](./INFRASTRUCTURE.md)
-- Agent coding rules: [AGENTS.md](../AGENTS.md)
+## Product surfaces
 
----
+- **Telegram Mini App:** student discovery, event details, favorites, registration links, sharing, reminders, reviews, friends, privacy settings, and the web admin area.
+- **Flutter standalone development host:** coordinator event creation, ownership-based management, requested changes, published-event update drafts, and administrator moderation.
+- **Telegram bot:** group connection, permission checks, category selection, dashboard recreation, and dashboard event pages.
+- **Background services:** reminder delivery and PostgreSQL-backed event synchronization to Telegram.
 
-## 1. Product Overview
+Event submission and moderation bot routers exist in the source tree but are not registered by the current bot startup. Flutter is the active management surface.
 
-Student communities organize many events. Sharing them through group chats creates noise, and interested students miss things or lose track across conversations.
+The Flutter feature is not integrated with Jas Wallet. Standalone developer authentication remains the current development state. The dormant host-token bridge is future-facing and must not be enabled until the Jas Wallet contract is verified.
 
-This project keeps one auto-updating dashboard message per connected Telegram group. Students browse and interact with events through a Telegram Mini App. Clubs submit events through the bot. Admins approve them from the moderation queue.
+## Roles and identity
 
-Primary goals:
+- A Telegram user exchanges fresh, correctly signed Telegram `initData` for a revocable Mini App session.
+- A university-email user registers with an `@nu.edu.kz` address, verifies that same stored address, and signs in with a password.
+- Telegram and email credentials resolve to one user record when linked through supported flows.
+- Standalone Flutter native authentication is accepted only when `FLUTTER_NATIVE_AUTH_ENABLED=true` and `LOG_LEVEL=DEBUG`.
+- Regular users can mutate only their own event drafts, reviews, friendships, reminders, favorites, and profile settings.
+- Administrator access is determined on the server. Client-provided role values are never authoritative.
+- Logout revokes the current session. Password reset revokes existing sessions for the account.
 
-- Let students authenticate with a university email.
-- Let clubs submit and manage events through the bot.
-- Let admins approve, reject, or request changes to events.
-- Show approved events in Telegram group dashboards and the Mini App.
-- Support favorites, reminders, reviews, and sharing in the Mini App.
-- Let students connect with friends and see which friends are attending events.
-- Notify users about upcoming events they care about.
+Verification and reset codes are single-use, expire after their configured TTL, and are bound to their intended account. Resending a verification code must not redirect a code to a different address. Authentication delivery failures must be visible to the requesting client; production email must use configured SMTP rather than console delivery.
 
----
+## Event lifecycle
 
-## 2. Core Features
+```text
+create -> pending -> approved
+                  -> rejected
+                  -> needs_changes -> resubmitted -> approved/rejected/needs_changes
 
-- Telegram bot built with aiogram 3.
-- Event submission flow in private chat.
-- Moderation queue — approve, reject, or request changes.
-- Editable event cards — poster, title, description, date, time, location, category, registration link.
-- One auto-updating dashboard message per connected Telegram group.
-- Per-group category filters.
-- Telegram Mini App — search, filters, favorites, reminders, sharing, reviews.
-- Friends — add friends, see friends going to an event, invite via shareable links, privacy settings.
-- NU email registration, login, verification codes, and password reset.
-- Event analytics — opens, shares, registrations, favorites, and reminders.
-- Admin web panel — users, reviews, stats, connected groups, and audit logs.
-- Background reminder sender.
-- PostgreSQL migrations with Alembic.
+approved edit -> new pending child draft -> approved merge or rejected draft
+approved/pending/needs_changes/resubmitted -> cancelled -> deleted retirement
+rejected -> deleted retirement
+```
 
----
+Rules:
 
-## 3. Business Rules
+- Creation and resubmission accept a client request ID. Repeating the same request with the same payload returns the existing result; reusing the ID for a different payload is rejected.
+- A cover reference is short-lived, owned by one user, atomically single-use, and redeemed before an event mutation commits.
+- Event dates, times, and location overlaps are validated on the server in `Asia/Almaty`. End time must be after start time on the same event date.
+- Events whose end time has passed cannot be approved.
+- Only approved, non-deleted events are public in the Mini App, direct detail routes, registration links, Telegram pages, and dashboards.
+- Editing an approved event creates a child draft. The published parent stays visible until an administrator approves the draft, then the draft is merged into the parent and retired.
+- Rejected or cancelled events are unpublished. Scheduled reminders are cancelled when an event is rejected, cancelled, or deleted.
+- Deletion is a soft retirement, not a database hard delete. Moderation, audit, and analytics history remains available for authorized reporting.
+- Concurrent moderator decisions are serialized. A stale second decision receives a conflict response and cannot overwrite the first result silently.
+- Event changes create durable synchronization jobs in the same database transaction as the state mutation.
 
-- Only approved events are visible to regular users in dashboards and the Mini App.
-- An admin can approve, reject, or request changes; a request for changes returns the event to the submitter.
-- Each connected Telegram group has exactly one dashboard message, pinned and auto-updated on any event change.
-- Dashboard content is filtered by the category preferences set for each group.
-- A user cannot review an event they have not interacted with unless product policy changes.
-- Reminders are scheduled per-user per-event; duplicates must be prevented.
-- Analytics events are append-only; they must not be modified or deleted.
-- Audit and moderation logs are append-only.
-- A Telegram identity and a university email account are linked to one user record.
-- Email verification codes and password reset codes expire after the configured TTL.
-- Friend requests require explicit acceptance; a friendship is only active after both sides agree.
-- Privacy settings control who can see a user's friend list and attendance.
-- A user can revoke their own friend invite links at any time.
+## Student event interactions
 
----
+- Search and filters operate only on approved events and support bounded pagination.
+- Opening an event records an interaction. A user may review only an approved event they have interacted with.
+- One user has at most one rating and one comment per event; a later submission updates that review.
+- Favorites, reminder creation, registration clicks, shares, and attendance analytics are server-authoritative.
+- Reminder creation rejects unavailable or ended events and prevents duplicates for the same event and offset.
+- A registration click is recorded before the user is sent to the stored HTTPS URL. If an organizer's external URL later fails, the application can report the click but cannot guarantee the third-party site remains available.
+- Notifications and deep links targeting a deleted, rejected, or inaccessible event must resolve to an unavailable state without exposing event content.
 
-## 4. Edge Cases
+## Friends and privacy
 
-- An admin approves an event after the event date has passed.
-- A club edits an event after it has been approved and published.
-- A connected group revokes the bot's admin permissions after a dashboard has been created.
-- The dashboard message is manually deleted from the group.
-- Two admins act on the same pending event simultaneously.
-- A user sets a reminder for an event that is later rejected or deleted.
-- A notification points to a deleted or inaccessible event.
-- A registration link in an event card becomes invalid after publication.
-- An email verification code is reused or replayed.
-- A friend request is sent to a user who has already sent one in the other direction.
-- A friend invite link is shared publicly and claimed by an unintended user.
+- A user can search visible profiles, send, accept, decline, or cancel requests, remove friends, and create or revoke invite links.
+- A canonical database lock serializes actions for a user pair. Opposite-direction requests cannot create duplicate friendships or contradictory pending requests.
+- Invite tokens are unguessable bearer links. Anyone holding a valid unrevoked link can claim it; the owner must revoke a link that was shared unintentionally. The product does not promise recipient-bound public invites.
+- `show_profile_to_friends=false` hides the profile from search and returns a restricted public summary to other users.
+- Friend-list visibility supports public, friends-only, and private.
+- Attendance visibility is enforced on the server before friend attendance data is returned.
+- Friend and request collections are bounded and paginated.
 
----
+## Telegram groups and dashboards
 
-## 5. Event Submission Flow
+- One `dashboard_messages` row exists per connected chat.
+- A group must grant the bot the required edit/delete permissions; pin permission is tracked separately because Telegram chat types differ.
+- Category filters determine which approved events appear in each dashboard.
+- An event mutation enqueues a durable sync job; the worker updates event pages and schedules dashboard refreshes.
+- A manually deleted dashboard is recreated on the next refresh or by `/dashboard` and the stored message ID is replaced.
+- Loss of bot membership deactivates the chat. A pin failure records `can_pin_messages=false` and remains observable without discarding the newly sent dashboard.
+- Sync jobs use database claiming and a five-minute processing lease so multiple application instances do not process an active job simultaneously. An expired lease is returned to pending after a worker crash.
+- Telegram delivery is at-least-once. A crash after Telegram accepts a request but before the database acknowledgement can produce a duplicate message; reconciliation must use stored message IDs and subsequent refreshes.
 
-1. A club member opens the bot in private chat and runs `/submit_event`.
-2. The bot guides the user through providing: title, description, date, time, location, category, registration link, and optional poster image.
-3. The completed event is saved with status `pending`.
-4. The event appears in the moderation queue.
-5. An admin reviews it in the moderation queue.
-6. On approval, the event status becomes `approved` and is published.
-7. On rejection, the event is marked `rejected` and removed from the queue.
-8. On request for changes, the event is returned to the submitter with feedback.
-9. After approval, connected group dashboards update automatically.
-10. The Mini App shows the event to all users.
+## Reminders and realtime state
 
----
+- Due reminders are claimed with row locking and `SKIP LOCKED`, allowing multiple workers without sending the same actively claimed row concurrently.
+- Successful deliveries become `sent`; terminal delivery failures become `failed`; event retirement cancels scheduled reminders.
+- A process crash after Telegram accepts a reminder but before the transaction commits can still cause a duplicate delivery. This is an external acknowledgement boundary, not an exactly-once guarantee.
+- The Mini App compares a database-backed sync version and listens for SSE updates.
+- SSE connections use short-lived, one-time stream tickets rather than placing long-lived session tokens in URLs.
+- Reconnect creates a new ticket and triggers normal refresh/version reconciliation, so missed or duplicate signals do not become the source of truth.
+- Flutter clears session-scoped private cache when identity changes or a session expires and refetches server-authoritative state after mutations.
 
-## 6. Moderation Flow
+## Append-only records
 
-1. An admin runs `/moderate` or receives a notification about a pending event.
-2. The bot presents the event card with approve, reject, and request-changes options.
-3. Approve: event status → `approved`; dashboards and Mini App update.
-4. Reject: event status → `rejected`; submitter may be notified.
-5. Request changes: event is returned to `draft` state with a feedback message; submitter revises and resubmits.
+- `event_analytics`, `moderation_logs`, and `audit_logs` are application-level append-only records.
+- Event retirement must not cascade-delete these records.
+- Administrative deletion of a review is a moderated soft deletion where supported; the associated audit record is retained.
+- Analytics counters are derived from recorded actions and must not be treated as authentication or authorization evidence.
 
----
+## Required edge-case outcomes
 
-## 7. Dashboard Update Flow
-
-1. An event is approved, edited, or deleted.
-2. The backend emits an event change signal.
-3. The dashboard service identifies all connected groups whose category filters include this event's category.
-4. For each group, the bot edits the pinned dashboard message in-place.
-5. If the dashboard message has been deleted, the bot recreates and repins it.
-
----
-
-## 8. Reminder Flow
-
-1. A user sets a reminder for an event via the Mini App.
-2. The reminder is stored with the scheduled send time.
-3. A background worker runs at a configured interval and checks for due reminders.
-4. For each due reminder, the worker sends a Telegram message to the user.
-5. The reminder is marked as sent.
-6. If the event is deleted or rejected after the reminder is created, the reminder is cancelled.
-
----
-
-## 9. Friends Flow
-
-Friend request flow:
-
-1. User A searches for User B or uses a friend invite link.
-2. User A sends a friend request.
-3. User B receives the request and accepts or declines.
-4. On acceptance, a friendship record is created for both users.
-5. On decline or cancel, the request is removed.
-
-Invite link flow:
-
-1. A user creates a friend invite link.
-2. The link is shared via Telegram or any channel.
-3. Another user opens the link and is shown User A's profile with an accept option.
-4. On acceptance, a friendship is created.
-5. The user can revoke the invite link at any time.
-
-Privacy:
-
-- Users can set their friend list visibility to public, friends-only, or private.
-- The friends-going count on an event respects each user's privacy settings.
-
----
-
-## 10. API Endpoints
-
-The FastAPI backend serves the Mini App and exposes the following endpoints.
-
-**Auth**
-
-| Method | Endpoint | Description |
-|---|---|---|
-| POST | `/api/auth/session` | Create session from Telegram init data |
-| POST | `/api/auth/register` | Register with NU email and password |
-| POST | `/api/auth/verify` | Verify email code |
-| POST | `/api/auth/login` | Login with email and password |
-| GET | `/api/auth/profile` | Get current user profile |
-| PUT | `/api/auth/profile/nickname` | Update nickname |
-| POST | `/api/auth/profile/logout` | Logout (invalidate session) |
-| POST | `/api/auth/forgot-password/request` | Request a password reset code |
-| POST | `/api/auth/forgot-password/verify` | Verify the reset code |
-| POST | `/api/auth/forgot-password/reset` | Set a new password |
-
-**Events**
-
-| Method | Endpoint | Description |
-|---|---|---|
-| GET | `/api/events` | List approved events |
-| GET | `/api/events/filters` | Get filter options |
-| GET | `/api/events/{token}` | Get event details |
-| POST | `/api/events/{token}/register` | Record a registration click |
-| GET | `/api/favorites` | List favorited events |
-| POST | `/api/events/{token}/favorite` | Add a favorite |
-| DELETE | `/api/events/{token}/favorite` | Remove a favorite |
-| GET | `/api/reminders` | List reminders |
-| POST | `/api/events/{token}/reminders` | Create a reminder |
-| DELETE | `/api/reminders/{id}` | Delete a reminder |
-| POST | `/api/events/{token}/share` | Create a Telegram share link |
-| GET | `/api/events/{token}/reviews` | List reviews |
-| POST | `/api/events/{token}/reviews` | Create or update a review |
-| DELETE | `/api/events/{token}/reviews` | Delete own review |
-| GET | `/api/events/reviews/feed` | Global review feed |
-| GET | `/api/events/sync-version` | Event cache sync version |
-| GET | `/api/events/updates` | Event update stream (SSE) |
-| GET | `/api/events/review-updates` | Review update stream (SSE) |
-
-**Friends**
-
-| Method | Endpoint | Description |
-|---|---|---|
-| GET | `/api/friends` | List friends |
-| GET | `/api/friends/requests` | List incoming and outgoing friend requests |
-| POST | `/api/friends/requests` | Send a friend request |
-| POST | `/api/friends/requests/{id}/accept` | Accept a friend request |
-| POST | `/api/friends/requests/{id}/decline` | Decline a friend request |
-| POST | `/api/friends/requests/{id}/cancel` | Cancel a sent friend request |
-| DELETE | `/api/friends/{friend_user_id}` | Remove a friend |
-| GET | `/api/friends/search` | Search users to add as friends |
-| POST | `/api/friends/invites` | Create a friend invite link |
-| DELETE | `/api/friends/invites/{invite_id}` | Revoke an invite link |
-| GET | `/api/friends/invites/{token}` | Look up an invite by token |
-| GET | `/api/friends/settings` | Get privacy settings |
-| PUT | `/api/friends/settings` | Update privacy settings |
-| GET | `/api/friends/events/{event_id}/friends-going` | List friends attending an event |
-
-**Admin**
-
-| Method | Endpoint | Description |
-|---|---|---|
-| GET | `/api/admin/stats` | Overview stats |
-| GET | `/api/admin/users` | User list |
-| GET | `/api/admin/connected-groups` | Connected group list |
-| GET | `/api/admin/audit-logs` | Audit log |
-| GET | `/health` | Health check |
-
----
-
-## 11. Database
-
-| Table | Purpose |
+| Case | Required outcome |
 |---|---|
-| `users` | Telegram users, email accounts, roles, and blocks |
-| `events` | Event content, dates, status, and moderation data |
-| `event_categories` | Categories used by filters and dashboards |
-| `chats` | Connected Telegram groups |
-| `chat_category_settings` | Enabled categories per group |
-| `dashboard_messages` | Dashboard message IDs per group |
-| `event_detail_messages` | Event card message IDs |
-| `favorites` | Saved events per user |
-| `reminders` | Scheduled reminder records |
-| `ratings` / `comments` | Event reviews |
-| `event_analytics` | Opens, shares, registrations, and other event actions |
-| `moderation_logs` / `audit_logs` | Admin and moderation history |
-| `user_activity_logs` | Per-user activity history |
-| `email_verification_codes` / `password_reset_codes` | Auth codes |
-| `event_sync_jobs` | Background event sync work |
-| `clubs` | Club profiles linked to events |
-| `friendships` | Active friend pairs |
-| `friend_requests` | Pending friend requests |
-| `friend_invites` | Shareable invite links for friend discovery |
-| `privacy_settings` | Per-user friend visibility preferences |
+| Approval after event end | Reject the transition; the event stays unpublished. |
+| Edit approved event | Keep the published parent visible; moderate a separate child draft. |
+| Bot loses admin permissions | Record degraded permissions or deactivate the chat, retry safely, and expose the condition to admins. |
+| Dashboard message manually deleted | Recreate it, store the replacement ID, and attempt to pin it. |
+| Two administrators moderate one event | Serialize with the database lock; the stale action receives `409 Conflict`. |
+| Reminder belongs to rejected/deleted event | Cancel it before delivery. |
+| Notification targets unavailable event | Show unavailable/not found without private event data. |
+| Registration link fails after publication | Preserve application state and show recoverable navigation; external availability is not guaranteed. |
+| Verification/reset code replay | Reject after first successful use. |
+| Opposite-direction friend requests | Resolve under one pair lock without duplicate requests or friendships. |
+| Public invite claimed by unintended user | Claim is valid for the bearer; owner can revoke unused links. Recipient-bound invites are not promised. |
+| Creation/resubmission timeout and retry | Same request ID and payload returns the existing event; a changed payload conflicts. |
+| Repeated staged cover token | Only one atomic redemption succeeds. |
+| Same-day timezone boundary | Validate and render using `Asia/Almaty`. |
+| SSE disconnect during transition | Reconnect with a new ticket and reconcile from sync version/API state. |
+| Worker crash after Telegram action | Accept possible duplicate delivery; reconcile on later refresh using stored state. |
+| Account switch with cached data | Remove session-scoped private cache before rendering the next account. |
+| Multiple sync workers | Claim jobs with row locks and recover only expired processing leases. |
+
+## Primary API groups
+
+| Prefix | Purpose |
+|---|---|
+| `/api/auth` | Telegram session exchange, university email auth, profile, logout, verification, and reset |
+| `/api/events` | approved discovery, details, interactions, reviews, sync version, and stream tickets/SSE |
+| `/api/favorites` | current user's favorites |
+| `/api/reminders` | current user's reminders |
+| `/api/friends` | friend relationships, requests, invites, privacy, and attendance |
+| `/api/admin` | server-authorized administration, moderation support, groups, stats, and audit logs |
+| `/api/flutter/auth` | Flutter session resolution and debug-only standalone native auth |
+| `/api/flutter/events` | coordinator event lifecycle and administrator moderation |
+| `/api/flutter/analytics` | authorized event analytics |
+| `/health`, `/health/ready` | liveness and dependency readiness |
+
+## Durable data ownership
+
+PostgreSQL is the source of truth for users, roles, events, moderation, chats, dashboards, favorites, reminders, reviews, analytics, friendships, privacy, and sync jobs. Redis data is disposable support state: sessions, rate limits, caches, SSE pub/sub, and staged cover bytes/tokens. Telegram message IDs stored in PostgreSQL link durable application state to external Telegram messages.

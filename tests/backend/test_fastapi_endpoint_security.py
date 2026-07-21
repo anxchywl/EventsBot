@@ -162,13 +162,13 @@ class FastAPIEndpointSecurityTest(unittest.TestCase):
         )
         self.assertEqual(status_code, 404)
 
-    def test_sse_update_token_is_required_and_bounded(self):
+    def test_sse_update_ticket_is_required_and_bounded(self):
         status_code, _body = asyncio.run(_asgi_request("GET", "/api/events/updates"))
         self.assertEqual(status_code, 422)
 
         too_long = "a" * 4097
         status_code, _body = asyncio.run(
-            _asgi_request("GET", f"/api/events/updates?token={too_long}")
+            _asgi_request("GET", f"/api/events/updates?ticket={too_long}")
         )
         self.assertEqual(status_code, 422)
 

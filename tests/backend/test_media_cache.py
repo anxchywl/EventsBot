@@ -94,6 +94,15 @@ def test_event_cover_url_returns_none_without_poster():
     assert event_cover_url(event) is None
 
 
+def test_event_cover_url_returns_external_https_url_directly():
+    event = SimpleNamespace(
+        public_token="event-token",
+        poster_file_id="https://nu.edu.kz/images/event.jpg",
+    )
+
+    assert event_cover_url(event) == "https://nu.edu.kz/images/event.jpg"
+
+
 def test_palette_key_is_stable_for_same_token():
     assert palette_key("event-token") == palette_key("event-token")
 

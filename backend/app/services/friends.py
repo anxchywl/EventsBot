@@ -127,6 +127,20 @@ async def are_friends(session: AsyncSession, user_id: int, other_user_id: int) -
     )
 
 
+# serialize social writes for one unordered user pair
+async def acquire_friend_pair_lock(
+    session: AsyncSession, user_id: int, other_user_id: int
+) -> None:
+    first_id, second_id = canonical_pair(user_id, other_user_id)
+    await session.execute(
+        select(
+            func.pg_advisory_xact_lock(
+                func.hashtextextended(f"friend-pair:{first_id}:{second_id}", 0)
+            )
+        )
+    )
+
+
 # return both sides of canonical friendship rows
 async def friend_ids(session: AsyncSession, user_id: int) -> set[int]:
     result = await session.execute(
@@ -249,26 +263,34 @@ async def public_user_summary(
     *,
     current_user: User | None = None,
 ) -> dict:
-    target_counts = await friend_counts(session, [target.id])
-    mutual_count = (
-        await mutual_friend_count(session, current_user.id, target.id)
-        if current_user is not None
-        else 0
-    )
     relationship, request_id = (
         await friendship_status(session, current_user.id, target.id)
         if current_user is not None
         else ("none", None)
     )
+    privacy = await ensure_privacy_settings(session, target)
+    profile_visible = relationship == "self" or privacy.show_profile_to_friends
+    target_counts = (
+        await friend_counts(session, [target.id]) if profile_visible else {target.id: 0}
+    )
+    mutual_count = (
+        await mutual_friend_count(session, current_user.id, target.id)
+        if current_user is not None and profile_visible
+        else 0
+    )
     can_contact_directly = relationship in {"self", "friends"}
     return {
         "id": target.id,
-        "nickname": display_name(target),
+        "nickname": display_name(target) if profile_visible else "Private profile",
         "email": None,
-        "avatar": avatar_payload(target),
+        "avatar": avatar_payload(target)
+        if profile_visible
+        else {"url": None, "initials": "NU"},
         "friend_count": target_counts.get(target.id, 0),
         "mutual_friends_count": mutual_count,
-        "telegram_url": telegram_url(target) if can_contact_directly else None,
+        "telegram_url": telegram_url(target)
+        if can_contact_directly and profile_visible
+        else None,
         "relationship_status": relationship,
         "request_id": request_id,
     }
@@ -319,6 +341,7 @@ async def create_friend_request(
         )
     if requester.id == recipient.id:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "You cannot friend yourself.")
+    await acquire_friend_pair_lock(session, requester.id, recipient.id)
     if await are_friends(session, requester.id, recipient.id):
         raise HTTPException(status.HTTP_409_CONFLICT, "You are already friends.")
     recipient_privacy = await ensure_privacy_settings(session, recipient)
@@ -369,6 +392,7 @@ async def accept_friend_request(
     *,
     recipient: User,
 ) -> Friendship:
+    await acquire_friend_pair_lock(session, request.requester_id, request.recipient_id)
     await expire_stale_friend_rows(session)
     if request.status != "pending" or request.recipient_id != recipient.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Friend request not found.")

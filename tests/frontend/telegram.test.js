@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 async function loadTelegram() {
   vi.resetModules();
-  return import("../../frontend/static/js/telegram.js?v=20260628-security-v1");
+  return import("../../frontend/static/js/telegram.js?v=20260721-timeline-v7");
 }
 
 describe("frontend telegram helpers", () => {

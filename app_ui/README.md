@@ -1,7 +1,16 @@
 # App UI Kit
 
-A shareable, reusable Flutter UI Kit with design tokens, widgets, and components.
-Built for students & developers who want a ready-made design system for their Flutter apps.
+The local presentation package used by the Student Events Flutter feature. It
+contains reusable design tokens, widgets, and components and has no event,
+authentication, networking, or persistence logic.
+
+```mermaid
+flowchart LR
+    Host["Flutter standalone development host"] --> Feature["Student Events feature"]
+    Feature --> UI["app_ui tokens and components"]
+    Feature --> API["Events API"]
+    UI -. "presentation only" .-> Feature
+```
 
 ## Features
 
@@ -24,7 +33,7 @@ In your app's `pubspec.yaml`:
 ```yaml
 dependencies:
   app_ui:
-    path: packages/app_ui
+    path: ../app_ui
 ```
 
 ### 2. Import
@@ -33,7 +42,7 @@ dependencies:
 import 'package:app_ui/app_ui.dart';
 ```
 
-> **Important:** Only import `app_ui.dart`. Never import individual files directly.
+Only import `app_ui.dart`; individual implementation files are not public API.
 
 ### 3. Add assets (optional)
 
@@ -456,4 +465,14 @@ RewardToastManager.show(
 4. **No business logic in the UI kit** — components are purely presentational
 5. **Components accept data via constructor parameters only**
 6. **All widgets support light and dark themes**
+
+## Verification
+
+From this directory:
+
+```sh
+flutter pub get
+dart format --output=none --set-exit-if-changed lib
+flutter analyze
+```
 

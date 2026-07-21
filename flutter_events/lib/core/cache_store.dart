@@ -34,6 +34,7 @@ class CacheTtl {
   static const Duration myEvents = Duration(seconds: 45);
   static const Duration categories = Duration(hours: 6);
   static const Duration analytics = Duration(seconds: 20);
+  static const Duration analyticsSelections = Duration(minutes: 2);
 
   /// Cached data older than this is surfaced with a non-intrusive staleness
   /// hint when a background refresh cannot complete (offline).
@@ -79,6 +80,7 @@ class CacheStore {
     await RealtimeUpdates.instance.disconnect();
     EventCache.instance.clearForLogout();
     AnalyticsCache.instance.clear();
+    AnalyticsSelectionCache.instance.clear();
     await _clearPrefs();
     await _prefs.setInt(_kSchemaKey, _kSchemaVersion);
   }
@@ -874,5 +876,60 @@ class AnalyticsCache {
     _snapshot = {};
     _snapshotUserId = null;
     _snapshotLoaded = false;
+  }
+}
+
+/// Short-lived memory cache for analytics picker options.
+///
+/// Picker data changes less frequently than dashboard counters. Keeping it
+/// session-scoped makes repeated sheets open immediately while the generation
+/// guard prevents an in-flight response crossing an account switch.
+class AnalyticsSelectionCache {
+  AnalyticsSelectionCache._();
+
+  static final AnalyticsSelectionCache instance = AnalyticsSelectionCache._();
+
+  final Map<String, _AnalyticsEntry> _entries = {};
+  final Map<String, Future<dynamic>> _inFlight = {};
+
+  T? peekFresh<T>(String key) {
+    final entry = _entries[key];
+    if (entry == null ||
+        DateTime.now().difference(entry.fetchedAt) >=
+            CacheTtl.analyticsSelections) {
+      return null;
+    }
+    return entry.value as T;
+  }
+
+  Future<T> get<T>(String key, Future<T> Function() loader) {
+    final cached = peekFresh<T>(key);
+    if (cached != null) return Future.value(cached);
+    final existing = _inFlight[key];
+    if (existing != null) return existing.then((value) => value as T);
+
+    final generation = CacheStore.generation;
+    final future = () async {
+      try {
+        final value = await loader();
+        if (generation == CacheStore.generation) {
+          _entries[key] = _AnalyticsEntry(
+            value as Object,
+            DateTime.now(),
+            null,
+          );
+        }
+        return value;
+      } finally {
+        _inFlight.remove(key);
+      }
+    }();
+    _inFlight[key] = future;
+    return future;
+  }
+
+  void clear() {
+    _entries.clear();
+    _inFlight.clear();
   }
 }

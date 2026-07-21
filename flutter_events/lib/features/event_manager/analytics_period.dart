@@ -14,7 +14,9 @@ class AnalyticsPeriod {
 
   const AnalyticsPeriod(this.type, {this.customStart, this.customEnd});
 
-  static const AnalyticsPeriod defaultPeriod = AnalyticsPeriod(PeriodType.last30);
+  static const AnalyticsPeriod defaultPeriod = AnalyticsPeriod(
+    PeriodType.last30,
+  );
 
   static String _fmt(DateTime d) =>
       '${d.year.toString().padLeft(4, '0')}-'

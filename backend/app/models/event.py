@@ -110,6 +110,11 @@ class Event(TimestampMixin, Base):
     it_equipment: Mapped[str | None] = mapped_column(Text, nullable=True)
     materials: Mapped[str | None] = mapped_column(Text, nullable=True)
     poster_file_id: Mapped[str | None] = mapped_column(String(512))
+    # storage-group message backing poster_file_id, kept so the image can be
+    # deleted from the channel when the event is retired or its cover replaced
+    poster_storage_message_id: Mapped[int | None] = mapped_column(
+        BigInteger, nullable=True
+    )
     # moderation state and timestamps
     status: Mapped[str] = mapped_column(
         String(32),

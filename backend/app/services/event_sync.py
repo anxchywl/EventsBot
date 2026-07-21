@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from aiogram.exceptions import TelegramBadRequest
@@ -39,9 +39,16 @@ DELETE_LIKE_OPERATIONS = {
     "archived",
     "deleted",
 }
+# operations that permanently retire an event; rejected/needs_changes/archived
+# keep their cover because they can still be re-approved or restored
+COVER_RETIRING_OPERATIONS = {
+    "cancelled",
+    "deleted",
+}
 VISIBLE_STATUSES = {EventStatus.APPROVED.value}
 MAX_ATTEMPTS = 5
 POLL_SECONDS = 5.0
+PROCESSING_LEASE = timedelta(minutes=5)
 
 
 # mark recoverable delivery failures from telegram
@@ -83,6 +90,7 @@ async def capture_event_snapshot(
         "event_exists": True,
         "status": event.status,
         "category_id": event.category_id,
+        "poster_storage_message_id": event.poster_storage_message_id,
         "detail_messages": [
             {
                 "chat_id": detail.chat_id,
@@ -211,9 +219,9 @@ class EventSyncWorker:
             )
 
     async def _run(self) -> None:
-        await self._reset_stale_processing_jobs()
         while True:
             try:
+                await self._reset_stale_processing_jobs()
                 await self._process_pending_jobs()
                 self._wakeup.clear()
                 try:
@@ -227,11 +235,15 @@ class EventSyncWorker:
                 await asyncio.sleep(1)
 
     async def _reset_stale_processing_jobs(self) -> None:
+        stale_before = datetime.now(UTC) - PROCESSING_LEASE
         async with self._session_factory() as session:
             result = await session.execute(
                 update(EventSyncJob)
-                .where(EventSyncJob.status == "processing")
-                .values(status="pending", last_error="Reset after worker startup")
+                .where(
+                    EventSyncJob.status == "processing",
+                    EventSyncJob.updated_at < stale_before,
+                )
+                .values(status="pending", last_error="Recovered expired worker lease")
                 .returning(EventSyncJob.id)
             )
             job_ids = list(result.scalars().all())
@@ -311,6 +323,8 @@ class EventSyncWorker:
                         EventDetailMessage.event_id == int(event_id)
                     )
                 )
+            if operation in COVER_RETIRING_OPERATIONS:
+                await _delete_snapshot_cover(snapshot, event)
             await session.flush()
             await _schedule_dashboard_refresh(old_chat_ids)
             return
@@ -457,6 +471,22 @@ async def _notify_sync_completed(session: AsyncSession, job: EventSyncJob) -> No
             ),
         },
     )
+
+
+# delete the retired event's storage-group cover so images do not orphan.
+# the snapshot is the source of truth, but only delete when the live row still
+# owns that image so an approved draft that adopted it is never broken.
+async def _delete_snapshot_cover(snapshot: dict[str, Any], event: Event | None) -> None:
+    from app.services.cover_storage import delete_stored_cover_message
+
+    message_id = snapshot.get("poster_storage_message_id")
+    if not message_id:
+        return
+    if event is not None and event.poster_storage_message_id != message_id:
+        return
+    await delete_stored_cover_message(int(message_id))
+    if event is not None:
+        event.poster_storage_message_id = None
 
 
 # read target chat ids from an immutable job snapshot

@@ -177,12 +177,16 @@ async def register(
     )
     await session.commit()
 
-    # offload blocking SMTP call so it does not block the event loop
-    asyncio.create_task(
-        asyncio.to_thread(
+    # wait for delivery so the api never reports a code that was not handed off
+    try:
+        await asyncio.to_thread(
             send_verification_email, email, code, lang=x_language, theme=x_theme
         )
-    )
+    except RuntimeError as exc:
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            "Verification email could not be sent. Please try again.",
+        ) from exc
 
     return ActionResponse(
         ok=True,
@@ -207,6 +211,12 @@ async def verify(
         )
 
     user = await upsert_miniapp_user(session, miniapp_user)
+    registered_email = (user.email or "").strip().lower()
+    if email != registered_email or not registered_email.endswith("@nu.edu.kz"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No verification code found for this email. Please request a new code.",
+        )
 
     # retrieve code
     stmt = select(EmailVerificationCode).where(
@@ -308,6 +318,17 @@ async def resend(
 ) -> ActionResponse:
     email = payload.email.strip().lower()
     user = await upsert_miniapp_user(session, miniapp_user)
+    registered_email = (user.email or "").strip().lower()
+    if (
+        user.is_verified
+        or email != registered_email
+        or not registered_email.endswith("@nu.edu.kz")
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Verification code cannot be resent for this email.",
+        )
+    email = registered_email
 
     # enforce 60 seconds resend cooldown
     stmt = select(EmailVerificationCode).where(EmailVerificationCode.user_id == user.id)
@@ -348,11 +369,15 @@ async def resend(
 
     await session.commit()
 
-    asyncio.create_task(
-        asyncio.to_thread(
+    try:
+        await asyncio.to_thread(
             send_verification_email, email, code, lang=x_language, theme=x_theme
         )
-    )
+    except RuntimeError as exc:
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            "Verification email could not be sent. Please try again.",
+        ) from exc
 
     return ActionResponse(
         ok=True, message=f"A new verification code has been sent to {email}."
@@ -876,8 +901,10 @@ async def forgot_password_request(
     session.add(db_code)
     await session.commit()
 
-    # pass the plain code only to the mailer — task is tracked by the event loop, not a daemon thread
-    asyncio.create_task(asyncio.to_thread(send_password_reset_email, email, code))
+    try:
+        await asyncio.to_thread(send_password_reset_email, email, code)
+    except RuntimeError:
+        logger.warning("Password reset email delivery failed for user_id=%s", user.id)
 
     return ActionResponse(ok=True, message=_GENERIC_RESET_MSG)
 

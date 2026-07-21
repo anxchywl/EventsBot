@@ -16,11 +16,18 @@ async def check_rate_limit(
     detail: str = "Too many requests.",
 ) -> None:
     r = get_redis()
-    pipe = r.pipeline(transaction=True)
-    pipe.incr(key)
-    pipe.expire(key, window_seconds, nx=True)
-    pipe.ttl(key)
-    results = await pipe.execute()
+    try:
+        pipe = r.pipeline(transaction=True)
+        pipe.incr(key)
+        pipe.expire(key, window_seconds, nx=True)
+        pipe.ttl(key)
+        results = await pipe.execute()
+    except Exception as exc:
+        logger.warning("rate limit storage unavailable")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Service temporarily unavailable.",
+        ) from exc
     count: int = results[0]
     if results[2] < 0:
         await r.expire(key, window_seconds)

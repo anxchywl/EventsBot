@@ -2,9 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 
 async function loadI18n() {
   vi.resetModules();
-  const state = await import("../../frontend/static/js/state.js?v=20260628-security-v1");
+  const state = await import("../../frontend/static/js/state.js?v=20260721-timeline-v7");
   state.setLang("en");
-  const i18n = await import("../../frontend/static/js/i18n.js?v=20260628-security-v1");
+  const i18n = await import("../../frontend/static/js/i18n.js?v=20260721-timeline-v7");
   return { ...i18n, ...state };
 }
 

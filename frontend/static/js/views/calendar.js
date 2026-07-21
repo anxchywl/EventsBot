@@ -1,9 +1,9 @@
-import { addFavorite, createReminder, removeFavorite } from "../api.js?v=20260628-security-v1";
-import { coverStyle, escapeAttr, escapeHtml, nav } from "../components/events.js?v=20260628-security-v1";
-import { openReminderSheet } from "../components/sheets.js?v=20260628-security-v1";
-import { t } from "../i18n.js?v=20260628-security-v1";
-import { state } from "../state.js?v=20260628-security-v1";
-import { haptic } from "../telegram.js?v=20260628-security-v1";
+import { addFavorite, createReminder, removeFavorite } from "../api.js?v=20260721-timeline-v7";
+import { coverStyle, escapeAttr, escapeHtml, nav } from "../components/events.js?v=20260721-timeline-v7";
+import { openReminderSheet } from "../components/sheets.js?v=20260721-timeline-v7";
+import { t } from "../i18n.js?v=20260721-timeline-v7";
+import { state } from "../state.js?v=20260721-timeline-v7";
+import { haptic } from "../telegram.js?v=20260721-timeline-v7";
 
 const MONTH_RANGE = 12;
 const monthGridCache = new Map();
@@ -342,7 +342,7 @@ function showDayPreviewBottomSheet(dateStr, events) {
           <h3>${escapeHtml(formattedDate)}</h3>
         </div>
         <div class="popup-sheet-content">
-          ${hasEvents ? dayEvents.map(renderPopupEvent).join("") : `
+          ${hasEvents ? `<div class="popup-event-timeline">${dayEvents.map((event, index) => renderPopupEvent(event, dayEvents, index)).join("")}</div>` : `
           <div class="popup-empty-state">
             <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M19 4H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V10h14v10zm0-12H5V6h14v2z"/></svg>
             <p>${escapeHtml(t("emptyEvents"))}</p>
@@ -357,12 +357,19 @@ function showDayPreviewBottomSheet(dateStr, events) {
   backdrop.addEventListener("click", handlePreviewClick);
 }
 
-// render one event in the day preview
-function renderPopupEvent(event) {
+// render one event in the day preview timeline
+function renderPopupEvent(event, dayEvents, index) {
   const isArchived = isEventArchived(event);
   const isLive = isEventLive(event);
+  const previous = dayEvents[index - 1];
+  const isFirst = index === 0;
+  const isLast = index === dayEvents.length - 1;
+  // hide the time when it repeats the previous row's start (mirrors Flutter timeline)
+  const sameTimeBefore = Boolean(previous && (previous.time || "") === (event.time || ""));
   const cardClasses = [
-    "popup-event-card",
+    "popup-timeline-event",
+    isFirst ? "is-first" : "",
+    isLast ? "is-last" : "",
     isArchived ? "archived-faded" : "",
     isLive ? "live-pulse" : "",
     event.is_favorite ? "fav-glow-card" : "",
@@ -370,10 +377,15 @@ function renderPopupEvent(event) {
   return `
     <article class="${cardClasses}" data-preview-event="${escapeAttr(event.token)}">
       <button class="popup-event-main" type="button" data-calendar-event-open="${escapeAttr(event.token)}">
-        <span class="popup-event-time">${escapeHtml(event.time || "--:--")}</span>
+        <span class="popup-event-time">${sameTimeBefore ? "" : escapeHtml(event.time || "--:--")}</span>
+        <span class="popup-timeline-rail" aria-hidden="true">
+          <span class="popup-timeline-line popup-timeline-line-top"></span>
+          <span class="popup-timeline-dot"></span>
+          <span class="popup-timeline-line popup-timeline-line-bottom"></span>
+        </span>
         <span class="popup-event-body">
           <strong>${escapeHtml(event.title)}</strong>
-          <span>${escapeHtml(event.location || "")}</span>
+          ${event.location ? `<span>${escapeHtml(event.location)}</span>` : ""}
         </span>
         ${isLive ? `<span class="popup-live-badge">LIVE</span>` : ""}
       </button>

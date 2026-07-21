@@ -207,9 +207,17 @@ async def get_admin_stats(
     session: AsyncSession = Depends(get_session),
 ) -> AdminStatsResponse:
     bot_users = (
-        await session.execute(select(func.count()).select_from(User))
+        await session.execute(
+            select(func.count()).select_from(User).where(User.telegram_id > 0)
+        )
     ).scalar() or 0
-    miniapp_users = bot_users
+    miniapp_users = (
+        await session.execute(
+            select(func.count())
+            .select_from(User)
+            .where(User.last_active_at.is_not(None))
+        )
+    ).scalar() or 0
     nu_accounts = (
         await session.execute(
             select(func.count()).select_from(User).where(User.is_verified == True)

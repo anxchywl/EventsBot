@@ -175,7 +175,14 @@ async def consume_and_store_cover(
     meta_key = f"{_STAGING_PREFIX}{token}"
     bytes_key = f"{_STAGING_BYTES_PREFIX}{token}"
     try:
-        owner = await get_redis().get(meta_key)
+        owner = await get_redis().eval(
+            "local owner = redis.call('get', KEYS[1]); "
+            "if owner == ARGV[1] then redis.call('del', KEYS[1]); return owner; end; "
+            "return false",
+            1,
+            meta_key,
+            str(user_id),
+        )
     except Exception:
         return None
     if owner is None or owner != str(user_id):
@@ -186,7 +193,6 @@ async def consume_and_store_cover(
         data = None
     # prevent replaying the same upload
     try:
-        await get_redis().delete(meta_key)
         await get_media_redis().delete(bytes_key)
     except Exception:
         pass

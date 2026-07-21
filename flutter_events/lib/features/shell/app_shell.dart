@@ -145,32 +145,27 @@ class _AppShellState extends State<AppShell> {
               color: isLight ? AppColors.borderGrey : AppColors.borderDark,
             ),
           ),
-          boxShadow: HomeShadows.navBar,
         ),
         padding: EdgeInsets.only(
-          left: AppSpacing.sm,
-          right: AppSpacing.sm,
+          left: AppSpacing.df,
+          right: AppSpacing.df,
           top: AppSpacing.xs,
           bottom: MediaQuery.paddingOf(context).bottom + AppSpacing.xs,
         ),
-        child: Align(
-          alignment: Alignment.bottomCenter,
-          heightFactor: 1,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 840),
-            child: Row(
-              children: [
-                for (var i = 0; i < destinations.length; i++)
-                  Expanded(
-                    child: _NavIconButton(
-                      icon: destinations[i].icon,
-                      label: destinations[i].label,
-                      selected: i == currentIndex,
-                      onTap: () => _handleNavigationTap(i),
-                    ),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 840),
+          child: Row(
+            children: [
+              for (var i = 0; i < destinations.length; i++)
+                Expanded(
+                  child: _NavIconButton(
+                    icon: destinations[i].icon,
+                    label: destinations[i].label,
+                    selected: i == currentIndex,
+                    onTap: () => _handleNavigationTap(i),
                   ),
-              ],
-            ),
+                ),
+            ],
           ),
         ),
       ),
@@ -205,40 +200,54 @@ class _NavIconButton extends StatelessWidget {
           borderRadius: AppSpacing.borderRadiusMd,
           canRequestFocus: true,
           onTap: onTap,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 180),
-                curve: Curves.easeOutCubic,
-                padding: EdgeInsets.symmetric(
-                  horizontal: selected ? AppSpacing.sm : AppSpacing.xs,
-                  vertical: AppSpacing.xs,
-                ),
-                decoration: BoxDecoration(
-                  color: selected
-                      ? AppColors.primaryLight
-                      : AppColors.transparent,
-                  borderRadius: BorderRadius.circular(24),
-                ),
-                child: AppIcon(
-                  icon,
-                  size: AppSpacing.iconDf,
-                  color: selected ? AppColors.primary : AppColors.iconSecondary,
-                ),
-              ),
-              const SizedBox(height: AppSpacing.xs),
-              Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: AppTextStyles.labelSmall.copyWith(
-                  color: selected ? AppColors.primary : AppColors.iconSecondary,
-                  fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
-                ),
-              ),
-            ],
+          child: TweenAnimationBuilder<double>(
+            tween: Tween<double>(begin: null, end: selected ? 1 : 0),
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeOutCubic,
+            builder: (context, progress, child) {
+              final accent = Color.lerp(
+                AppColors.iconSecondary,
+                AppColors.primary,
+                progress,
+              );
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 220),
+                    curve: Curves.easeOutCubic,
+                    padding: EdgeInsets.symmetric(
+                      horizontal: selected ? AppSpacing.sm : AppSpacing.xs,
+                      vertical: AppSpacing.xs,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Color.lerp(
+                        AppColors.transparent,
+                        AppColors.primaryLight,
+                        progress,
+                      ),
+                      borderRadius: BorderRadius.circular(24),
+                    ),
+                    child: AppIcon(icon, size: 23, color: accent),
+                  ),
+                  const SizedBox(height: AppSpacing.xs),
+                  Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTextStyles.labelSmall.copyWith(
+                      color: accent,
+                      fontWeight: FontWeight.lerp(
+                        FontWeight.w500,
+                        FontWeight.w600,
+                        progress,
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            },
           ),
         ),
       ),

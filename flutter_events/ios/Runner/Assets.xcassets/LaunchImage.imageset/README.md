@@ -1,5 +1,9 @@
-# Launch Screen Assets
+# Student Events Launch Screen Assets
 
-You can customize the launch screen with your own desired assets by replacing the image files in this directory.
+These images are used only by the standalone iOS development host. They do not
+control an eventual Jas Wallet launch screen because the host application owns
+that surface.
 
-You can also do it by opening your Flutter project's Xcode project with `open ios/Runner.xcworkspace`, selecting `Runner/Assets.xcassets` in the Project Navigator and dropping in the desired images.
+Keep all scale variants synchronized when replacing an image. Verify changes by
+opening `ios/Runner.xcworkspace`, selecting `Runner/Assets.xcassets`, and running
+the standalone host on an iOS simulator.

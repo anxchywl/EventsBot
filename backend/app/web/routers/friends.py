@@ -108,10 +108,12 @@ async def list_friends(
         select(User)
         .where(User.id.in_(ids), User.is_verified.is_(True))
         .order_by(func.lower(User.nickname), func.lower(User.email))
+        .offset(offset)
+        .limit(limit)
     )
-    friends = list(result.scalars().all())[offset : offset + limit]
+    friends = list(result.scalars().all())
     return FriendsListResponse(
-        total=len(friends),
+        total=len(ids),
         friends=[
             await public_user_summary(session, friend, current_user=user)
             for friend in friends
@@ -138,8 +140,10 @@ async def list_friend_requests(
             ),
         )
         .order_by(FriendRequest.created_at.desc())
+        .offset(offset)
+        .limit(limit)
     )
-    requests = list(result.scalars().all())[offset : offset + limit]
+    requests = list(result.scalars().all())
 
     other_ids = [
         row.requester_id if row.recipient_id == user.id else row.recipient_id
@@ -381,6 +385,10 @@ async def search_users(
             or_(
                 PrivacySettings.id.is_(None),
                 PrivacySettings.allow_friend_requests.is_(True),
+            ),
+            or_(
+                PrivacySettings.id.is_(None),
+                PrivacySettings.show_profile_to_friends.is_(True),
             ),
             or_(
                 func.lower(User.nickname).like(f"%{query}%"),

@@ -13,6 +13,7 @@ import '../../core/localization.dart';
 import '../../core/realtime_updates.dart';
 import '../../models/analytics_model.dart';
 import '../../models/category_model.dart';
+import '../shared/app_feedback.dart';
 import '../shared/loading_skeleton.dart';
 import '../shared/stale_banner.dart';
 import 'analytics_event_picker.dart';
@@ -101,6 +102,36 @@ class _EventManagerScreenState extends State<EventManagerScreen> {
     super.initState();
     _schedulePoll();
     _updatesSub = RealtimeUpdates.instance.stream.listen(_handleRealtimeUpdate);
+    unawaited(_prewarmFilterOptions());
+  }
+
+  String _organizerPickerCacheKey() =>
+      'organizer-picker|${_period.dateFrom}|${_period.dateTo}|50';
+
+  Future<List<AnalyticsOrganizer>> _organizerOptions() {
+    return AnalyticsSelectionCache.instance.get(
+      _organizerPickerCacheKey(),
+      () => fetchAnalyticsOrganizers(
+        AnalyticsFilters(dateFrom: _period.dateFrom, dateTo: _period.dateTo),
+        limit: 50,
+      ),
+    );
+  }
+
+  Future<void> _prewarmFilterOptions() async {
+    await Future.wait([
+      _warm(() => EventCache.instance.categories()),
+      _warm(preloadAnalyticsEventPicker),
+      _warm(_organizerOptions),
+    ]);
+  }
+
+  Future<void> _warm(Future<Object?> Function() load) async {
+    try {
+      await load();
+    } catch (_) {
+      // picker loading remains retryable when prewarming fails
+    }
   }
 
   @override
@@ -213,10 +244,7 @@ class _EventManagerScreenState extends State<EventManagerScreen> {
     List<AnalyticsOrganizer> orgs;
     try {
       // reuse the ranked organizers list (bounded) as the picker source
-      orgs = await fetchAnalyticsOrganizers(
-        AnalyticsFilters(dateFrom: _period.dateFrom, dateTo: _period.dateTo),
-        limit: 50,
-      );
+      orgs = await _organizerOptions();
     } catch (_) {
       _showLoadError();
       return;
@@ -246,9 +274,7 @@ class _EventManagerScreenState extends State<EventManagerScreen> {
 
   void _showLoadError() {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(AppLocalizations.get('failedToLoad'))),
-    );
+    showEventFeedback(context, AppLocalizations.get('failedToLoad'));
   }
 
   // persist a panel's default-view snapshot only when no filter is active

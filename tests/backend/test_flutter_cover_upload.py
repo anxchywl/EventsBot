@@ -70,6 +70,13 @@ class FakeRedis:
     async def delete(self, key):
         self.store.pop(key, None)
 
+    async def eval(self, _script, _key_count, key, expected_owner):
+        owner = self.store.get(key)
+        if owner != expected_owner:
+            return False
+        self.store.pop(key, None)
+        return owner
+
 
 class ValidateCoverBytesTest(unittest.TestCase):
     def _assert_status(self, raw, filename, content_type, status):
@@ -254,36 +261,59 @@ class UploadEndpointTest(unittest.TestCase):
 
 class ApplyCoverChangeTest(unittest.TestCase):
     def test_remove_clears_and_busts_cache(self):
-        event = SimpleNamespace(poster_file_id="old-id")
+        event = SimpleNamespace(poster_file_id="old-id", poster_storage_message_id=555)
+        orphaned: list[int] = []
         with patch.object(flutter_events, "bust_cover_cache", AsyncMock()) as bust:
             _run(
                 flutter_events._apply_cover_change(
-                    event, cover_ref=None, remove_cover=True, user_id=7
+                    event,
+                    cover_ref=None,
+                    remove_cover=True,
+                    user_id=7,
+                    sent_messages=[],
+                    orphaned_messages=orphaned,
                 )
             )
         self.assertIsNone(event.poster_file_id)
+        # the removed cover's storage image is queued for deletion
+        self.assertIsNone(event.poster_storage_message_id)
+        self.assertEqual(orphaned, [555])
         bust.assert_awaited_once_with("old-id")
 
     def test_replace_busts_old_and_sets_new(self):
-        event = SimpleNamespace(poster_file_id="old-id")
+        event = SimpleNamespace(poster_file_id="old-id", poster_storage_message_id=555)
+        orphaned: list[int] = []
+
+        async def _store(_ref, _uid, *, sent_messages):
+            sent_messages.append(999)
+            return "new-id"
+
         with (
             patch.object(
                 flutter_events,
                 "consume_and_store_cover",
-                AsyncMock(return_value="new-id"),
+                AsyncMock(side_effect=_store),
             ),
             patch.object(flutter_events, "bust_cover_cache", AsyncMock()) as bust,
         ):
             _run(
                 flutter_events._apply_cover_change(
-                    event, cover_ref="tok", remove_cover=False, user_id=7
+                    event,
+                    cover_ref="tok",
+                    remove_cover=False,
+                    user_id=7,
+                    sent_messages=[],
+                    orphaned_messages=orphaned,
                 )
             )
         self.assertEqual(event.poster_file_id, "new-id")
+        # new storage image is tracked; the replaced one is queued for deletion
+        self.assertEqual(event.poster_storage_message_id, 999)
+        self.assertEqual(orphaned, [555])
         bust.assert_awaited_once_with("old-id")
 
     def test_forged_cover_ref_rejected(self):
-        event = SimpleNamespace(poster_file_id=None)
+        event = SimpleNamespace(poster_file_id=None, poster_storage_message_id=None)
         with patch.object(
             flutter_events,
             "consume_and_store_cover",
@@ -292,7 +322,12 @@ class ApplyCoverChangeTest(unittest.TestCase):
             with self.assertRaises(HTTPException) as ctx:
                 _run(
                     flutter_events._apply_cover_change(
-                        event, cover_ref="forged", remove_cover=False, user_id=7
+                        event,
+                        cover_ref="forged",
+                        remove_cover=False,
+                        user_id=7,
+                        sent_messages=[],
+                        orphaned_messages=[],
                     )
                 )
         self.assertEqual(ctx.exception.status_code, 400)

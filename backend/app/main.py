@@ -27,23 +27,38 @@ def setup_logging(log_level: str) -> None:
 
 # sends due event reminders in the background
 async def process_reminders(bot: Bot) -> None:
-    from app.services.reminders import get_due_reminders, mark_reminder_sent
+    from app.services.reminders import (
+        get_due_reminders,
+        mark_reminder_failed,
+        mark_reminder_sent,
+    )
+    from app.services.telegram_delivery import call_with_telegram_backoff
 
     while True:
         try:
-            # load and send reminders inside a short session
-            async with async_session_maker() as session:
-                due_reminders = await get_due_reminders(session)
-                for reminder in due_reminders:
+            while True:
+                async with async_session_maker() as session:
+                    due_reminders = await get_due_reminders(session)
+                    if not due_reminders:
+                        break
+                    reminder = due_reminders[0]
                     try:
                         text = f"⏰ **Reminder!**\n\nYour event **{reminder.event.title}** is coming up!"
-                        await bot.send_message(
-                            reminder.user.telegram_id, text, parse_mode="Markdown"
+                        await call_with_telegram_backoff(
+                            lambda: bot.send_message(
+                                reminder.user.telegram_id,
+                                text,
+                                parse_mode="Markdown",
+                            ),
+                            context=f"send reminder {reminder.id}",
                         )
                         await mark_reminder_sent(session, reminder.id)
-                        await session.commit()
-                    except Exception as e:
-                        logging.error(f"failed to send reminder {reminder.id}: {e}")
+                    except Exception as exc:
+                        await mark_reminder_failed(session, reminder.id)
+                        logging.error(
+                            "failed to send reminder %s: %s", reminder.id, exc
+                        )
+                    await session.commit()
         except Exception as e:
             logging.error(f"error in reminder task: {e}")
 

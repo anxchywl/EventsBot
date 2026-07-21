@@ -11,6 +11,7 @@ from app.models.event import Event  # noqa: E402
 from app.models.event_sync import EventSyncJob  # noqa: E402
 from app.models.moderation import ModerationLog  # noqa: E402
 from app.services.events import (  # noqa: E402
+    DELETED_EVENT_MARKER,
     DELETABLE_EVENT_STATUSES,
     apply_moderation_transition,
     create_event_update_draft,
@@ -67,7 +68,10 @@ async def test_published_edit_creates_one_pending_draft_and_keeps_parent_live(
         assert draft.parent_event_id == parent.id
         assert draft.status == EventStatus.PENDING.value
         assert draft.title == "Updated title"
-        assert await session.get(Event, stale.id) is None
+        retired = await session.get(Event, stale.id)
+        assert retired is not None
+        assert retired.status == EventStatus.CANCELLED.value
+        assert retired.moderation_note == DELETED_EVENT_MARKER
 
 
 @pytest.mark.anyio
@@ -164,7 +168,10 @@ async def test_approving_update_draft_replaces_parent_content_without_new_event(
         assert updated.event_end_time == time(21, 0)
         assert updated.it_equipment == "Projector"
         assert updated.status == EventStatus.APPROVED.value
-        assert await session.get(Event, draft.id) is None
+        retired = await session.get(Event, draft.id)
+        assert retired is not None
+        assert retired.status == EventStatus.CANCELLED.value
+        assert retired.moderation_note == DELETED_EVENT_MARKER
 
         last_action = (
             await session.execute(
@@ -254,7 +261,7 @@ async def test_get_event_by_public_token_normalizes_prefix(
 
 
 @pytest.mark.anyio
-async def test_delete_event_completely_removes_row_and_enqueues_cleanup(
+async def test_delete_event_completely_retires_row_and_enqueues_cleanup(
     db_session, make_user, make_category, make_event
 ):
     async with db_session() as session:
@@ -268,7 +275,23 @@ async def test_delete_event_completely_removes_row_and_enqueues_cleanup(
         deleted = await delete_event_completely(session, bot=None, event_id=event_id)
         assert deleted is True
 
-        assert await session.get(Event, event_id) is None
+        retired = await session.get(Event, event_id)
+        assert retired is not None
+        assert retired.status == EventStatus.CANCELLED.value
+        assert retired.moderation_note == DELETED_EVENT_MARKER
+
+        actions = (
+            (
+                await session.execute(
+                    select(ModerationLog.action).where(
+                        ModerationLog.event_id == event_id
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert ModerationAction.SUBMITTED.value in actions
 
         job_ops = (
             (

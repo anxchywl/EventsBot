@@ -2,8 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 async function loadModules() {
   vi.resetModules();
-  const stateModule = await import("../../frontend/static/js/state.js?v=20260628-security-v1");
-  const i18nModule = await import("../../frontend/static/js/i18n.js?v=20260628-security-v1");
+  const stateModule = await import("../../frontend/static/js/state.js?v=20260721-timeline-v7");
+  const i18nModule = await import("../../frontend/static/js/i18n.js?v=20260721-timeline-v7");
   return { ...stateModule, ...i18nModule };
 }
 

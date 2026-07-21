@@ -1,5 +1,5 @@
-import { authHeaders, setSession, state } from "./state.js?v=20260628-security-v1";
-import { initData } from "./telegram.js?v=20260628-security-v1";
+import { authHeaders, setSession, state } from "./state.js?v=20260721-timeline-v7";
+import { initData } from "./telegram.js?v=20260721-timeline-v7";
 
 let authInFlight = null;
 
@@ -65,15 +65,21 @@ export async function authenticate({ force = false } = {}) {
 
 // load event feed data with active filters
 export async function fetchEvents(filters = {}) {
-  const params = new URLSearchParams();
-  if (filters.sort) params.set("sort", filters.sort);
-  if (filters.relevance) params.set("relevance", filters.relevance);
-  if (filters.categories?.length) params.set("categories", filters.categories.join(","));
-  if (filters.organizers?.length) params.set("organizers", filters.organizers.join(","));
-  if (filters.locations?.length) params.set("locations", filters.locations.join(","));
-  if (filters.favoritesOnly) params.set("favorite_only", "true");
-  const query = params.toString();
-  return request(`/api/events${query ? `?${query}` : ""}`);
+  const events = [];
+  const pageSize = 200;
+  for (let offset = 0; offset <= 5000; offset += pageSize) {
+    const params = new URLSearchParams({ limit: String(pageSize), offset: String(offset) });
+    if (filters.sort) params.set("sort", filters.sort);
+    if (filters.relevance) params.set("relevance", filters.relevance);
+    if (filters.categories?.length) params.set("categories", filters.categories.join(","));
+    if (filters.organizers?.length) params.set("organizers", filters.organizers.join(","));
+    if (filters.locations?.length) params.set("locations", filters.locations.join(","));
+    if (filters.favoritesOnly) params.set("favorite_only", "true");
+    const page = await request(`/api/events?${params.toString()}`);
+    events.push(...page);
+    if (page.length < pageSize) break;
+  }
+  return events;
 }
 
 // load event filter options
@@ -84,6 +90,10 @@ export function fetchEventFilters() {
 // check whether cached events are stale
 export function fetchEventSyncVersion() {
   return request("/api/events/sync-version");
+}
+
+export function createStreamTicket() {
+  return request("/api/events/stream-ticket", { method: "POST" });
 }
 
 // load one event by public token

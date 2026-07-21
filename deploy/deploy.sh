@@ -62,26 +62,8 @@ compose config --quiet
 log "Pulling base images..."
 compose pull --quiet 2>/dev/null || true
 
-log "Running cache busting on static assets..."
-python3 -c '
-import re, datetime, glob
-v = datetime.datetime.now(datetime.UTC).strftime("%Y%m%d-%H%M%S")
-for p in glob.glob("frontend/static/**/*", recursive=True):
-    try:
-        content = open(p).read()
-        new_content = re.sub(r"([?&]v=)[A-Za-z0-9_.-]+", rf"\g<1>{v}", content)
-        if new_content != content:
-            open(p, "w").write(new_content)
-            print(f"Busted cache for {p} -> {v}")
-    except Exception:
-        pass
-'
-
 log "Building application images..."
 compose build
-
-log "Cleaning up potentially conflicting containers..."
-docker rm -f events_bot_postgres events_bot_redis events_bot_web events_bot_app events_bot_backup 2>/dev/null || true
 
 log "Running database migrations..."
 compose run --rm web alembic -c backend/alembic.ini upgrade head

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../core/api_client.dart';
+import '../../core/cache_store.dart';
 import '../../core/localization.dart';
 import '../../models/analytics_model.dart';
 import '../shared/loading_skeleton.dart';
@@ -14,6 +15,18 @@ import '../shared/loading_skeleton.dart';
 class EventPickerResult {
   final AnalyticsEventOption? event;
   const EventPickerResult(this.event);
+}
+
+const int _eventPickerPageSize = 20;
+
+String _eventPickerCacheKey(String query, int offset) =>
+    'event-picker|${query.trim().toLowerCase()}|$_eventPickerPageSize|$offset';
+
+Future<void> preloadAnalyticsEventPicker() async {
+  await AnalyticsSelectionCache.instance.get<List<AnalyticsEventOption>>(
+    _eventPickerCacheKey('', 0),
+    () => fetchAnalyticsEvents(limit: _eventPickerPageSize, offset: 0),
+  );
 }
 
 /// Opens the searchable, lazily-paginated event picker as a bottom sheet.
@@ -55,7 +68,7 @@ class _EventPickerSheet extends StatefulWidget {
 }
 
 class _EventPickerSheetState extends State<_EventPickerSheet> {
-  static const _pageSize = 20;
+  static const _pageSize = _eventPickerPageSize;
 
   final ScrollController _scroll = ScrollController();
   final TextEditingController _searchCtrl = TextEditingController();
@@ -79,7 +92,34 @@ class _EventPickerSheetState extends State<_EventPickerSheet> {
     super.initState();
     _scroll.addListener(_onScroll);
     _focusNode.addListener(_onFocusChange);
+    final cached = AnalyticsSelectionCache.instance
+        .peekFresh<List<AnalyticsEventOption>>(_eventPickerCacheKey('', 0));
+    if (cached != null) {
+      _items = cached;
+      _hasMore = cached.length == _pageSize;
+      _loading = false;
+    }
     _reload();
+  }
+
+  Future<List<AnalyticsEventOption>> _fetchPage(int offset) {
+    return AnalyticsSelectionCache.instance.get(
+      _eventPickerCacheKey(_query, offset),
+      () => fetchAnalyticsEvents(
+        search: _query,
+        limit: _pageSize,
+        offset: offset,
+      ),
+    );
+  }
+
+  void _prefetchNextPage() {
+    if (!_hasMore) return;
+    unawaited(
+      _fetchPage(
+        _items.length,
+      ).catchError((_) => const <AnalyticsEventOption>[]),
+    );
   }
 
   @override
@@ -152,22 +192,25 @@ class _EventPickerSheetState extends State<_EventPickerSheet> {
 
   Future<void> _reload() async {
     final requestId = ++_requestId;
+    final cached = AnalyticsSelectionCache.instance
+        .peekFresh<List<AnalyticsEventOption>>(_eventPickerCacheKey(_query, 0));
     setState(() {
-      _loading = true;
+      if (cached != null) {
+        _items = cached;
+        _hasMore = cached.length == _pageSize;
+      }
+      _loading = cached == null;
       _error = null;
     });
     try {
-      final page = await fetchAnalyticsEvents(
-        search: _query,
-        limit: _pageSize,
-        offset: 0,
-      );
+      final page = await _fetchPage(0);
       if (!mounted || requestId != _requestId) return;
       setState(() {
         _items = page;
         _hasMore = page.length == _pageSize;
         _loading = false;
       });
+      _prefetchNextPage();
       _centerSelectedEvent(requestId);
     } catch (e) {
       if (!mounted || requestId != _requestId) return;
@@ -183,17 +226,14 @@ class _EventPickerSheetState extends State<_EventPickerSheet> {
     final requestId = _requestId;
     setState(() => _loadingMore = true);
     try {
-      final page = await fetchAnalyticsEvents(
-        search: _query,
-        limit: _pageSize,
-        offset: _items.length,
-      );
+      final page = await _fetchPage(_items.length);
       if (!mounted || requestId != _requestId) return;
       setState(() {
         _items = [..._items, ...page];
         _hasMore = page.length == _pageSize;
         _loadingMore = false;
       });
+      _prefetchNextPage();
     } catch (_) {
       if (!mounted) return;
       setState(() => _loadingMore = false);
@@ -209,11 +249,7 @@ class _EventPickerSheetState extends State<_EventPickerSheet> {
         requestId == _requestId &&
         _hasMore &&
         !_items.any((event) => event.id == widget.selectedId)) {
-      final page = await fetchAnalyticsEvents(
-        search: _query,
-        limit: _pageSize,
-        offset: _items.length,
-      );
+      final page = await _fetchPage(_items.length);
       if (!mounted || requestId != _requestId) return;
       setState(() {
         _items = [..._items, ...page];

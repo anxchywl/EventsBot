@@ -1,6 +1,6 @@
-import { coverStyle, escapeAttr, escapeHtml, status, formatDisplayName } from "../components/events.js?v=20260628-security-v1";
-import { formatEventDate, t } from "../i18n.js?v=20260628-security-v1";
-import { state } from "../state.js?v=20260628-security-v1";
+import { coverStyle, escapeAttr, escapeHtml, status, formatDisplayName } from "../components/events.js?v=20260721-timeline-v7";
+import { formatEventDate, t } from "../i18n.js?v=20260721-timeline-v7";
+import { state } from "../state.js?v=20260721-timeline-v7";
 
 // build event meta badges
 function meta(label, value, copyable = false) {

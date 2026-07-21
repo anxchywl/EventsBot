@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 async function loadState() {
   vi.resetModules();
-  return import("../../frontend/static/js/state.js?v=20260628-security-v1");
+  return import("../../frontend/static/js/state.js?v=20260721-timeline-v7");
 }
 
 describe("frontend state", () => {

@@ -16,6 +16,7 @@ import '../../core/exceptions.dart';
 import '../../core/localization.dart';
 import '../../models/category_model.dart';
 import '../../models/event_model.dart';
+import '../shared/app_feedback.dart';
 import '../shared/loading_skeleton.dart';
 import 'event_form_validation.dart';
 
@@ -892,9 +893,7 @@ class _SubmitScreenState extends State<SubmitScreen>
 
   void _showMessage(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.maybeOf(
-      context,
-    )?.showSnackBar(SnackBar(content: Text(message)));
+    showEventFeedback(context, message);
   }
 
   String get _currentTitle {

@@ -68,8 +68,14 @@ void main() {
     });
 
     test('status helpers reflect the raw status string', () {
-      expect(EventModel.fromJson(_eventJson(status: 'approved')).isApproved, isTrue);
-      expect(EventModel.fromJson(_eventJson(status: 'pending')).isPending, isTrue);
+      expect(
+        EventModel.fromJson(_eventJson(status: 'approved')).isApproved,
+        isTrue,
+      );
+      expect(
+        EventModel.fromJson(_eventJson(status: 'pending')).isPending,
+        isTrue,
+      );
       expect(
         EventModel.fromJson(_eventJson(status: 'needs_changes')).isNeedsChanges,
         isTrue,
@@ -78,7 +84,10 @@ void main() {
         EventModel.fromJson(_eventJson(status: 'resubmitted')).isResubmitted,
         isTrue,
       );
-      expect(EventModel.fromJson(_eventJson(status: 'pending')).isApproved, isFalse);
+      expect(
+        EventModel.fromJson(_eventJson(status: 'pending')).isApproved,
+        isFalse,
+      );
     });
   });
 
@@ -104,7 +113,11 @@ void main() {
 
     test('AnalyticsSummary exposes numeric metrics by key', () {
       final summary = AnalyticsSummary.fromJson({
-        'metrics': {'total_events': 12, 'average_event_rating': 4.5, 'nullable': null},
+        'metrics': {
+          'total_events': 12,
+          'average_event_rating': 4.5,
+          'nullable': null,
+        },
       });
       expect(summary['total_events'], 12);
       expect(summary['average_event_rating'], 4.5);

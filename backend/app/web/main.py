@@ -129,6 +129,11 @@ async def security_headers(request: Request, call_next):
 async def rate_limit(request: Request, call_next):
     if not request.url.path.startswith("/api/"):
         return await call_next(request)
+    if (
+        request.url.path in {"/api/flutter/auth/login", "/api/flutter/auth/register"}
+        and not _settings.flutter_native_auth_enabled
+    ):
+        return await call_next(request)
 
     # enforce body size limit on actual bytes, not client-supplied Content-Length
     if request.method in {"POST", "PUT", "PATCH"}:
@@ -153,9 +158,9 @@ async def rate_limit(request: Request, call_next):
         except Exception:
             key = f"bad-auth:{sha256(auth_header.encode()).hexdigest()[:16]}"
 
+    path = request.url.path
     try:
         r = get_redis()
-        path = request.url.path
 
         # endpoint-specific limits
         if path == "/api/auth/session":
@@ -247,8 +252,11 @@ async def rate_limit(request: Request, call_next):
             headers=headers,
         )
     except Exception:
-        # Redis unavailable — degrade gracefully rather than blocking all requests
-        pass
+        if path.startswith("/api/auth/") or path.startswith("/api/flutter/auth/"):
+            return JSONResponse(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                content={"detail": "Service temporarily unavailable."},
+            )
 
     return await call_next(request)
 

@@ -16,7 +16,7 @@ from fastapi import (
     status,
 )
 from fastapi.responses import StreamingResponse
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -33,6 +33,7 @@ from app.services.event_sync import (
 from app.services import analytics_dashboard as analytics_service
 from app.services.events import (
     CREATOR_CANCELLABLE_EVENT_STATUSES,
+    DELETED_EVENT_MARKER,
     DELETABLE_EVENT_STATUSES,
     acquire_event_submission_lock,
     apply_moderation_transition,
@@ -42,6 +43,7 @@ from app.services.events import (
     delete_event_completely,
     event_effective_end_time,
     event_has_ended,
+    event_is_deleted,
     event_submission_fingerprint,
     find_event_schedule_conflict,
     get_active_categories,
@@ -162,6 +164,8 @@ async def _publish_event_deleted(session: AsyncSession, event: Event) -> None:
 def _cover_url(event: Event) -> str | None:
     if not event.poster_file_id:
         return None
+    if event.poster_file_id.startswith("https://"):
+        return event.poster_file_id
     return f"/api/events/{event.public_token}/cover"
 
 
@@ -228,10 +232,12 @@ async def upload_cover(
 # redeem a staging token without trusting client file ids. When a mutable
 # `sent_messages` list is supplied, the storage-channel message id of a freshly
 # sent cover is appended to it so the caller can delete the image if the
-# surrounding DB transaction fails to commit.
+# surrounding DB transaction fails to commit. Returns both the reusable file id
+# and the storage-channel message id so the caller can persist the latter and
+# delete the image once the event is retired.
 async def _redeem_cover_ref(
-    cover_ref: str, user_id: int, sent_messages: list[int] | None = None
-) -> str:
+    cover_ref: str, user_id: int, sent_messages: list[int]
+) -> tuple[str, int | None]:
     try:
         file_id = await consume_and_store_cover(
             cover_ref, user_id, sent_messages=sent_messages
@@ -242,7 +248,8 @@ async def _redeem_cover_ref(
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST, "Cover reference is invalid or expired."
         )
-    return file_id
+    storage_message_id = sent_messages[-1] if sent_messages else None
+    return file_id, storage_message_id
 
 
 async def _apply_cover_change(
@@ -251,19 +258,32 @@ async def _apply_cover_change(
     cover_ref: str | None,
     remove_cover: bool,
     user_id: int,
-    sent_messages: list[int] | None = None,
+    sent_messages: list[int],
+    orphaned_messages: list[int],
 ) -> None:
+    # a cover that leaves this row (replaced or removed) can no longer be
+    # reached, so its storage image is queued for deletion after commit
+    def _retire_current_cover() -> None:
+        if event.poster_storage_message_id:
+            orphaned_messages.append(event.poster_storage_message_id)
+        event.poster_storage_message_id = None
+
     if remove_cover:
         if event.poster_file_id:
             await bust_cover_cache(event.poster_file_id)
+        _retire_current_cover()
         event.poster_file_id = None
         return
     if not cover_ref:
         return
-    file_id = await _redeem_cover_ref(cover_ref, user_id, sent_messages)
+    file_id, storage_message_id = await _redeem_cover_ref(
+        cover_ref, user_id, sent_messages
+    )
     if event.poster_file_id and event.poster_file_id != file_id:
         await bust_cover_cache(event.poster_file_id)
+        _retire_current_cover()
     event.poster_file_id = file_id
+    event.poster_storage_message_id = storage_message_id
 
 
 # commit the transaction, deleting any freshly-uploaded cover images from the
@@ -280,6 +300,13 @@ async def _commit_with_cover_cleanup(
         raise
 
 
+# delete cover images the committed change orphaned (a replaced or removed
+# cover). best-effort: a failure only leaves an unreferenced image behind.
+async def _delete_orphaned_covers(orphaned_messages: list[int]) -> None:
+    for message_id in orphaned_messages:
+        await delete_stored_cover_message(message_id)
+
+
 @router.get("/categories", response_model=list[FlutterCategoryItem])
 async def list_categories(
     user: User = Depends(require_flutter_user),
@@ -293,6 +320,8 @@ async def list_categories(
 async def list_events(
     search: str | None = Query(default=None, max_length=100),
     category_slug: str | None = Query(default=None, max_length=120),
+    limit: int = Query(default=200, ge=1, le=200),
+    offset: int = Query(default=0, ge=0, le=10_000),
     user: User = Depends(require_flutter_user),
     session: AsyncSession = Depends(get_session),
 ) -> list[FlutterEventItem]:
@@ -317,6 +346,7 @@ async def list_events(
         )
     if category_slug:
         stmt = stmt.where(EventCategory.slug == category_slug)
+    stmt = stmt.offset(offset).limit(limit)
 
     result = await session.execute(stmt)
     return [_serialize_event(event) for event in result.scalars().all()]
@@ -324,14 +354,24 @@ async def list_events(
 
 @router.get("/my", response_model=list[FlutterEventItem])
 async def list_my_events(
+    limit: int = Query(default=200, ge=1, le=200),
+    offset: int = Query(default=0, ge=0, le=10_000),
     user: User = Depends(require_flutter_user),
     session: AsyncSession = Depends(get_session),
 ) -> list[FlutterEventItem]:
     result = await session.execute(
         select(Event)
-        .where(Event.creator_user_id == user.id)
+        .where(
+            Event.creator_user_id == user.id,
+            or_(
+                Event.moderation_note.is_(None),
+                Event.moderation_note != DELETED_EVENT_MARKER,
+            ),
+        )
         .options(selectinload(Event.category))
         .order_by(Event.created_at.desc())
+        .offset(offset)
+        .limit(limit)
     )
     return [_serialize_event(event) for event in result.scalars().all()]
 
@@ -339,11 +379,13 @@ async def list_my_events(
 @router.get("/pending", response_model=list[FlutterEventItem])
 async def list_pending_events(
     include_rejected: bool = Query(default=False),
+    limit: int = Query(default=200, ge=1, le=200),
+    offset: int = Query(default=0, ge=0, le=10_000),
     user: User = Depends(require_flutter_admin),
     session: AsyncSession = Depends(get_session),
 ) -> list[FlutterEventItem]:
     events = await get_pending_events(session, include_rejected=include_rejected)
-    return [_serialize_event(event) for event in events]
+    return [_serialize_event(event) for event in events[offset : offset + limit]]
 
 
 @router.get("/updates")
@@ -392,7 +434,7 @@ async def get_event(
     session: AsyncSession = Depends(get_session),
 ) -> FlutterEventItem:
     event = await get_event_by_id(session, event_id)
-    if event is None:
+    if event is None or event_is_deleted(event):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Event not found")
 
     is_admin = user.role == "admin"
@@ -476,8 +518,9 @@ async def submit_event(
     # fail forged tokens before creating the event
     sent_covers: list[int] = []
     poster_file_id: str | None = None
+    poster_storage_message_id: int | None = None
     if payload.cover_ref:
-        poster_file_id = await _redeem_cover_ref(
+        poster_file_id, poster_storage_message_id = await _redeem_cover_ref(
             payload.cover_ref, user.id, sent_covers
         )
 
@@ -499,6 +542,7 @@ async def submit_event(
             "materials": payload.materials,
             "registration_url": payload.registration_url,
             "poster_file_id": poster_file_id,
+            "poster_storage_message_id": poster_storage_message_id,
         },
     )
     await _commit_with_cover_cleanup(session, sent_covers)
@@ -563,7 +607,7 @@ async def resubmit_event(
         if existing is not None:
             if (
                 existing.creator_user_id != user.id
-                or existing.parent_event_id != event.id
+                or (existing.id != event.id and existing.parent_event_id != event.id)
                 or existing.client_request_fingerprint != request_fingerprint
             ):
                 raise HTTPException(
@@ -628,12 +672,17 @@ async def resubmit_event(
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Category not found")
 
     sent_covers: list[int] = []
+    orphaned_covers: list[int] = []
     if is_published_edit:
+        # the draft owns any freshly uploaded cover; when it reuses or drops the
+        # parent's cover it carries no storage message, so the parent's image is
+        # only retired if the draft is approved (see apply_moderation_transition)
         poster_file_id = event.poster_file_id
+        poster_storage_message_id = None
         if payload.remove_cover:
             poster_file_id = None
         elif payload.cover_ref:
-            poster_file_id = await _redeem_cover_ref(
+            poster_file_id, poster_storage_message_id = await _redeem_cover_ref(
                 payload.cover_ref,
                 user.id,
                 sent_covers,
@@ -664,13 +713,19 @@ async def resubmit_event(
                 if "registration_url" in payload.model_fields_set
                 else event.registration_url,
                 "poster_file_id": poster_file_id,
+                "poster_storage_message_id": poster_storage_message_id,
             },
+            orphaned_covers=orphaned_covers,
         )
         await _commit_with_cover_cleanup(session, sent_covers)
+        await _delete_orphaned_covers(orphaned_covers)
         created = await get_event_by_id(session, draft.id)
         return _serialize_event(created)
 
     # unpublished corrections remain on the same request row
+    if payload.client_request_id is not None:
+        event.client_request_id = payload.client_request_id
+        event.client_request_fingerprint = request_fingerprint
     if payload.category_id is not None:
         event.category_id = payload.category_id
     if payload.title is not None:
@@ -700,6 +755,7 @@ async def resubmit_event(
         remove_cover=payload.remove_cover,
         user_id=user.id,
         sent_messages=sent_covers,
+        orphaned_messages=orphaned_covers,
     )
 
     event.status = EventStatus.RESUBMITTED.value
@@ -714,6 +770,7 @@ async def resubmit_event(
     )
 
     await _commit_with_cover_cleanup(session, sent_covers)
+    await _delete_orphaned_covers(orphaned_covers)
 
     updated = await get_event_by_id(session, event_id)
     if was_needs_changes:
@@ -807,15 +864,18 @@ async def patch_event(
         event.event_end_time = event_end_time
 
     sent_covers: list[int] = []
+    orphaned_covers: list[int] = []
     await _apply_cover_change(
         event,
         cover_ref=payload.cover_ref,
         remove_cover=payload.remove_cover,
         user_id=user.id,
         sent_messages=sent_covers,
+        orphaned_messages=orphaned_covers,
     )
 
     await _commit_with_cover_cleanup(session, sent_covers)
+    await _delete_orphaned_covers(orphaned_covers)
     updated = await get_event_by_id(session, event_id)
     return _serialize_event(updated)
 
@@ -878,7 +938,7 @@ async def delete_event(
     session: AsyncSession = Depends(get_session),
 ) -> Response:
     existing = await get_event_by_id(session, event_id)
-    if existing is None:
+    if existing is None or event_is_deleted(existing):
         return Response(status_code=status.HTTP_204_NO_CONTENT)
     if existing.creator_user_id != user.id and user.role != "admin":
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Event not found")
@@ -977,6 +1037,7 @@ async def moderate_event(
             else current.id
         )
         snapshot = await capture_event_snapshot(session, sync_event_id)
+        orphaned_covers: list[int] = []
         try:
             event = await apply_moderation_transition(
                 session,
@@ -984,6 +1045,7 @@ async def moderate_event(
                 new_status,
                 user,
                 payload.comment,
+                orphaned_covers=orphaned_covers,
             )
         except ValueError as exc:
             raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
@@ -997,6 +1059,8 @@ async def moderate_event(
         await session.commit()
     finally:
         await _release_moderation_lock(lock_event_id)
+
+    await _delete_orphaned_covers(orphaned_covers)
 
     if event.id != event_id:
         await _publish_event_deleted(session, existing)

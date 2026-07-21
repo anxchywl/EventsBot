@@ -95,6 +95,42 @@ void main() {
     });
   });
 
+  group('AnalyticsSelectionCache', () {
+    setUp(AnalyticsSelectionCache.instance.clear);
+
+    test('reuses picker options and coalesces concurrent loads', () async {
+      var calls = 0;
+      final completer = Completer<List<int>>();
+      Future<List<int>> loader() {
+        calls++;
+        return completer.future;
+      }
+
+      final first = AnalyticsSelectionCache.instance.get('events|0', loader);
+      final second = AnalyticsSelectionCache.instance.get('events|0', loader);
+      completer.complete([1, 2]);
+
+      expect(await first, [1, 2]);
+      expect(await second, [1, 2]);
+      expect(
+        AnalyticsSelectionCache.instance.peekFresh<List<int>>('events|0'),
+        [1, 2],
+      );
+      expect(calls, 1);
+    });
+
+    test('clear removes cached picker options', () async {
+      await AnalyticsSelectionCache.instance.get('organizers', () async => [1]);
+
+      AnalyticsSelectionCache.instance.clear();
+
+      expect(
+        AnalyticsSelectionCache.instance.peekFresh<List<int>>('organizers'),
+        isNull,
+      );
+    });
+  });
+
   group('AnalyticsCache revalidate + targeted invalidation', () {
     setUp(AnalyticsCache.instance.clear);
 

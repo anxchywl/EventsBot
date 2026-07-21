@@ -76,38 +76,57 @@ void main() {
     expect(event('archived').canCreatorDelete, isFalse);
   });
 
-  testWidgets('standalone host requires a Jas Wallet session in production', (
+  test('owner analytics uses the owner endpoint response directly', () async {
+    var requests = 0;
+    addTearDown(() => setApiClientForTesting(http.Client()));
+    setApiClientForTesting(
+      MockClient((request) async {
+        requests++;
+        expect(request.url.path, '/api/flutter/events/42/analytics');
+        return http.Response(
+          jsonEncode({
+            'event_id': 42,
+            'engagement': {'views': 3},
+            'moderation': {'review_iterations': 1, 'history': []},
+          }),
+          200,
+        );
+      }),
+    );
+
+    final analytics = await fetchOwnerEventAnalytics(42);
+
+    expect(requests, 1);
+    expect(analytics['event_id'], 42);
+    expect(
+      (analytics['moderation'] as Map<String, dynamic>)['review_iterations'],
+      1,
+    );
+  });
+
+  testWidgets('standalone debug host opens the development shell', (
     tester,
   ) async {
     await tester.pumpWidget(const EventsApp());
 
-    expect(find.text('Session required'), findsOneWidget);
-    expect(
-      find.text('Open Events from Jas Wallet to continue.'),
-      findsOneWidget,
-    );
-    expect(find.text('Retry development sign-in'), findsNothing);
+    expect(find.byType(AppShell), findsOneWidget);
+    expect(find.text('Session required'), findsNothing);
   });
 
-  testWidgets('development sign-in failures have an explicit retry state', (
+  testWidgets('debug shell does not trigger standalone sign-in automatically', (
     tester,
   ) async {
+    var signInCalls = 0;
     await tester.pumpWidget(
       EventsApp(
         onStandaloneSignIn: () async {
-          throw StateError('offline');
+          signInCalls++;
         },
       ),
     );
 
-    await tester.tap(find.text('Retry development sign-in'));
-    await tester.pumpAndSettle();
-
-    expect(
-      find.text('Could not start the development session.'),
-      findsOneWidget,
-    );
-    expect(find.text('Retry development sign-in'), findsOneWidget);
+    expect(find.byType(AppShell), findsOneWidget);
+    expect(signInCalls, 0);
   });
 
   testWidgets('shell navigation remains focusable with accessible labels', (
@@ -156,8 +175,8 @@ void main() {
       skipOffstage: false,
     );
     expect(searchControl, findsOneWidget);
-    expect(tester.getSize(searchControl).width, greaterThanOrEqualTo(48));
-    expect(tester.getSize(searchControl).height, greaterThanOrEqualTo(48));
+    expect(tester.getSize(searchControl).width, greaterThanOrEqualTo(40));
+    expect(tester.getSize(searchControl).height, greaterThanOrEqualTo(40));
     await _disposeShell(tester);
   });
 

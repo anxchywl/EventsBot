@@ -165,6 +165,12 @@ class SerializeEventTest(unittest.TestCase):
         item = fe._serialize_event(_event(poster_file_id="fid"))
         self.assertEqual(item.cover_url, "/api/events/tok-42/cover")
 
+    def test_external_https_cover_url_is_returned_directly(self):
+        item = fe._serialize_event(
+            _event(poster_file_id="https://nu.edu.kz/images/event.jpg")
+        )
+        self.assertEqual(item.cover_url, "https://nu.edu.kz/images/event.jpg")
+
     def test_missing_end_time_serializes_none(self):
         item = fe._serialize_event(_event(event_end_time=None))
         self.assertIsNone(item.event_end_time)
@@ -307,6 +313,46 @@ class EventMutationInvariantTest(unittest.TestCase):
         self.assertEqual(ctx.exception.status_code, 409)
         create.assert_not_awaited()
 
+    def test_resubmit_retry_returns_the_existing_update_draft(self):
+        user = SimpleNamespace(id=7)
+        parent = _event(creator_user_id=user.id)
+        payload = FlutterEventResubmit(
+            title="Updated Robotics Night",
+            client_request_id="resubmit_1234567890",
+        )
+        fingerprint = fe.event_submission_fingerprint(
+            {
+                "parent_event_id": parent.id,
+                **payload.model_dump(mode="json", exclude={"client_request_id"}),
+            }
+        )
+        existing = _event(
+            id=43,
+            parent_event_id=parent.id,
+            creator_user_id=user.id,
+            client_request_fingerprint=fingerprint,
+        )
+        with (
+            patch.object(
+                fe,
+                "get_event_by_id",
+                AsyncMock(side_effect=[parent, parent]),
+            ),
+            patch.object(fe, "acquire_event_submission_lock", AsyncMock()),
+            patch.object(
+                fe,
+                "get_event_by_client_request_id",
+                AsyncMock(return_value=existing),
+            ),
+            patch.object(fe, "check_rate_limit", AsyncMock()) as rate_limit,
+            patch.object(fe, "create_event_update_draft", AsyncMock()) as create,
+        ):
+            result = _run(fe.resubmit_event(parent.id, payload, user, AsyncMock()))
+
+        self.assertEqual(result.id, existing.id)
+        rate_limit.assert_not_awaited()
+        create.assert_not_awaited()
+
     def test_partial_resubmit_cannot_reverse_the_persisted_time_range(self):
         user = SimpleNamespace(id=7)
         event = _event(
@@ -395,7 +441,7 @@ class ModerateEventTest(unittest.TestCase):
         event = _event(status=EventStatus.PENDING.value)
         session = AsyncMock()
 
-        async def approve(_session, current, _status, _admin, _comment):
+        async def approve(_session, current, _status, _admin, _comment, **_kwargs):
             current.status = EventStatus.APPROVED.value
             return current
 

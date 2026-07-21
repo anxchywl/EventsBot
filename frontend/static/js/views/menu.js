@@ -1,6 +1,6 @@
-import { controls, coverStyle, escapeAttr, escapeHtml, eventRow, nav, status } from "../components/events.js?v=20260628-security-v1";
-import { t } from "../i18n.js?v=20260628-security-v1";
-import { state } from "../state.js?v=20260628-security-v1";
+import { controls, coverStyle, escapeAttr, escapeHtml, eventRow, nav, status } from "../components/events.js?v=20260721-timeline-v7";
+import { t } from "../i18n.js?v=20260721-timeline-v7";
+import { state } from "../state.js?v=20260721-timeline-v7";
 
 // format date headers for grouped events
 export function formatGroupDate(dateStr, lang) {
@@ -13,8 +13,8 @@ export function formatGroupDate(dateStr, lang) {
   }).format(date);
 }
 
-import { renderCalendarInner } from "./calendar.js?v=20260628-security-v1";
-import { renderProfileInner } from "./ratings.js?v=20260628-security-v1";
+import { renderCalendarInner } from "./calendar.js?v=20260721-timeline-v7";
+import { renderProfileInner } from "./ratings.js?v=20260721-timeline-v7";
 
 // render the main event feed screen
 export function renderMenu(events) {

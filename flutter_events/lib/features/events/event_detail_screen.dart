@@ -11,6 +11,7 @@ import '../../core/cache_store.dart';
 import '../../core/exceptions.dart';
 import '../../core/localization.dart';
 import '../../models/event_model.dart';
+import '../shared/app_feedback.dart';
 import '../submit/submit_screen.dart';
 
 class EventDetailScreen extends StatefulWidget {
@@ -135,58 +136,66 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
 
     return Scaffold(
       backgroundColor: AppColors.background,
-      body: NestedScrollView(
-        headerSliverBuilder: (ctx, _) => [
-          AppSliverAppBar(
-            leading: IconButton(
-              icon: const AppIcon(AppIcons.back, color: AppColors.textPrimary),
-              onPressed: () => Navigator.pop(context),
+      body: ScrollConfiguration(
+        behavior: ScrollConfiguration.of(
+          context,
+        ).copyWith(physics: const ClampingScrollPhysics()),
+        child: NestedScrollView(
+          headerSliverBuilder: (ctx, _) => [
+            AppSliverAppBar(
+              leading: IconButton(
+                icon: const AppIcon(
+                  AppIcons.back,
+                  color: AppColors.textPrimary,
+                ),
+                onPressed: () => Navigator.pop(context),
+              ),
             ),
-          ),
-        ],
-        body: ListView(
-          padding: const EdgeInsets.fromLTRB(
-            AppSpacing.df,
-            0,
-            AppSpacing.df,
-            AppSpacing.xxl,
-          ),
-          children: [
-            if (hasImage) ...[
-              ClipRRect(
-                borderRadius: AppSpacing.borderRadiusDf,
-                child: AspectRatio(
-                  aspectRatio: 16 / 10,
-                  child: Image.network(
-                    _event.coverUrl!,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, _, _) =>
-                        const ColoredBox(color: AppColors.fieldBackground),
+          ],
+          body: ListView(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.df,
+              0,
+              AppSpacing.df,
+              AppSpacing.xxl,
+            ),
+            children: [
+              if (hasImage) ...[
+                ClipRRect(
+                  borderRadius: AppSpacing.borderRadiusDf,
+                  child: AspectRatio(
+                    aspectRatio: 16 / 10,
+                    child: Image.network(
+                      _event.coverUrl!,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, _, _) =>
+                          const ColoredBox(color: AppColors.fieldBackground),
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(height: AppSpacing.lg),
-            ],
+                const SizedBox(height: AppSpacing.lg),
+              ],
 
-            _titleCard(theme),
-            const SizedBox(height: AppSpacing.lg),
-            _factsCard(),
-            if (_event.description.isNotEmpty)
-              _section('Description', _event.description),
-            if (widget.showStatus && !AuthStore.isAdmin)
-              Padding(
-                padding: const EdgeInsets.only(top: AppSpacing.lg),
-                child: _ownerAnalyticsSection(),
-              ),
-            if (AuthStore.isAdmin && _event.itEquipment?.isNotEmpty == true)
-              _section('IT Equipment', _event.itEquipment!),
-            if (AuthStore.isAdmin && _event.materials?.isNotEmpty == true)
-              _section('Materials', _event.materials!),
-            if (_event.registrationUrl?.isNotEmpty == true)
-              _registrationCard(_event.registrationUrl!, theme),
-            if (_canModerate || _canResubmit || _canCancel || _canDelete)
-              _buildBottomBar()!,
-          ],
+              _titleCard(theme),
+              const SizedBox(height: AppSpacing.lg),
+              _factsCard(),
+              if (_event.description.isNotEmpty)
+                _section('Description', _event.description),
+              if (widget.showStatus && !AuthStore.isAdmin)
+                Padding(
+                  padding: const EdgeInsets.only(top: AppSpacing.lg),
+                  child: _ownerAnalyticsSection(),
+                ),
+              if (AuthStore.isAdmin && _event.itEquipment?.isNotEmpty == true)
+                _section('IT Equipment', _event.itEquipment!),
+              if (AuthStore.isAdmin && _event.materials?.isNotEmpty == true)
+                _section('Materials', _event.materials!),
+              if (_event.registrationUrl?.isNotEmpty == true)
+                _registrationCard(_event.registrationUrl!, theme),
+              if (_canModerate || _canResubmit || _canCancel || _canDelete)
+                _buildBottomBar()!,
+            ],
+          ),
         ),
       ),
     );
@@ -438,8 +447,9 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
         comment: comment.trim().isEmpty ? null : comment.trim(),
       );
       if (!mounted) return;
+      // the status banner on the card reflects the cancellation inline, so no
+      // extra confirmation popup is shown
       setState(() => _event = updated);
-      _showMessage('Event cancelled');
     } on ApiException catch (error) {
       _showMessage(error.message);
     } catch (_) {
@@ -450,26 +460,15 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
   }
 
   Future<void> _confirmDelete() async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showModalBottomSheet<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Delete event permanently?'),
-        content: const Text(
-          'This removes the event, its reminders, reviews, and moderation history. This cannot be undone.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: Text(AppLocalizations.get('cancel')),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text(
-              'Delete',
-              style: TextStyle(color: AppColors.error),
-            ),
-          ),
-        ],
+      backgroundColor: AppColors.transparent,
+      barrierColor: AppColors.black.withValues(alpha: 0.48),
+      isScrollControlled: true,
+      enableDrag: true,
+      builder: (sheetContext) => _DeleteConfirmSheet(
+        onConfirm: () => Navigator.pop(sheetContext, true),
+        onCancel: () => Navigator.pop(sheetContext, false),
       ),
     );
     if (confirmed != true || _lifecycleMutating) return;
@@ -570,11 +569,26 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
       ),
       child: Column(
         children: [
-          _fact(AppIcons.calendar, _formatDate(_event.eventDate)),
+          _fact(
+            AppIcons.calendar,
+            '${_formatDate(_event.eventDate)} · ${_timeRange()}',
+            iconColor: AppColors.blue,
+            backgroundColor: AppColors.blueLight,
+          ),
           _factDivider(),
-          _fact(AppIcons.time, _timeRange()),
+          _fact(
+            AppIcons.location,
+            _event.location,
+            iconColor: AppColors.green,
+            backgroundColor: AppColors.lightGreen,
+          ),
           _factDivider(),
-          _fact(AppIcons.location, _event.location),
+          _fact(
+            AppIcons.users,
+            _event.category,
+            iconColor: AppColors.primary,
+            backgroundColor: AppColors.primaryLight,
+          ),
         ],
       ),
     );
@@ -590,7 +604,12 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
       ? '${_event.eventTime} – ${_event.eventEndTime}'
       : _event.eventTime;
 
-  Widget _fact(AppIconData icon, String value) {
+  Widget _fact(
+    AppIconData icon,
+    String value, {
+    Color? iconColor,
+    Color? backgroundColor,
+  }) {
     final theme = Theme.of(context);
     return Padding(
       padding: const EdgeInsets.symmetric(
@@ -602,10 +621,15 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
           Container(
             padding: const EdgeInsets.all(AppSpacing.md),
             decoration: BoxDecoration(
-              color: AppColors.primary.withValues(alpha: 0.08),
+              color:
+                  backgroundColor ?? AppColors.primary.withValues(alpha: 0.08),
               borderRadius: AppSpacing.borderRadiusMd,
             ),
-            child: AppIcon(icon, size: 22, color: AppColors.primary),
+            child: AppIcon(
+              icon,
+              size: 22,
+              color: iconColor ?? AppColors.primary,
+            ),
           ),
           const SizedBox(width: AppSpacing.md),
           Expanded(
@@ -916,9 +940,7 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
 
   void _showMessage(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.maybeOf(
-      context,
-    )?.showSnackBar(SnackBar(content: Text(message)));
+    showEventFeedback(context, message);
   }
 }
 
@@ -1360,6 +1382,77 @@ class _OwnerRatingsSummary extends StatelessWidget {
             ),
           ),
       ],
+    );
+  }
+}
+
+// ─── Delete Confirm Sheet ─────────────────────────────────────────────────────
+
+class _DeleteConfirmSheet extends StatelessWidget {
+  const _DeleteConfirmSheet({required this.onConfirm, required this.onCancel});
+
+  final VoidCallback onConfirm;
+  final VoidCallback onCancel;
+
+  @override
+  Widget build(BuildContext context) {
+    final mq = MediaQuery.of(context);
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    final surface = isLight ? AppColors.surface : AppColors.surfaceDark;
+    final textPrimary = isLight
+        ? AppColors.textPrimary
+        : AppColors.textPrimaryDark;
+    final textSub = AppColors.textSecondary;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: surface,
+        borderRadius: AppSpacing.borderRadiusTopSheet,
+      ),
+      padding: EdgeInsets.fromLTRB(
+        AppSpacing.lg,
+        AppSpacing.sm,
+        AppSpacing.lg,
+        mq.padding.bottom + AppSpacing.md,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Center(
+            child: Container(
+              width: 32,
+              height: 4,
+              decoration: BoxDecoration(
+                color: isLight ? AppColors.borderGrey : AppColors.borderDark,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          const SizedBox(height: 20),
+          Text(
+            'Delete event permanently?',
+            style: AppTextStyles.titleMedium.copyWith(color: textPrimary),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'This removes the event, its reminders, reviews, and moderation history. This cannot be undone.',
+            style: AppTextStyles.bodyMedium.copyWith(color: textSub),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 20),
+          _SheetActionRow(
+            cancelColor: textSub,
+            cancelBackground: isLight
+                ? AppColors.fieldBackground
+                : AppColors.surfaceDark,
+            actionColor: AppColors.error,
+            actionText: 'Delete',
+            onCancel: onCancel,
+            onAction: onConfirm,
+          ),
+        ],
+      ),
     );
   }
 }

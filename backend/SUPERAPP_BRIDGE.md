@@ -1,8 +1,8 @@
-# University Superapp Identity Bridge
+# Future Jas Wallet Identity Bridge
 
-The Flutter coordinator app will move into the university superapp (the big
-Flutter app with NFC entry cards). This backend is prepared for that migration
-with a **forward-compatible identity seam** that is inert until configured:
+The Flutter coordinator feature has not moved into Jas Wallet. This document
+describes a forward-compatible identity seam that remains inert until a future
+integration contract is agreed and explicitly configured.
 
 - **Telegram bot** — unchanged (long-polling, `admin_ids`/DB role).
 - **Mini app** — unchanged (Telegram `initData` HMAC).
@@ -24,16 +24,18 @@ Every Flutter endpoint funnels through `require_flutter_user`
 2. **Native Flutter token** — accepted only when the development-only
    `FLUTTER_NATIVE_AUTH_ENABLED=true` flag is enabled under `LOG_LEVEL=DEBUG`.
 
-The production posture is superapp-only. Native login, registration, and
-previously issued native tokens are rejected unless the explicit development
-flag is enabled, so shared test accounts cannot become a production backdoor.
+The current development posture is the standalone Flutter host with native
+authentication explicitly enabled only under `LOG_LEVEL=DEBUG`. Production
+Compose does not configure the bridge and does not expose native Flutter login.
+No deployment should be described as Jas Wallet-integrated until the issuer,
+audience, keys, identity claim, and role mapping have been verified end to end.
 
 No assumption is made about the superapp beyond "it can hand the Flutter module
 a signed JWT" (standard OIDC/JWT). If instead it authenticates via a gateway-injected
 header or mTLS, `superapp_bridge.py` is the *only* file to change — swap
 `decode_superapp_token()`; keep `resolve_or_create_superapp_user()`.
 
-## Turning it on (when you have superapp details)
+## Turning it on later
 
 Set these env vars (all currently unset → bridge off):
 
@@ -52,9 +54,9 @@ The bridge is considered enabled once `SUPERAPP_JWT_ISSUER` **and** a key
 (public key or secret) are set. Prefer the asymmetric public key so this backend
 never holds the superapp's signing key.
 
-## Flutter host contract
+## Proposed Flutter host contract
 
-Jas Wallet passes its access token to the feature; it does not pass a local user
+If adopted, Jas Wallet passes its access token to the feature; it does not pass a local user
 ID or role. The feature calls:
 
 ```http
@@ -73,7 +75,20 @@ The bridge copies an email claim only when the verified token also contains
 `email_verified: true`. Email is profile data, never the local identity key;
 the configured subject claim remains the stable account mapping.
 
-## Remaining steps at cutover (need superapp specifics)
+## Required cutover evidence
+
+Do not set `SUPERAPP_JWT_*` values or change the current developer state until
+all of the following are available and tested in a non-production environment:
+
+- the official issuer, audience, algorithm, public key or JWKS source, token
+  lifetime, and stable identity claim
+- the authoritative coordinator and administrator role mapping
+- refresh, logout, revocation, account-linking, and account-switching behavior
+- tests for invalid signatures, expired tokens, wrong audiences, replayed or
+  revoked tokens, subject changes, and role downgrade
+- confirmation that session-scoped Flutter caches are cleared between accounts
+
+At cutover:
 
 - **CORS / CSP**: no change is required for a native Flutter tab. If the final
   integration uses Flutter Web or a webview, add its exact origin to CORS and

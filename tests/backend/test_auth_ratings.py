@@ -1,4 +1,9 @@
+import asyncio
 import unittest
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
+
+from fastapi import HTTPException
 
 from app.services.security import (
     hash_password,
@@ -6,6 +11,7 @@ from app.services.security import (
     validate_password_format,
     validate_nickname_format,
 )
+from app.web.schemas import ReviewSubmitRequest
 
 
 class AuthRatingsServiceTest(unittest.TestCase):
@@ -81,6 +87,34 @@ class AuthRatingsServiceTest(unittest.TestCase):
         self.assertEqual(
             validate_nickname_format("jane&"), "Nickname contains invalid characters"
         )
+
+    def test_review_requires_a_recorded_event_interaction(self):
+        from app.web.routers.ratings import submit_review
+
+        event = SimpleNamespace(id=42, status="approved")
+        user = SimpleNamespace(id=7)
+        session = AsyncMock()
+        session.scalar = AsyncMock(return_value=None)
+        with (
+            patch("app.web.routers.ratings.check_rate_limit", new_callable=AsyncMock),
+            patch(
+                "app.web.routers.ratings.get_event_by_public_token",
+                new_callable=AsyncMock,
+                return_value=event,
+            ),
+        ):
+            with self.assertRaises(HTTPException) as ctx:
+                asyncio.run(
+                    submit_review(
+                        "123e4567-e89b-12d3-a456-426614174000",
+                        ReviewSubmitRequest(score=5),
+                        user,
+                        session,
+                    )
+                )
+
+        self.assertEqual(ctx.exception.status_code, 403)
+        session.commit.assert_not_awaited()
 
 
 if __name__ == "__main__":

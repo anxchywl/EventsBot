@@ -11,6 +11,7 @@ from app.services.event_sync import (  # noqa: E402
     DELETE_LIKE_OPERATIONS,
     EventSyncWorker,
     _claim_next_job,
+    _delete_snapshot_cover,
     _mark_job_failed,
     _snapshot_chat_ids,
     capture_event_snapshot,
@@ -110,17 +111,53 @@ class CaptureSnapshotTest(unittest.TestCase):
         )
         detail = SimpleNamespace(chat_id=3, chat=chat, message_id=55)
         event = SimpleNamespace(
-            id=5, status="approved", category_id=2, detail_messages=[detail]
+            id=5,
+            status="approved",
+            category_id=2,
+            poster_storage_message_id=77,
+            detail_messages=[detail],
         )
 
         snapshot = _run(capture_event_snapshot(SnapshotSession(event), 5))
 
         self.assertTrue(snapshot["event_exists"])
         self.assertEqual(snapshot["status"], "approved")
+        self.assertEqual(snapshot["poster_storage_message_id"], 77)
         self.assertEqual(len(snapshot["detail_messages"]), 1)
         frozen = snapshot["detail_messages"][0]
         self.assertEqual(frozen["telegram_chat_id"], -100123)
         self.assertEqual(frozen["message_id"], 55)
+
+
+class DeleteSnapshotCoverTest(unittest.TestCase):
+    def test_deletes_stored_cover_and_clears_live_row(self):
+        event = SimpleNamespace(poster_storage_message_id=77)
+        with patch(
+            "app.services.cover_storage.delete_stored_cover_message",
+            AsyncMock(),
+        ) as delete:
+            _run(_delete_snapshot_cover({"poster_storage_message_id": 77}, event))
+        delete.assert_awaited_once_with(77)
+        self.assertIsNone(event.poster_storage_message_id)
+
+    def test_skips_when_no_stored_cover(self):
+        with patch(
+            "app.services.cover_storage.delete_stored_cover_message",
+            AsyncMock(),
+        ) as delete:
+            _run(_delete_snapshot_cover({"poster_storage_message_id": None}, None))
+        delete.assert_not_awaited()
+
+    def test_skips_when_live_row_adopted_the_image(self):
+        # an approved draft may now own the image the retired row referenced
+        event = SimpleNamespace(poster_storage_message_id=88)
+        with patch(
+            "app.services.cover_storage.delete_stored_cover_message",
+            AsyncMock(),
+        ) as delete:
+            _run(_delete_snapshot_cover({"poster_storage_message_id": 77}, event))
+        delete.assert_not_awaited()
+        self.assertEqual(event.poster_storage_message_id, 88)
 
 
 class FakeOneResult:

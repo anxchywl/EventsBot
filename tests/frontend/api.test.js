@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 async function loadApi() {
   vi.resetModules();
-  return import("../../frontend/static/js/api.js?v=20260628-security-v1");
+  return import("../../frontend/static/js/api.js?v=20260721-timeline-v7");
 }
 
 describe("frontend api", () => {
@@ -12,7 +12,7 @@ describe("frontend api", () => {
 
   it("sends json, language, theme, and session headers", async () => {
     const { request } = await loadApi();
-    const { setLang, setSession, setTheme } = await import("../../frontend/static/js/state.js?v=20260628-security-v1");
+    const { setLang, setSession, setTheme } = await import("../../frontend/static/js/state.js?v=20260721-timeline-v7");
     setLang("kk");
     setTheme("dark");
     setSession("abc123", { id: 1 });
@@ -74,6 +74,6 @@ describe("frontend api", () => {
       favoritesOnly: true,
     });
 
-    expect(fetchMock.mock.calls[0][0]).toBe("/api/events?sort=time_desc&relevance=all&categories=Career%2CSport&organizers=NU&locations=Main+Hall&favorite_only=true");
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/events?limit=200&offset=0&sort=time_desc&relevance=all&categories=Career%2CSport&organizers=NU&locations=Main+Hall&favorite_only=true");
   });
 });

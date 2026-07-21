@@ -1,5 +1,5 @@
-import { state } from "../state.js?v=20260628-security-v1";
-import { categoryLabel, t } from "../i18n.js?v=20260628-security-v1";
+import { state } from "../state.js?v=20260721-timeline-v7";
+import { categoryLabel, t } from "../i18n.js?v=20260721-timeline-v7";
 
 // guarantee fallbackcoverstyles map is shared absolutely via window to avoid potential duplicate es module instances
 if (!window.fallbackCoverStyles) {
@@ -149,8 +149,15 @@ export function eventRow(event, options = {}) {
     showFavoriteAction = false,
   } = options;
   const categoryText = categoryLabel(event.category);
+  const titleLength = (event.title || "").length;
+  const organizerLength = (event.organizer || "").length;
+  const compactTextClass = titleLength > 85 || organizerLength > 95
+    ? "compact-text"
+    : titleLength > 55 || organizerLength > 65
+      ? "small-text"
+      : "";
   return `
-    <article class="event-row ${badgesOnSide ? "has-side-badges" : ""} ${showFavoriteAction ? "has-favorite-action" : ""} ${event.is_archived ? "archived" : event.is_ended ? "ended" : ""}" role="button" tabindex="0" data-event-token="${escapeAttr(event.token)}">
+    <article class="event-row ${compactTextClass} ${badgesOnSide ? "has-side-badges" : ""} ${showFavoriteAction ? "has-favorite-action" : ""} ${event.is_archived ? "archived" : event.is_ended ? "ended" : ""}" role="button" tabindex="0" data-event-token="${escapeAttr(event.token)}">
       <div class="event-row-cover ${event.cover_url ? "has-image" : ""}" ${coverStyle(event.cover_url, `event-${event.token || event.title}`)}>
         ${event.is_favorite ? `<span class="event-row-favorite-sticker" aria-label="${escapeAttr(t("favorites"))}" role="img">
           <span>★</span>

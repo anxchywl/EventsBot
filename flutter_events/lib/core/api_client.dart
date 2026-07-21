@@ -225,21 +225,11 @@ Future<List<EventModel>> fetchApprovedEvents({
   if (categorySlug != null && categorySlug.isNotEmpty) {
     query['category_slug'] = categorySlug;
   }
-  final response = await _get(
-    _uri('/api/flutter/events', query),
-    headers: _headers(auth: true),
-  );
-  if (!_isOk(response.statusCode)) _throwFor(response);
-  return _decodeEventList(response.body);
+  return _fetchEventPages('/api/flutter/events', query);
 }
 
 Future<List<EventModel>> fetchMyEvents() async {
-  final response = await _get(
-    _uri('/api/flutter/events/my'),
-    headers: _headers(auth: true),
-  );
-  if (!_isOk(response.statusCode)) _throwFor(response);
-  return _decodeEventList(response.body);
+  return _fetchEventPages('/api/flutter/events/my', const {});
 }
 
 Future<Map<String, dynamic>> fetchOwnerEventAnalytics(int eventId) async {
@@ -248,39 +238,34 @@ Future<Map<String, dynamic>> fetchOwnerEventAnalytics(int eventId) async {
     headers: _headers(auth: true),
   );
   if (!_isOk(response.statusCode)) _throwFor(response);
-  final data = jsonDecode(response.body) as Map<String, dynamic>;
-  final moderation = await fetchEventModerationDetail(eventId);
-  data['moderation'] = {
-    'total_review_seconds': moderation.totalReviewSeconds,
-    'review_iterations': moderation.reviewIterations,
-    'needs_changes_count': moderation.needsChangesCount,
-    'resubmission_count': moderation.resubmissionCount,
-    'history': moderation.history
-        .map(
-          (entry) => {
-            'action': entry.action,
-            'actor_name': entry.actorName,
-            'comment': entry.comment,
-            'created_at': entry.createdAt,
-          },
-        )
-        .toList(),
-  };
-  return data;
+  return jsonDecode(response.body) as Map<String, dynamic>;
 }
 
 Future<List<EventModel>> fetchPendingEvents({
   bool includeRejected = false,
 }) async {
-  final response = await _get(
-    _uri(
-      '/api/flutter/events/pending',
-      includeRejected ? {'include_rejected': 'true'} : null,
-    ),
-    headers: _headers(auth: true),
-  );
-  if (!_isOk(response.statusCode)) _throwFor(response);
-  return _decodeEventList(response.body);
+  return _fetchEventPages('/api/flutter/events/pending', {
+    if (includeRejected) 'include_rejected': 'true',
+  });
+}
+
+Future<List<EventModel>> _fetchEventPages(
+  String path,
+  Map<String, String> baseQuery,
+) async {
+  const pageSize = 200;
+  final events = <EventModel>[];
+  for (var offset = 0; offset <= 10000; offset += pageSize) {
+    final response = await _get(
+      _uri(path, {...baseQuery, 'limit': '$pageSize', 'offset': '$offset'}),
+      headers: _headers(auth: true),
+    );
+    if (!_isOk(response.statusCode)) _throwFor(response);
+    final page = _decodeEventList(response.body);
+    events.addAll(page);
+    if (page.length < pageSize) break;
+  }
+  return events;
 }
 
 Future<List<CategoryModel>> fetchCategories() async {

@@ -4,12 +4,15 @@ os.environ.setdefault("BOT_TOKEN", "123456:test-token")
 os.environ.setdefault("SESSION_SECRET", "test-session-secret")
 
 import pytest
+from fastapi import HTTPException
 from unittest.mock import AsyncMock, patch
 from types import SimpleNamespace
 
 from app.models.user import User
 from app.models.event import Event
 from app.config import Settings
+from app.web.auth import MiniAppUser
+from app.web.schemas import UserResendRequest, UserVerifyRequest
 
 
 @pytest.fixture
@@ -124,6 +127,42 @@ def test_blank_media_storage_chat_id_is_unset():
     )
 
     assert settings.media_storage_chat_id is None
+
+
+@pytest.mark.anyio
+async def test_verification_code_cannot_be_applied_to_another_email():
+    from app.web.routers.auth import verify
+
+    user = SimpleNamespace(id=1, email="owner@nu.edu.kz")
+    session = AsyncMock()
+    with patch("app.web.routers.auth.upsert_miniapp_user", return_value=user):
+        with pytest.raises(HTTPException) as exc_info:
+            await verify(
+                UserVerifyRequest(email="attacker@nu.edu.kz", code="123456"),
+                MiniAppUser(id=1001),
+                session,
+            )
+
+    assert exc_info.value.status_code == 400
+    session.execute.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_resend_cannot_redirect_code_to_another_email():
+    from app.web.routers.auth import resend
+
+    user = SimpleNamespace(id=1, email="owner@nu.edu.kz", is_verified=False)
+    session = AsyncMock()
+    with patch("app.web.routers.auth.upsert_miniapp_user", return_value=user):
+        with pytest.raises(HTTPException) as exc_info:
+            await resend(
+                UserResendRequest(email="attacker@nu.edu.kz"),
+                MiniAppUser(id=1001),
+                session,
+            )
+
+    assert exc_info.value.status_code == 400
+    session.execute.assert_not_awaited()
 
 
 def test_get_real_ip_trusts_proxy_cidr(mock_settings):

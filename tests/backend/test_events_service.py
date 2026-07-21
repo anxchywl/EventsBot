@@ -10,6 +10,7 @@ from app.models.enums import EventStatus, ModerationAction  # noqa: E402
 from app.models.event import Event  # noqa: E402
 from app.models.moderation import ModerationLog  # noqa: E402
 from app.services.events import (  # noqa: E402
+    apply_moderation_transition,
     can_moderate_event_status,
     ensure_event_public_token,
     event_belongs_to_telegram_user,
@@ -17,6 +18,7 @@ from app.services.events import (  # noqa: E402
     find_event_schedule_conflict,
     get_pending_events,
     normalize_public_token,
+    replace_pending_drafts_for_parent,
     update_event_status,
 )
 
@@ -327,6 +329,161 @@ class StatusTransitionTest(unittest.TestCase):
         session = StatusSession(None)
         result = _run(update_event_status(session, 42, EventStatus.APPROVED, _admin()))
         self.assertIsNone(result)
+
+
+def _mergeable_event(**overrides):
+    base = dict(
+        id=200,
+        parent_event_id=42,
+        status=EventStatus.PENDING.value,
+        title="Draft title",
+        description="Draft desc",
+        event_date=date(2099, 5, 1),
+        event_time=time(10, 0),
+        event_end_time=time(11, 0),
+        timezone="Asia/Almaty",
+        location="Block C",
+        category_id=1,
+        organizer_name="Org",
+        poster_file_id="new-file",
+        poster_storage_message_id=600,
+        registration_url=None,
+        it_equipment=None,
+        materials=None,
+        cancelled_at=None,
+        moderation_note=None,
+    )
+    base.update(overrides)
+    return SimpleNamespace(**base)
+
+
+def _published_parent(**overrides):
+    base = dict(
+        id=42,
+        parent_event_id=None,
+        status=EventStatus.APPROVED.value,
+        title="Old title",
+        description="Old desc",
+        event_date=date(2099, 5, 1),
+        event_time=time(9, 0),
+        event_end_time=time(10, 0),
+        timezone="Asia/Almaty",
+        location="Block C",
+        category_id=1,
+        organizer_name="Org",
+        poster_file_id="old-file",
+        poster_storage_message_id=500,
+        registration_url=None,
+        it_equipment=None,
+        materials=None,
+        approved_by_user_id=None,
+        approved_at=None,
+        moderation_note=None,
+    )
+    base.update(overrides)
+    return SimpleNamespace(**base)
+
+
+class MergeSession:
+    # get_event_by_id resolves to the published parent on every lookup
+    def __init__(self, parent):
+        self._parent = parent
+        self.added = []
+
+    async def execute(self, _stmt):
+        return FakeScalarOne(self._parent)
+
+    def add(self, obj):
+        self.added.append(obj)
+
+    async def flush(self):
+        pass
+
+
+class MergeCoverOwnershipTest(unittest.TestCase):
+    def test_new_cover_transfers_ownership_and_orphans_old_image(self):
+        draft = _mergeable_event(
+            poster_file_id="new-file", poster_storage_message_id=600
+        )
+        parent = _published_parent(
+            poster_file_id="old-file", poster_storage_message_id=500
+        )
+        session = MergeSession(parent)
+        orphaned: list[int] = []
+
+        _run(
+            apply_moderation_transition(
+                session,
+                draft,
+                EventStatus.APPROVED,
+                _admin(),
+                "ok",
+                orphaned_covers=orphaned,
+            )
+        )
+
+        self.assertEqual(parent.poster_file_id, "new-file")
+        self.assertEqual(parent.poster_storage_message_id, 600)
+        # draft no longer owns the image the parent now shows
+        self.assertIsNone(draft.poster_storage_message_id)
+        # the parent's previous image is queued for deletion
+        self.assertEqual(orphaned, [500])
+
+    def test_reused_cover_keeps_parent_image(self):
+        draft = _mergeable_event(
+            poster_file_id="old-file", poster_storage_message_id=None
+        )
+        parent = _published_parent(
+            poster_file_id="old-file", poster_storage_message_id=500
+        )
+        session = MergeSession(parent)
+        orphaned: list[int] = []
+
+        _run(
+            apply_moderation_transition(
+                session,
+                draft,
+                EventStatus.APPROVED,
+                _admin(),
+                None,
+                orphaned_covers=orphaned,
+            )
+        )
+
+        self.assertEqual(parent.poster_storage_message_id, 500)
+        self.assertEqual(orphaned, [])
+
+
+class RetireStaleDraftSession:
+    def __init__(self, stale_drafts):
+        self._stale = stale_drafts
+
+    async def execute(self, _stmt):
+        return FakeListResult(self._stale)
+
+    async def flush(self):
+        pass
+
+
+class StaleDraftCoverTest(unittest.TestCase):
+    def test_retired_draft_with_own_cover_is_orphaned(self):
+        stale = SimpleNamespace(
+            id=5,
+            status=EventStatus.PENDING.value,
+            cancelled_at=None,
+            moderation_note=None,
+            poster_storage_message_id=321,
+        )
+        session = RetireStaleDraftSession([stale])
+        orphaned: list[int] = []
+
+        _run(
+            replace_pending_drafts_for_parent(session, 42, 6, orphaned_covers=orphaned)
+        )
+
+        self.assertEqual(stale.status, EventStatus.CANCELLED.value)
+        self.assertIsNone(stale.poster_storage_message_id)
+        self.assertEqual(orphaned, [321])
 
 
 if __name__ == "__main__":

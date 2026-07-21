@@ -7,7 +7,7 @@ from typing import Sequence
 from uuid import uuid4
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from aiogram import Bot
@@ -15,7 +15,8 @@ from aiogram import Bot
 from app.models.event import Event, EventCategory
 from app.models.moderation import ModerationLog
 from app.models.user import User
-from app.models.enums import EventStatus, ModerationAction
+from app.models.enums import EventStatus, ModerationAction, ReminderStatus
+from app.models.reminder import Reminder
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +90,11 @@ DELETABLE_EVENT_STATUSES = frozenset(
         EventStatus.CANCELLED.value,
     }
 )
+DELETED_EVENT_MARKER = "system:event-deleted"
+
+
+def event_is_deleted(event: Event) -> bool:
+    return event.moderation_note == DELETED_EVENT_MARKER
 
 
 def normalize_event_location(value: str) -> str:
@@ -120,7 +126,13 @@ async def get_event_by_client_request_id(
 ) -> Event | None:
     result = await session.execute(
         select(Event)
-        .where(Event.client_request_id == client_request_id)
+        .where(
+            Event.client_request_id == client_request_id,
+            or_(
+                Event.moderation_note.is_(None),
+                Event.moderation_note != DELETED_EVENT_MARKER,
+            ),
+        )
         .options(selectinload(Event.category), selectinload(Event.creator))
     )
     return result.scalar_one_or_none()
@@ -218,6 +230,7 @@ async def create_pending_event(
         category_id=event_data["category_id"],
         organizer_name=event_data["organizer"],
         poster_file_id=event_data.get("poster_file_id"),
+        poster_storage_message_id=event_data.get("poster_storage_message_id"),
         registration_url=event_data.get("registration_url"),
         it_equipment=event_data.get("it_equipment"),
         materials=event_data.get("materials"),
@@ -242,6 +255,7 @@ async def create_event_update_draft(
     parent: Event,
     creator: User,
     event_data: dict,
+    orphaned_covers: list[int] | None = None,
 ) -> Event:
     draft = await create_pending_event(
         session,
@@ -251,7 +265,9 @@ async def create_event_update_draft(
     draft.parent_event_id = parent.id
     draft.club_id = parent.club_id
     draft.timezone = parent.timezone
-    await replace_pending_drafts_for_parent(session, parent.id, draft.id)
+    await replace_pending_drafts_for_parent(
+        session, parent.id, draft.id, orphaned_covers=orphaned_covers
+    )
     await session.flush()
     return draft
 
@@ -260,7 +276,13 @@ async def create_event_update_draft(
 async def get_event_by_id(session: AsyncSession, event_id: int) -> Event | None:
     result = await session.execute(
         select(Event)
-        .where(Event.id == event_id)
+        .where(
+            Event.id == event_id,
+            or_(
+                Event.moderation_note.is_(None),
+                Event.moderation_note != DELETED_EVENT_MARKER,
+            ),
+        )
         .options(selectinload(Event.category), selectinload(Event.creator))
     )
     return result.scalar_one_or_none()
@@ -273,7 +295,13 @@ async def get_event_by_public_token(
     public_token = normalize_public_token(public_token)
     result = await session.execute(
         select(Event)
-        .where(Event.public_token == public_token)
+        .where(
+            Event.public_token == public_token,
+            or_(
+                Event.moderation_note.is_(None),
+                Event.moderation_note != DELETED_EVENT_MARKER,
+            ),
+        )
         .options(selectinload(Event.category), selectinload(Event.creator))
     )
     return result.scalar_one_or_none()
@@ -359,7 +387,13 @@ async def get_pending_events(
 
     result = await session.execute(
         select(Event)
-        .where(Event.status.in_(statuses))
+        .where(
+            Event.status.in_(statuses),
+            or_(
+                Event.moderation_note.is_(None),
+                Event.moderation_note != DELETED_EVENT_MARKER,
+            ),
+        )
         .order_by(Event.created_at, Event.id)
         .options(selectinload(Event.category), selectinload(Event.creator))
     )
@@ -390,14 +424,20 @@ async def get_user_events(session: AsyncSession, user_id: int) -> Sequence[Event
     """fetch all events created by a specific user."""
     result = await session.execute(
         select(Event)
-        .where(Event.creator_user_id == user_id)
+        .where(
+            Event.creator_user_id == user_id,
+            or_(
+                Event.moderation_note.is_(None),
+                Event.moderation_note != DELETED_EVENT_MARKER,
+            ),
+        )
         .order_by(Event.event_date.desc(), Event.event_time.desc())
         .options(selectinload(Event.category))
     )
     return result.scalars().all()
 
 
-# deletes an event and enqueues centralized sync cleanup
+# hides an event while retaining immutable history and analytics
 async def delete_event_completely(
     session: AsyncSession,
     bot: Bot | None,
@@ -405,7 +445,7 @@ async def delete_event_completely(
     *,
     allowed_statuses: Collection[str] | None = None,
 ) -> bool:
-    """delete an event row after queuing system-wide sync cleanup."""
+    """retire an event row after queuing system-wide sync cleanup."""
     from app.services.event_sync import (
         acquire_event_lock,
         capture_event_snapshot,
@@ -419,8 +459,20 @@ async def delete_event_completely(
         return False
     if allowed_statuses is not None and event.status not in allowed_statuses:
         return False
+    if event_is_deleted(event):
+        return True
 
-    await session.delete(event)
+    event.status = EventStatus.CANCELLED.value
+    event.cancelled_at = datetime.now(timezone.utc)
+    event.moderation_note = DELETED_EVENT_MARKER
+    await session.execute(
+        update(Reminder)
+        .where(
+            Reminder.event_id == event.id,
+            Reminder.status == ReminderStatus.SCHEDULED.value,
+        )
+        .values(status=ReminderStatus.CANCELLED.value)
+    )
     await session.flush()
     await enqueue_event_sync(
         session,
@@ -457,6 +509,16 @@ async def update_event_status(
     elif status == EventStatus.CANCELLED:
         event.cancelled_at = datetime.now(timezone.utc)
 
+    if status in {EventStatus.REJECTED, EventStatus.CANCELLED}:
+        await session.execute(
+            update(Reminder)
+            .where(
+                Reminder.event_id == event.id,
+                Reminder.status == ReminderStatus.SCHEDULED.value,
+            )
+            .values(status=ReminderStatus.CANCELLED.value)
+        )
+
     event.moderation_note = comment
 
     action_map = {
@@ -490,6 +552,7 @@ async def apply_moderation_transition(
     new_status: EventStatus,
     admin: User,
     comment: str | None = None,
+    orphaned_covers: list[int] | None = None,
 ) -> Event:
     if not can_moderate_event_status(event.status, new_status):
         raise ValueError("This event cannot move to that status.")
@@ -510,6 +573,9 @@ async def apply_moderation_transition(
     if parent is None or parent.status != EventStatus.APPROVED.value:
         raise ValueError("The original published event is not available.")
 
+    old_poster_file_id = parent.poster_file_id
+    old_poster_storage_message_id = parent.poster_storage_message_id
+
     for field_name in (
         "title",
         "description",
@@ -527,6 +593,17 @@ async def apply_moderation_transition(
     ):
         setattr(parent, field_name, getattr(event, field_name))
 
+    # take ownership of the draft's cover so the retired draft never deletes an
+    # image the published event now shows; drop the parent's previous image only
+    # when the cover actually changed
+    if parent.poster_file_id != old_poster_file_id:
+        parent.poster_storage_message_id = event.poster_storage_message_id
+        event.poster_storage_message_id = None
+        if old_poster_storage_message_id and orphaned_covers is not None:
+            orphaned_covers.append(old_poster_storage_message_id)
+    else:
+        parent.poster_storage_message_id = old_poster_storage_message_id
+
     parent.approved_by_user_id = admin.id
     parent.approved_at = datetime.now(timezone.utc)
     parent.moderation_note = comment
@@ -538,7 +615,9 @@ async def apply_moderation_transition(
             comment=comment,
         )
     )
-    await session.delete(event)
+    event.status = EventStatus.CANCELLED.value
+    event.cancelled_at = datetime.now(timezone.utc)
+    event.moderation_note = DELETED_EVENT_MARKER
     await session.flush()
     updated_parent = await get_event_by_id(session, parent.id)
     if updated_parent is None:
@@ -546,9 +625,20 @@ async def apply_moderation_transition(
     return updated_parent
 
 
+# collect the storage cover of a retired draft so the caller can delete the
+# image after commit; a draft that reused the parent cover carries none
+def _retire_draft_cover(draft: Event, orphaned_covers: list[int] | None) -> None:
+    if orphaned_covers is not None and draft.poster_storage_message_id:
+        orphaned_covers.append(draft.poster_storage_message_id)
+    draft.poster_storage_message_id = None
+
+
 # replace a pending parent with its newest submitted draft
 async def cleanup_previous_drafts(
-    session: AsyncSession, parent_event_id: int, new_draft_id: int
+    session: AsyncSession,
+    parent_event_id: int,
+    new_draft_id: int,
+    orphaned_covers: list[int] | None = None,
 ) -> None:
     """
     used when the *original* event is still pending (never approved).
@@ -560,23 +650,34 @@ async def cleanup_previous_drafts(
     if new_draft:
         new_draft.parent_event_id = None
 
-    parent = await session.get(Event, parent_event_id)
-    if parent:
-        session.delete(parent)
+    result = await session.execute(
+        select(Event).where(
+            or_(Event.id == parent_event_id, Event.parent_event_id == parent_event_id),
+            Event.id != new_draft_id,
+        )
+    )
+    for stale_event in result.scalars().all():
+        stale_event.status = EventStatus.CANCELLED.value
+        stale_event.cancelled_at = datetime.now(timezone.utc)
+        stale_event.moderation_note = DELETED_EVENT_MARKER
+        _retire_draft_cover(stale_event, orphaned_covers)
 
     await session.flush()
 
 
 # keep only the newest pending draft per approved event
 async def replace_pending_drafts_for_parent(
-    session: AsyncSession, parent_event_id: int, new_draft_id: int
+    session: AsyncSession,
+    parent_event_id: int,
+    new_draft_id: int,
+    orphaned_covers: list[int] | None = None,
 ) -> None:
     """
-    ensures only one pending draft exists per parent event at any time.
+    ensures only one active pending draft exists per parent event at any time.
 
     called whenever a user re-submits an update while a previous draft is
-    still awaiting moderation.  all stale pending drafts (same parent_event_id,
-    status == 'pending') are deleted, except the newly-created one.
+    still awaiting moderation. all stale pending drafts are retired except the
+    newly-created one so their moderation history remains available.
     """
     from sqlalchemy import and_
 
@@ -591,12 +692,15 @@ async def replace_pending_drafts_for_parent(
     )
     stale_drafts = result.scalars().all()
     for draft in stale_drafts:
-        await session.delete(draft)
+        draft.status = EventStatus.CANCELLED.value
+        draft.cancelled_at = datetime.now(timezone.utc)
+        draft.moderation_note = DELETED_EVENT_MARKER
+        _retire_draft_cover(draft, orphaned_covers)
 
     if stale_drafts:
         await session.flush()
         logger.info(
-            "deleted %d stale pending draft(s) for parent event %d (kept draft %d)",
+            "retired %d stale pending draft(s) for parent event %d (kept draft %d)",
             len(stale_drafts),
             parent_event_id,
             new_draft_id,

@@ -334,6 +334,8 @@ async def user_reminder_details(
 def event_cover_url(event: Event) -> str | None:
     if not event.poster_file_id:
         return None
+    if event.poster_file_id.startswith("https://"):
+        return event.poster_file_id
     version = urlencode({"v": event.poster_file_id})
     return f"/api/events/{event.public_token}/cover?{version}"
 

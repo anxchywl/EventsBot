@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import secrets
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -38,7 +39,6 @@ from app.web.auth import (
     optional_current_miniapp_user,
     require_current_miniapp_user,
     upsert_miniapp_user,
-    verify_session_token,
 )
 from app.web.limiter import check_rate_limit
 from app.web.cache import TTLCache
@@ -201,12 +201,32 @@ async def event_sync_version(
     return version
 
 
+# issue a one-time short-lived ticket so session tokens never enter stream urls
+@router.post("/stream-ticket")
+async def create_stream_ticket(
+    miniapp_user: MiniAppUser = Depends(require_current_miniapp_user),
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, str]:
+    user = await upsert_miniapp_user(session, miniapp_user)
+    await session.commit()
+    ticket = secrets.token_urlsafe(32)
+    await get_redis().set(f"stream-ticket:{ticket}", str(user.id), ex=60)
+    return {"ticket": ticket}
+
+
+async def _consume_stream_ticket(ticket: str) -> int:
+    raw_user_id = await get_redis().getdel(f"stream-ticket:{ticket}")
+    if raw_user_id is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid stream ticket")
+    return int(raw_user_id)
+
+
 # stream review deletion updates to connected clients
 @router.get("/review-updates")
 async def review_updates(
-    token: str = Query(..., min_length=1, max_length=4096),
+    ticket: str = Query(..., min_length=32, max_length=128),
 ) -> StreamingResponse:
-    verify_session_token(token)
+    await _consume_stream_ticket(ticket)
 
     async def stream():
         yield ": connected\n\n"
@@ -237,15 +257,9 @@ async def review_updates(
 # stream mini app updates with keepalive pings
 @router.get("/updates")
 async def miniapp_updates(
-    token: str = Query(..., min_length=1, max_length=4096),
+    ticket: str = Query(..., min_length=32, max_length=128),
 ) -> StreamingResponse:
-    from app.db.session import async_session_maker
-
-    miniapp_user = verify_session_token(token)
-    async with async_session_maker() as session:
-        user = await upsert_miniapp_user(session, miniapp_user)
-        await session.commit()
-        user_id = user.id
+    user_id = await _consume_stream_ticket(ticket)
 
     async def stream():
         yield ": connected\n\n"

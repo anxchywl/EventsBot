@@ -1,4 +1,4 @@
-import { state } from "./state.js?v=20260628-security-v1";
+import { state } from "./state.js?v=20260721-timeline-v7";
 
 const dict = {
   en: {
@@ -186,8 +186,8 @@ const dict = {
     incoming: "Incoming",
     admin: "Admin Panel",
     dashboard: "Dashboard",
-    botUsers: "Bot Users",
-    miniAppUsers: "Mini App Users",
+    botUsers: "Telegram Accounts",
+    miniAppUsers: "Active Accounts",
     nuAccounts: "NU Accounts",
     blocked: "Blocked",
     userManagement: "Users",
@@ -453,8 +453,8 @@ const dict = {
     incoming: "Входящий",
     admin: "Панель администратора",
     dashboard: "Дашборд",
-    botUsers: "Пользователи бота",
-    miniAppUsers: "Пользователи Mini App",
+    botUsers: "Telegram-аккаунты",
+    miniAppUsers: "Активные аккаунты",
     nuAccounts: "Аккаунты NU",
     blocked: "Заблокированные",
     userManagement: "Пользователи",
@@ -720,8 +720,8 @@ const dict = {
     incoming: "Кіріс",
     admin: "Әкімші тақтасы",
     dashboard: "Басқару тақтасы",
-    botUsers: "Бот пайдаланушылары",
-    miniAppUsers: "Mini App пайдаланушылары",
+    botUsers: "Telegram аккаунттары",
+    miniAppUsers: "Белсенді аккаунттар",
     nuAccounts: "NU аккаунттары",
     blocked: "Бұғатталған",
     userManagement: "Пайдаланушылар",

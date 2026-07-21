@@ -63,8 +63,8 @@ compose exec -T web python - <<'PY'
 import json
 import urllib.request
 
-health = json.load(urllib.request.urlopen("http://127.0.0.1:8000/health", timeout=5))
-if health.get("status") != "ok":
+health = json.load(urllib.request.urlopen("http://127.0.0.1:8000/health/ready", timeout=5))
+if health.get("status") != "ready":
     raise SystemExit("health endpoint returned an unexpected payload")
 
 html = urllib.request.urlopen("http://127.0.0.1:8000/", timeout=5).read(2000).decode("utf-8", "ignore")
@@ -73,7 +73,7 @@ if "<html" not in html.lower() and "<!doctype html" not in html.lower():
 PY
 
 log "Verifying Alembic state..."
-compose exec -T web alembic -c backend/alembic.ini current >/dev/null
+compose exec -T web alembic -c backend/alembic.ini current --check-heads >/dev/null
 
 log "Checking startup logs..."
 if compose logs --since 2m web bot | grep -Eiq 'traceback|telegram polling conflict detected|application startup failed'; then

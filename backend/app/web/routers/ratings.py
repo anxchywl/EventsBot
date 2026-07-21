@@ -10,6 +10,7 @@ from sqlalchemy.orm import selectinload
 
 from app.db.session import get_session
 from app.models.user import User
+from app.models.analytics import EventAnalytics
 from app.models.event import Event
 from app.models.enums import EventStatus
 from app.models.rating import Rating
@@ -65,6 +66,20 @@ async def submit_review(
     if not event or event.status != EventStatus.APPROVED.value:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Event not found"
+        )
+
+    interaction = await session.scalar(
+        select(EventAnalytics.id)
+        .where(
+            EventAnalytics.event_id == event.id,
+            EventAnalytics.user_id == user.id,
+        )
+        .limit(1)
+    )
+    if interaction is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Interact with this event before leaving a review.",
         )
 
     score = payload.score

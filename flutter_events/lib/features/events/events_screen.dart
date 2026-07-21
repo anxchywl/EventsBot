@@ -657,7 +657,7 @@ class _EventsScreenState extends State<EventsScreen> {
             ? CrossFadeState.showSecond
             : CrossFadeState.showFirst,
         firstChild: SizedBox(
-          height: 48,
+          height: 40,
           child: ListView(
             scrollDirection: Axis.horizontal,
             padding: EdgeInsets.zero,
@@ -907,13 +907,13 @@ class _EventFilterPill extends StatelessWidget {
         borderRadius: radius,
         child: label == null && icon != null
             ? SizedBox(
-                width: 48,
-                height: 48,
+                width: 40,
+                height: 40,
                 child: Center(child: AppIcon(icon!, size: 18, color: fg)),
               )
             : Container(
-                constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
-                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+                constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+                padding: const EdgeInsets.symmetric(horizontal: 12),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -1034,15 +1034,15 @@ class _SearchBarState extends State<_SearchBar>
         ),
       ),
       child: SizedBox(
-        height: 44,
+        height: 40,
         child: Row(
           children: [
             Expanded(
               child: GestureDetector(
                 onTap: () => _focus.requestFocus(),
                 child: Container(
-                  height: 44,
-                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  height: 40,
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
                   decoration: BoxDecoration(
                     color: bg,
                     borderRadius: AppSpacing.borderRadiusDf,
@@ -1065,7 +1065,7 @@ class _SearchBarState extends State<_SearchBar>
                           scrollPadding: EdgeInsets.zero,
                           inputFormatters: [SanitizingFormatter()],
                           onChanged: widget.onChanged,
-                          style: AppTextStyles.bodyLarge.copyWith(
+                          style: AppTextStyles.bodyMedium.copyWith(
                             fontWeight: FontWeight.w600,
                             color: isLight
                                 ? AppColors.textPrimary
@@ -1074,7 +1074,7 @@ class _SearchBarState extends State<_SearchBar>
                           decoration: InputDecoration(
                             filled: false,
                             hintText: 'Search events…',
-                            hintStyle: AppTextStyles.bodyLarge.copyWith(
+                            hintStyle: AppTextStyles.bodyMedium.copyWith(
                               fontWeight: FontWeight.w500,
                               color: AppColors.textSecondary,
                             ),
