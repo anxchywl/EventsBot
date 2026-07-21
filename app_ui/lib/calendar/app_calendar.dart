@@ -632,12 +632,14 @@ class _CalDayCell extends StatelessWidget {
       bg = Colors.transparent;
     }
 
+    final bool isPast = !isFuture && !isToday;
+
     final Color numColor;
     if (isSelected) {
       numColor = Colors.white;
     } else if (eventCount >= 3 && !allMuted) {
       numColor = Colors.white;
-    } else if (isFuture) {
+    } else if (isPast) {
       numColor = isLight ? const Color(0xFF8E8EA3) : const Color(0xFFB0B0C4);
     } else {
       numColor = isLight ? const Color(0xFF1A1A2E) : Colors.white;
@@ -669,7 +671,7 @@ class _CalDayCell extends StatelessWidget {
             '$day',
             style: TextStyle(
               fontSize: 15,
-              fontWeight: (isSelected || isToday)
+              fontWeight: (isSelected || isToday || isFuture)
                   ? FontWeight.w700
                   : FontWeight.w500,
               color: numColor,
