@@ -111,8 +111,13 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
     }
   }
 
+  // analytics only exist once the event is published (approved); an under-review
+  // or retired event has no interactions, so the panel would always be empty
+  bool get _showOwnerAnalytics =>
+      widget.showStatus && !AuthStore.isAdmin && _event.isApproved;
+
   void _prepareOwnerAnalytics() {
-    if (!widget.showStatus || AuthStore.isAdmin) {
+    if (!_showOwnerAnalytics) {
       _ownerAnalyticsFuture = null;
       _ownerAnalyticsInitialData = null;
       _ownerAnalyticsWasCached = false;
@@ -181,7 +186,7 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
               _factsCard(),
               if (_event.description.isNotEmpty)
                 _section('Description', _event.description),
-              if (widget.showStatus && !AuthStore.isAdmin)
+              if (_showOwnerAnalytics)
                 Padding(
                   padding: const EdgeInsets.only(top: AppSpacing.lg),
                   child: _ownerAnalyticsSection(),
