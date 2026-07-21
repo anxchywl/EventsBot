@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:app_ui/app_ui.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'core/api_client.dart';
@@ -265,6 +266,14 @@ class _StandaloneSessionGateState extends State<_StandaloneSessionGate> {
             onDevelopmentRoleSwitch: widget.onDevelopmentRoleSwitch,
           );
         }
+        // Dev convenience: open the app shell without a backend session so the
+        // UI can be built and iterated on while auth is unavailable. Debug-only
+        // — release / Jas Wallet builds still require a real session below.
+        if (kDebugMode) {
+          return AppShell(
+            onDevelopmentRoleSwitch: widget.onDevelopmentRoleSwitch,
+          );
+        }
         return _SessionRequiredScreen(
           canUseDevelopmentAccess: widget.onStandaloneSignIn != null,
           isLoading: _signingIn,
@@ -370,12 +379,6 @@ class _SessionRequiredScreen extends StatelessWidget {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const AppIcon(
-                    AppIcons.event,
-                    size: 48,
-                    color: AppColors.primary,
-                  ),
-                  const SizedBox(height: AppSpacing.lg),
                   Text(
                     'Session required',
                     textAlign: TextAlign.center,

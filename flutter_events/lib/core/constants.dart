@@ -1,3 +1,5 @@
+import 'dart:io' show Platform;
+
 import 'package:flutter/foundation.dart';
 
 /// Base URL for the FastAPI backend. This is the single source of truth —
@@ -25,8 +27,12 @@ String _resolveBaseUrl() {
       '--dart-define=API_BASE_URL=https://your-production-host',
     );
   }
-  // Development fallback (debug / simulator): point at the deployed server so
-  // the app works without a local backend running. Override for local work
-  // with --dart-define=API_BASE_URL=http://127.0.0.1:8000
-  return 'https://events.anxchywl.dev';
+  // Development fallback (debug): point at the LOCAL backend running in dev mode
+  // (LOG_LEVEL=DEBUG + FLUTTER_NATIVE_AUTH_ENABLED=true), which the standalone
+  // dev sign-in needs. Port 8001 because 8000 is taken locally by another app.
+  // Android emulators reach the host via 10.0.2.2; iOS sim / macOS use localhost.
+  // Override any time with --dart-define=API_BASE_URL=https://events.anxchywl.dev
+  const localPort = 8001;
+  if (!kIsWeb && Platform.isAndroid) return 'http://10.0.2.2:$localPort';
+  return 'http://127.0.0.1:$localPort';
 }

@@ -935,7 +935,7 @@ html.auth-focusing .app-nav {
   padding: 18px 20px;
   border: 1px solid transparent;
   border-radius: var(--radius);
-  background: #ffffff;
+  background: var(--panel);
   box-shadow: var(--shadow);
   font: inherit;
   transition:
