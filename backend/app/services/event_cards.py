@@ -125,15 +125,10 @@ def build_event_share_url(event: Event, *, bot_username: str | None) -> str | No
     return build_telegram_text_share_link(text=event.title, url=deep_link)
 
 
-def render_dashboard_event_line(
-    event: Event,
-    *,
-    bot_username: str | None,
-    include_date: bool,
-    as_table_row: bool = False,
-) -> str:
+# resolve the best available deep link for an event
+def build_event_link(event: Event, *, bot_username: str | None) -> str | None:
     settings = get_settings()
-    event_link = (
+    return (
         build_telegram_miniapp_direct_link(
             bot_username=bot_username,
             miniapp_short_name=settings.telegram_miniapp_short_name,
@@ -148,12 +143,24 @@ def render_dashboard_event_line(
             public_token=event.public_token,
         )
     )
+
+
+# render the event title as a link (or plain escaped text when no link is available)
+def render_event_title_link(event: Event, *, bot_username: str | None) -> str:
     title = html.escape(event.title)
-    title_html = (
-        f'<a href="{html.escape(event_link, quote=True)}">{title}</a>'
-        if event_link
-        else title
-    )
+    event_link = build_event_link(event, bot_username=bot_username)
+    if not event_link:
+        return title
+    return f'<a href="{html.escape(event_link, quote=True)}">{title}</a>'
+
+
+def render_dashboard_event_line(
+    event: Event,
+    *,
+    bot_username: str | None,
+    include_date: bool,
+) -> str:
+    title_html = render_event_title_link(event, bot_username=bot_username)
     time_text = event.event_time.strftime("%H:%M")
 
     if include_date:
@@ -164,6 +171,30 @@ def render_dashboard_event_line(
 
     # Return the date/time on one line and the title link on the next line for perfect mobile wrapping
     return f"{header}\n{title_html}"
+
+
+# render a single event as a compact rich-message table row: "when" | "title"
+def render_dashboard_event_row(
+    event: Event,
+    *,
+    bot_username: str | None,
+    date_style: str | None = None,
+) -> str:
+    title_html = render_event_title_link(event, bot_username=bot_username)
+    time_text = event.event_time.strftime("%H:%M")
+
+    # date_style controls the leading "when" cell: None -> time only,
+    # "weekday" -> "Wed / time", "date" -> "Aug 05 / time"
+    if date_style == "weekday":
+        label = event.event_date.strftime("%a")
+        when = f"<b>{label}</b><br>{time_text}"
+    elif date_style == "date":
+        label = event.event_date.strftime("%b %d")
+        when = f"<b>{label}</b><br>{time_text}"
+    else:
+        when = f"<b>{time_text}</b>"
+
+    return f"<tr><td>{when}</td><td>{title_html}</td></tr>"
 
 
 # render owned events with management links

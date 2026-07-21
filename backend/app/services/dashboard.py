@@ -14,7 +14,7 @@ from typing import Any, Dict, Optional, Union
 
 from app.models.chat import Chat, ChatCategorySetting, DashboardMessage
 from app.models.event import Event, EventCategory
-from app.services.event_cards import render_dashboard_event_line
+from app.services.event_cards import render_dashboard_event_row
 from app.services.events import ensure_event_public_token
 from app.services.telegram_delivery import call_with_telegram_backoff
 
@@ -43,6 +43,16 @@ from zoneinfo import ZoneInfo
 from app.config import get_settings
 
 
+IMMEDIATE_GROUPS = ("Today", "Tomorrow", "This Week")
+
+# date-cell style per group: relative buckets need less, calendar months need the day
+GROUP_DATE_STYLE = {
+    "Today": None,
+    "Tomorrow": None,
+    "This Week": "weekday",
+}
+
+
 # builds the dashboard message text for a chat
 def render_dashboard(
     chat: Chat,
@@ -50,58 +60,65 @@ def render_dashboard(
     upcoming_events: list[Event],
     bot_username: str | None = None,
 ) -> str:
-    lines = []
+    header = "<b>Upcoming events</b>"
 
     if not upcoming_events:
-        lines.append("No approved upcoming events.\n")
-    else:
-        # group events by relative date
-        settings = get_settings()
-        tz = ZoneInfo(settings.app_timezone)
-        today = datetime.now(tz).date()
+        return (
+            f"{header}<blockquote>Nothing scheduled yet — check back soon.</blockquote>"
+        )
 
-        grouped_events: dict[str, list[str]] = {
-            "Today": [],
-            "Tomorrow": [],
-            "This Week": [],
-        }
+    # group events by relative date, preserving the caller's chronological order
+    settings = get_settings()
+    tz = ZoneInfo(settings.app_timezone)
+    today = datetime.now(tz).date()
 
-        for event in upcoming_events:
-            days_diff = (event.event_date - today).days
-            event_line = render_dashboard_event_line(
+    grouped: dict[str, list[Event]] = {name: [] for name in IMMEDIATE_GROUPS}
+
+    for event in upcoming_events:
+        days_diff = (event.event_date - today).days
+        if days_diff == 0:
+            grouped["Today"].append(event)
+        elif days_diff == 1:
+            grouped["Tomorrow"].append(event)
+        elif 1 < days_diff <= 7:
+            grouped["This Week"].append(event)
+        else:
+            if event.event_date.year == today.year:
+                group_name = event.event_date.strftime("%B")
+            else:
+                group_name = event.event_date.strftime("%B %Y")
+            grouped.setdefault(group_name, []).append(event)
+
+    sections: list[str] = [header]
+    opened_a_group = False
+
+    for group_name, events in grouped.items():
+        if not events:
+            continue
+
+        is_immediate = group_name in IMMEDIATE_GROUPS
+        date_style = GROUP_DATE_STYLE.get(group_name, "date")
+
+        rows = "".join(
+            render_dashboard_event_row(
                 event,
                 bot_username=bot_username,
-                include_date=days_diff > 1,
-                as_table_row=True,
+                date_style=date_style,
             )
+            for event in events
+        )
+        table = f"<table>{rows}</table>"
 
-            # place each event into its date group
-            if days_diff == 0:
-                grouped_events["Today"].append(event_line)
-            elif days_diff == 1:
-                grouped_events["Tomorrow"].append(event_line)
-            elif 1 < days_diff <= 7:
-                grouped_events["This Week"].append(event_line)
-            else:
-                if event.event_date.year == today.year:
-                    group_name = event.event_date.strftime("%B")
-                else:
-                    group_name = event.event_date.strftime("%B %Y")
+        # keep relative buckets open, and always open the first visible group so
+        # the digest never renders as a wall of collapsed headers; later months
+        # collapse to stay compact
+        is_open = is_immediate or not opened_a_group
+        opened_a_group = True
+        details_tag = "<details open>" if is_open else "<details>"
+        summary = f"<summary><b>{group_name}</b>  ·  {len(events)}</summary>"
+        sections.append(f"{details_tag}{summary}{table}</details>")
 
-                if group_name not in grouped_events:
-                    grouped_events[group_name] = []
-                grouped_events[group_name].append(event_line)
-
-        for group_name, events in grouped_events.items():
-            if events:
-                is_immediate = group_name in {"Today", "Tomorrow", "This Week"}
-                details_tag = "<details open>" if is_immediate else "<details>"
-
-                lines.append(f"{details_tag}<summary><b>{group_name}</b></summary>")
-                lines.append(("<br><br>\n").join(events))
-                lines.append("</details>")
-
-    return "\n".join(lines)
+    return "".join(sections)
 
 
 # loads categories enabled for a chat

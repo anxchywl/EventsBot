@@ -8,6 +8,7 @@ from app.services.event_cards import (
     build_event_page_keyboard,
     format_event_card_text,
     render_dashboard_event_line,
+    render_dashboard_event_row,
 )
 from app.services.publisher import get_event_detail_keyboard
 from app.handlers.admin_panel import _render_admin_moderation_event_text
@@ -72,6 +73,34 @@ class EventCardsTest(unittest.TestCase):
         )
 
         self.assertIn("<b>Dec 31 18:30</b>", line)
+
+    def test_dashboard_row_renders_compact_table_cells(self):
+        event = SimpleNamespace(
+            title="Hackathon",
+            event_date=date(2026, 5, 25),
+            event_time=time(15, 30),
+            location="Main Hall",
+            public_token="123e4567-e89b-12d3-a456-426614174000",
+        )
+
+        # time-only cell for same-week/immediate groups
+        row = render_dashboard_event_row(event, bot_username="events_bot")
+        self.assertTrue(row.startswith("<tr>") and row.endswith("</tr>"))
+        self.assertIn("<td><b>15:30</b></td>", row)
+        self.assertIn("Hackathon", row)
+        self.assertIn("startapp=event_", row)
+
+        # dated cell for calendar-month groups keeps the day and time
+        dated = render_dashboard_event_row(
+            event, bot_username="events_bot", date_style="date"
+        )
+        self.assertIn("<b>May 25</b><br>15:30", dated)
+
+        # weekday cell for the "This Week" bucket
+        weekday = render_dashboard_event_row(
+            event, bot_username="events_bot", date_style="weekday"
+        )
+        self.assertIn("<b>Mon</b><br>15:30", weekday)
 
     def test_event_card_caption_safe_text_fits_telegram_photo_limit(self):
         event = SimpleNamespace(
