@@ -2,6 +2,7 @@ import 'package:app_ui/app_ui.dart';
 import 'package:flutter/material.dart';
 
 import '../../models/event_model.dart';
+import '../shared/event_cover_image.dart';
 
 class EventCard extends StatelessWidget {
   const EventCard({
@@ -89,13 +90,10 @@ class EventCard extends StatelessWidget {
                       child: SizedBox(
                         width: showCategory ? 72 : 76,
                         height: showCategory ? 72 : 76,
-                        child: event.coverUrl != null
-                            ? Image.network(
-                                event.coverUrl!,
-                                fit: BoxFit.cover,
-                                errorBuilder: (_, e, s) => const _MutedThumb(),
-                              )
-                            : const _MutedThumb(),
+                        // Disk-cached and versioned by ?v=<poster_file_id>: an
+                        // unchanged cover loads from disk on relaunch, a replaced
+                        // one re-downloads once, a removed one shows the fallback.
+                        child: EventCoverImage(url: event.coverUrl),
                       ),
                     ),
                     if (onToggleFavorite != null)
@@ -272,17 +270,6 @@ class _TimeUntilLabel extends StatelessWidget {
         color: AppColors.textSecondary,
         fontWeight: FontWeight.w500,
       ),
-    );
-  }
-}
-
-class _MutedThumb extends StatelessWidget {
-  const _MutedThumb();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: const BoxDecoration(color: AppColors.fieldBackground),
     );
   }
 }

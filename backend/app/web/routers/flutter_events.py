@@ -77,6 +77,7 @@ from app.web.schemas import (
     validate_event_time_range,
 )
 from app.web.realtime import publish_miniapp_event, subscribe_miniapp_events
+from app.web.serializers import event_cover_url
 from app.web.telegram import get_web_bot
 
 logger = logging.getLogger(__name__)
@@ -161,12 +162,13 @@ async def _publish_event_deleted(session: AsyncSession, event: Event) -> None:
     )
 
 
+# Flutter and the Mini App share the one canonical cover-versioning helper so
+# both emit identical `?v=<poster_file_id>` URLs. The version is what makes the
+# media endpoint's `immutable` cache headers safe: replacing a cover changes the
+# file id (and therefore the URL), so a client's cached image is invalidated the
+# instant the cover changes; removing a cover yields null.
 def _cover_url(event: Event) -> str | None:
-    if not event.poster_file_id:
-        return None
-    if event.poster_file_id.startswith("https://"):
-        return event.poster_file_id
-    return f"/api/events/{event.public_token}/cover"
+    return event_cover_url(event)
 
 
 # build the shared flutter event payload from a loaded event

@@ -12,6 +12,7 @@ import '../../core/exceptions.dart';
 import '../../core/localization.dart';
 import '../../models/event_model.dart';
 import '../shared/app_feedback.dart';
+import '../shared/event_cover_image.dart';
 import '../submit/submit_screen.dart';
 
 class EventDetailScreen extends StatefulWidget {
@@ -170,12 +171,10 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
                   borderRadius: AppSpacing.borderRadiusDf,
                   child: AspectRatio(
                     aspectRatio: 16 / 10,
-                    child: Image.network(
-                      _event.coverUrl!,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, _, _) =>
-                          const ColoredBox(color: AppColors.fieldBackground),
-                    ),
+                    // Disk-cached and versioned by ?v=<poster_file_id>: served
+                    // from disk on relaunch; a live replacement swaps _event for
+                    // a copy with a new URL and re-downloads once.
+                    child: EventCoverImage(url: _event.coverUrl),
                   ),
                 ),
                 const SizedBox(height: AppSpacing.lg),

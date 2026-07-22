@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../icons/app_icon.dart';
-import '../icons/app_icons.dart';
 import '../tokens/app_colors.dart';
 import 'app_calendar_event.dart';
 
@@ -248,29 +246,6 @@ class _AppCalendarState extends State<AppCalendar> {
     return list;
   }
 
-  void _showDayPreview(DateTime date, List<AppCalendarEvent> events) {
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      useSafeArea: false,
-      builder: (context) {
-        return _CalDayPreviewSheet(
-          dateLabel: MaterialLocalizations.of(context).formatMediumDate(date),
-          events: events,
-          accentColor: widget.accentColor ?? AppColors.primary,
-          emptyStateTitle: widget.emptyStateTitle,
-          emptyStateSubtitle: widget.emptyStateSubtitle,
-          eventBuilder: widget.eventBuilder,
-          onEventTap: widget.onEventTap,
-          onCreateEvent: widget.onCreateEvent != null
-              ? () => widget.onCreateEvent!(date)
-              : null,
-        );
-      },
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final isLight = Theme.of(context).brightness == Brightness.light;
@@ -514,7 +489,6 @@ class _CalWeekdayRow extends StatelessWidget {
 
 class _CalMonthGrid extends StatelessWidget {
   const _CalMonthGrid({
-    super.key,
     required this.month,
     required this.selected,
     required this.today,
@@ -685,237 +659,10 @@ class _CalDayCell extends StatelessWidget {
   }
 }
 
-// ─── Dot ──────────────────────────────────────────────────────────────────────
-
-class _CalDayPreviewSheet extends StatelessWidget {
-  const _CalDayPreviewSheet({
-    required this.dateLabel,
-    required this.events,
-    required this.accentColor,
-    this.emptyStateTitle,
-    this.emptyStateSubtitle,
-    this.eventBuilder,
-    this.onEventTap,
-    this.onCreateEvent,
-  });
-
-  final String dateLabel;
-  final List<AppCalendarEvent> events;
-  final Color accentColor;
-  final String? emptyStateTitle;
-  final String? emptyStateSubtitle;
-  final Widget Function(BuildContext, AppCalendarEvent)? eventBuilder;
-  final ValueChanged<AppCalendarEvent>? onEventTap;
-  final VoidCallback? onCreateEvent;
-
-  @override
-  Widget build(BuildContext context) {
-    final isLight = Theme.of(context).brightness == Brightness.light;
-    final surface = isLight ? Colors.white : const Color(0xFF1C1C1E);
-    final textPrimary = isLight ? AppColors.textPrimary : AppColors.white;
-
-    return Container(
-      constraints: BoxConstraints(
-        maxHeight: MediaQuery.of(context).size.height * 0.82,
-      ),
-      decoration: BoxDecoration(
-        color: surface,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const SizedBox(height: 8),
-          Container(
-            width: 36,
-            height: 4,
-            decoration: BoxDecoration(
-              color: AppColors.grey.withValues(alpha: 0.35),
-              borderRadius: BorderRadius.circular(999),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 14, 20, 8),
-            child: Text(
-              dateLabel,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.w800,
-                color: textPrimary,
-              ),
-            ),
-          ),
-          if (events.isEmpty)
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 20),
-              alignment: Alignment.center,
-              child: Text(
-                emptyStateTitle ?? 'Available',
-                style: const TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.grey,
-                ),
-              ),
-            )
-          else
-            Flexible(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 18),
-                child: Column(
-                  children: [
-                    for (final event in events)
-                      eventBuilder != null
-                          ? eventBuilder!(context, event)
-                          : _CalPopupEventItem(
-                              event: event,
-                              accentColor: accentColor,
-                              textPrimary: textPrimary,
-                              onTap: onEventTap == null
-                                  ? null
-                                  : () {
-                                      Navigator.of(context).pop();
-                                      onEventTap!(event);
-                                    },
-                            ),
-                  ],
-                ),
-              ),
-            ),
-          SizedBox(height: MediaQuery.of(context).padding.bottom + 12),
-        ],
-      ),
-    );
-  }
-}
-
-class _CalPopupEventItem extends StatelessWidget {
-  const _CalPopupEventItem({
-    required this.event,
-    required this.accentColor,
-    required this.textPrimary,
-    this.onTap,
-  });
-
-  final AppCalendarEvent event;
-  final Color accentColor;
-  final Color textPrimary;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final isPending = event.color == AppColors.grey;
-    final accent = isPending ? AppColors.grey : AppColors.success;
-
-    final title = event.subtitle ?? '';
-    final location = event.title;
-
-    final startStr = event.time != null
-        ? '${event.time!.hour.toString().padLeft(2, '0')}:${event.time!.minute.toString().padLeft(2, '0')}'
-        : '--:--';
-    final endStr = event.endTime != null
-        ? '${event.endTime!.hour.toString().padLeft(2, '0')}:${event.endTime!.minute.toString().padLeft(2, '0')}'
-        : null;
-    final timeStr = endStr != null ? '$startStr\n$endStr' : startStr;
-
-    final isLight = Theme.of(context).brightness == Brightness.light;
-
-    return InkWell(
-      borderRadius: BorderRadius.circular(16),
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.only(bottom: 12),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            SizedBox(
-              width: 52,
-              child: Text(
-                timeStr,
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: Color(0xFF8E8EA3),
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-            Column(
-              children: [
-                Container(
-                  width: 10,
-                  height: 10,
-                  margin: const EdgeInsets.only(top: 5),
-                  decoration: BoxDecoration(
-                    color: accent,
-                    shape: BoxShape.circle,
-                  ),
-                ),
-                Container(
-                  width: 2,
-                  height: 64,
-                  margin: const EdgeInsets.symmetric(vertical: 2),
-                  color: isLight
-                      ? const Color(0xFFF2F2F7)
-                      : const Color(0xFF2C2C2E),
-                ),
-              ],
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: isPending
-                      ? (isLight
-                            ? const Color(0xFFF2F2F7)
-                            : const Color(0xFF2C2C2E))
-                      : accent.withValues(alpha: 0.10),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(
-                    color: accent.withValues(alpha: isPending ? 0.20 : 0.28),
-                  ),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
-                        color: textPrimary,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      location,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: Color(0xFF8E8EA3),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 // ─── Event List Section ───────────────────────────────────────────────────────
 
 class _CalEventListSection extends StatelessWidget {
   const _CalEventListSection({
-    super.key,
     required this.dateLabel,
     required this.events,
     required this.selectedDate,

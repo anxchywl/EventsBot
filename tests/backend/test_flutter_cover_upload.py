@@ -503,8 +503,10 @@ class CoverUrlSerializationTest(unittest.TestCase):
     def test_cover_url_present_only_with_poster(self):
         with_poster = SimpleNamespace(public_token="tok-1", poster_file_id="fid")
         without = SimpleNamespace(public_token="tok-2", poster_file_id=None)
+        # Flutter shares the Mini App's canonical versioned URL so a replaced
+        # cover changes the URL and invalidates the client's immutable image cache
         self.assertEqual(
-            flutter_events._cover_url(with_poster), "/api/events/tok-1/cover"
+            flutter_events._cover_url(with_poster), "/api/events/tok-1/cover?v=fid"
         )
         self.assertIsNone(flutter_events._cover_url(without))
 

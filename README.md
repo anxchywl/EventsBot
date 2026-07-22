@@ -94,7 +94,7 @@ Event submission and moderation bot routers remain in the repository for histori
 ## Architecture
 
 | Layer | Technology |
-|---|---|
+| --- | --- |
 | Bot | aiogram 3 |
 | API and web | FastAPI and Uvicorn |
 | Database | PostgreSQL, async SQLAlchemy, Alembic |

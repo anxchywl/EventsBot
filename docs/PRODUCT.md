@@ -101,7 +101,7 @@ Rules:
 ## Required edge-case outcomes
 
 | Case | Required outcome |
-|---|---|
+| --- | --- |
 | Approval after event end | Reject the transition; the event stays unpublished. |
 | Edit approved event | Keep the published parent visible; moderate a separate child draft. |
 | Bot loses admin permissions | Record degraded permissions or deactivate the chat, retry safely, and expose the condition to admins. |
@@ -124,7 +124,7 @@ Rules:
 ## Primary API groups
 
 | Prefix | Purpose |
-|---|---|
+| --- | --- |
 | `/api/auth` | Telegram session exchange, university email auth, profile, logout, verification, and reset |
 | `/api/events` | approved discovery, details, interactions, reviews, sync version, and stream tickets/SSE |
 | `/api/favorites` | current user's favorites |

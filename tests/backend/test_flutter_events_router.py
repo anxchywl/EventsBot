@@ -161,9 +161,25 @@ class SerializeEventTest(unittest.TestCase):
         self.assertEqual(item.category, "Tech")
         self.assertIsNone(item.cover_url)
 
-    def test_cover_url_present_only_with_poster(self):
+    def test_cover_url_is_versioned_by_poster_file_id(self):
+        # Flutter reuses the same canonical helper as the Mini App, so the
+        # `?v=<poster_file_id>` version is present on both clients — a replaced
+        # cover changes the URL and busts the client's immutable image cache.
         item = fe._serialize_event(_event(poster_file_id="fid"))
-        self.assertEqual(item.cover_url, "/api/events/tok-42/cover")
+        self.assertEqual(item.cover_url, "/api/events/tok-42/cover?v=fid")
+
+    def test_cover_url_changes_when_poster_file_id_changes(self):
+        # identical poster version -> identical URL (cache reuse); a new poster
+        # version -> a new URL (forces a re-download of the replaced image)
+        old = fe._serialize_event(_event(poster_file_id="fid-old")).cover_url
+        same = fe._serialize_event(_event(poster_file_id="fid-old")).cover_url
+        new = fe._serialize_event(_event(poster_file_id="fid-new")).cover_url
+        self.assertEqual(old, same)
+        self.assertNotEqual(old, new)
+
+    def test_removed_cover_serializes_none(self):
+        item = fe._serialize_event(_event(poster_file_id=None))
+        self.assertIsNone(item.cover_url)
 
     def test_external_https_cover_url_is_returned_directly(self):
         item = fe._serialize_event(

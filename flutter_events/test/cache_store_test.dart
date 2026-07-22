@@ -236,6 +236,65 @@ void main() {
     });
   });
 
+  group('EventCache metadata persistence', () {
+    setUp(() {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      EventCache.instance.clearForLogout();
+    });
+
+    Map<String, dynamic> eventJson(String? coverUrl) => {
+      'id': 42,
+      'public_token': 'tok-42',
+      'title': 'Robotics Night',
+      'description': 'Come build robots',
+      'event_date': '2026-05-01',
+      'event_time': '18:00',
+      'event_end_time': '20:00',
+      'location': 'Block C',
+      'category': 'Tech',
+      'organizer_name': 'Robotics Club',
+      'status': 'approved',
+      'cover_url': coverUrl,
+      'it_equipment': null,
+      'materials': null,
+      'registration_url': null,
+      'moderation_note': null,
+      'submitted_at': '2026-01-01T00:00:00+00:00',
+    };
+
+    test(
+      'restores a persisted event with its versioned cover after a cold start',
+      () async {
+        // disk already holds a cached event (as CacheStore.write encodes it)
+        // whose cover carries the ?v=<poster_file_id> version
+        const cover = 'https://host/api/events/tok-42/cover?v=fid-1';
+        SharedPreferences.setMockInitialValues({
+          'cache_schema_version': 1,
+          'cache_events': jsonEncode({'42': eventJson(cover)}),
+        });
+        await CacheStore.init(); // triggers EventCache.restore()
+
+        final restored = EventCache.instance.peekEvent(42);
+        expect(restored, isNotNull);
+        expect(restored!.coverUrl, cover);
+      },
+    );
+
+    test('a cleared session drops the persisted event metadata', () async {
+      SharedPreferences.setMockInitialValues({
+        'cache_schema_version': 1,
+        'cache_events': jsonEncode({
+          '42': eventJson('https://host/api/events/tok-42/cover?v=fid-1'),
+        }),
+      });
+      await CacheStore.init();
+      expect(EventCache.instance.peekEvent(42), isNotNull);
+
+      await CacheStore.clearAll(); // logout / account switch
+      expect(EventCache.instance.peekEvent(42), isNull);
+    });
+  });
+
   group('AnalyticsCache offline snapshot + session isolation', () {
     setUp(() {
       TestWidgetsFlutterBinding.ensureInitialized();

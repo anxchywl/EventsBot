@@ -67,6 +67,30 @@ void main() {
       expect(roundTripped.coverUrl, event.coverUrl);
     });
 
+    test('versioned cover url preserves the ?v query and re-keys on change', () {
+      // the ?v=<poster_file_id> version is what busts a stale image on a cover
+      // replacement; it must survive resolution and the persistence round-trip
+      final v1 = EventModel.fromJson(
+        _eventJson(coverUrl: '/api/events/tok-42/cover?v=fid-old'),
+      );
+      expect(v1.coverUrl, contains('v=fid-old'));
+      final restored = EventModel.fromJson(v1.toJson());
+      expect(restored.coverUrl, v1.coverUrl);
+
+      // a replaced cover arrives with a new file id -> a different URL string,
+      // so Image.network treats it as a new image instead of reusing the cache
+      final v2 = EventModel.fromJson(
+        _eventJson(coverUrl: '/api/events/tok-42/cover?v=fid-new'),
+      );
+      expect(v2.coverUrl, isNot(v1.coverUrl));
+    });
+
+    test('removed cover leaves coverUrl null after a round-trip', () {
+      final removed = EventModel.fromJson(_eventJson());
+      expect(removed.coverUrl, isNull);
+      expect(EventModel.fromJson(removed.toJson()).coverUrl, isNull);
+    });
+
     test('status helpers reflect the raw status string', () {
       expect(
         EventModel.fromJson(_eventJson(status: 'approved')).isApproved,

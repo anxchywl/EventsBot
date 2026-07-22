@@ -17,6 +17,13 @@ class EventModel {
   final String category;
   final String organizerName;
   final String status;
+
+  /// Absolute cover URL carrying the backend `?v=<poster_file_id>` version. It is
+  /// persisted with the rest of the metadata and rendered through
+  /// `EventCoverImage`, which disk-caches the bytes keyed by this URL: an
+  /// unchanged cover loads from disk across a full restart (and offline), while a
+  /// replaced cover arrives under a new URL and is re-downloaded once. A removed
+  /// cover leaves this null and the muted fallback is shown.
   final String? coverUrl;
   final String? itEquipment;
   final String? materials;

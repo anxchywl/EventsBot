@@ -3,6 +3,7 @@
 Rules for AI models working in this repo.
 
 **Sources of truth:**
+
 - Product rules and features: `docs/PRODUCT.md`
 - Infrastructure and ops: `docs/INFRASTRUCTURE.md`
 - This file: agent coding rules (mandatory)
@@ -11,7 +12,7 @@ Rules for AI models working in this repo.
 
 ## Architecture
 
-```
+```text
 backend/app/
   handlers/        # bot commands and callbacks — thin, delegate to services
   models/          # SQLAlchemy models
