@@ -168,6 +168,40 @@ services:
       - events-data
       - wished-proxy
 
+  # Added 2026-09-12. Until then this project had no backup service of any kind
+  # and its Postgres was the only database on the shared host with nothing
+  # protecting it.
+  #
+  # Reuses the postgres:16-alpine image already pulled for the database, so this
+  # needs no build and no extra image on a host that is tight on disk.
+  backup:
+    image: postgres:16-alpine
+    container_name: events_bot_backup
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_DB: ${POSTGRES_DB:-events_bot}
+      POSTGRES_USER: ${POSTGRES_USER:-events_bot}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      BACKUP_DIR: /backups
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
+      BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-86400}
+    volumes:
+      # A host bind, not a named volume: `docker compose down -v` wipes named
+      # volumes, and the backups must outlive exactly that mistake.
+      - ${BACKUP_LOCAL_PATH:-/var/backups/events_bot}:/backups
+      - ../deploy/backup.sh:/usr/local/bin/backup.sh:ro
+    entrypoint: ["/usr/local/bin/backup.sh"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 256m
+    pids_limit: 256
+    networks:
+      - events-data
+
 volumes:
   postgres-data:
     name: events_bot_postgres_data
