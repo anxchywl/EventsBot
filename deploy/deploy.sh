@@ -66,7 +66,7 @@ log "Building application images..."
 compose build
 
 log "Running database migrations..."
-compose run --rm web alembic -c backend/alembic.ini upgrade head
+compose run --rm events-web alembic -c backend/alembic.ini upgrade head
 
 log "Starting services..."
 compose up -d --remove-orphans

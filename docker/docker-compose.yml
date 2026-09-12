@@ -47,7 +47,7 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  web:
+  events-web:
     build:
       context: ..
       dockerfile: docker/Dockerfile

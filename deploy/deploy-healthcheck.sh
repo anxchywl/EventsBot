@@ -48,7 +48,7 @@ wait_for_healthy() {
 }
 
 log "Verifying service health..."
-for service in postgres redis web bot; do
+for service in postgres redis events-web bot; do
     wait_for_healthy "${service}"
 done
 
@@ -59,7 +59,7 @@ log "Verifying Redis..."
 compose exec -T redis sh -c 'REDISCLI_AUTH="${REDIS_PASSWORD}" redis-cli ping' | grep -qx "PONG"
 
 log "Verifying FastAPI health and Mini App shell..."
-compose exec -T web python - <<'PY'
+compose exec -T events-web python - <<'PY'
 import json
 import urllib.request
 
@@ -73,10 +73,10 @@ if "<html" not in html.lower() and "<!doctype html" not in html.lower():
 PY
 
 log "Verifying Alembic state..."
-compose exec -T web alembic -c backend/alembic.ini current --check-heads >/dev/null
+compose exec -T events-web alembic -c backend/alembic.ini current --check-heads >/dev/null
 
 log "Checking startup logs..."
-if compose logs --since 2m web bot | grep -Eiq 'traceback|telegram polling conflict detected|application startup failed'; then
+if compose logs --since 2m events-web bot | grep -Eiq 'traceback|telegram polling conflict detected|application startup failed'; then
     err "startup logs contain critical errors"
 fi
 

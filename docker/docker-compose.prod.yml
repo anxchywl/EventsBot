@@ -108,7 +108,7 @@ services:
       - events-app
       - events-data
 
-  web:
+  events-web:
     build:
       context: ..
       dockerfile: docker/Dockerfile.production
